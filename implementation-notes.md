@@ -193,6 +193,128 @@ No value was invented. Nothing was given a placeholder.
 
 ---
 
+### D6. `burst_match.py` uses `torch.autograd.grad`, not `loss.backward()`
+
+The spec says "the L2 norm over all parameter gradients from one backward pass".
+It is one backward pass, but taken with `torch.autograd.grad(loss, params)`
+rather than `loss.backward()` followed by reading `p.grad`.
+
+The reason is that `backward()` **accumulates**. It adds into `p.grad` rather
+than replacing it, so measuring `coherent.txt` and then `noise.txt` in the same
+process would give the second file a gradient norm computed from the sum of both
+passages unless something remembered to zero the gradients in between. That is a
+silent wrong-number bug, and the number it produces is plausible — larger than
+the truth, but not obviously so.
+
+`autograd.grad` returns the gradients without writing to any stored state, which
+deletes the failure mode rather than guarding against it. `test_gradient_norm_
+does_not_accumulate_between_calls` asserts both that repeated calls agree and
+that `p.grad` stays `None`, and
+`test_determinism_survives_measuring_another_file_in_between` proves it end to
+end on the real model: measure A, measure B, measure A again, and A must be
+bit-identical to itself.
+
+### D7. Determinism is guaranteed within a machine, not across machines
+
+Requirement 1 is met as written — `model.eval()`, `torch.manual_seed`, and the
+same file measured twice gives bit-identical numbers, asserted on raw floats
+rather than printed strings in
+`test_same_file_measured_twice_is_bit_identical`.
+
+What that does **not** cover, and what the script prints in its header so you
+can see it:
+
+- **Thread count.** Torch's CPU reductions partition work by
+  `torch.get_num_threads()`, so a different thread count sums the same floats in
+  a different order and can change the low bits. The header prints the thread
+  count for this reason. I did not force it to 1: that would slow every run
+  down to buy a guarantee across machines that the differing CPU instruction
+  sets would break anyway.
+- **Torch version and hardware.** Also printed in the header.
+
+The practical rule: numbers from one session are comparable with each other.
+Do not compare a number in your notes from last month against one from today
+without checking the header matches. This is a limitation of the measurement,
+not of the passages, and it is why the comparison table exists — the
+*differences* between passages measured in the same session are the trustworthy
+output, not the absolute figures.
+
+### D8. ~~The batch size is copied from `base.yaml`, not read from it~~ — RESOLVED
+
+**Original deviation.** Requirement 4 needed the batch size to compute the
+scaled figure, and the script was forbidden to touch the config system, so
+`DEFAULT_BATCH_SIZE = 256` sat in `scripts/burst_match.py` as a constant copied
+out of `configs/base.yaml`. If `training.batch_size` ever changed, nothing would
+fail — the script would keep dividing by 256 and quietly print a wrong scaled
+figure in every report.
+
+**Resolved by lifting the constraint.** You removed "does not read the config
+system" for this one value, which is what made the fix possible: the script now
+*reads* `training.batch_size` and there is no constant to go stale. A test
+greps the script for a literal `256` and for `DEFAULT_BATCH_SIZE`, so the
+constant cannot quietly come back.
+
+Two routes, in order:
+
+1. **`burst.config.load_config`**, so the value arrives having passed the same
+   validation a real run's config passes — the type check, the
+   `batch_size × seq_len × total_steps == expected_token_budget` identity, all
+   of it. This is the path the shipped `configs/base.yaml` takes today, and a
+   test asserts that it does rather than merely that it could.
+2. **A direct PyYAML read of that one key**, if and only if the loader refuses.
+
+**Why route 2 exists at all.** The loader validates the whole file, so a config
+that is mid-decision or that has drifted from the loader's schema fails as a
+unit even though `training.batch_size` in it is perfectly readable. That is the
+loader doing its job. The alternative — relaxing its validation so this script
+could get one number out of it — would trade a real guarantee that 40 runs
+depend on for a convenience in a measurement tool. Not worth it. The fallback
+is narrow by construction: it navigates to exactly `BATCH_SIZE_KEY` and
+validates exactly that value, and it must not be allowed to grow into a second,
+weaker config loader.
+
+**The header always says which route ran**, so a number produced without the
+loader's validation is visible rather than inferred:
+
+```
+batch:   256 sequences  (...\configs\base.yaml, via burst.config loader)
+batch:   256 sequences  (...\configs\base.yaml, direct YAML read -- burst.config declined: token budget mismatch: ...)
+batch:   512 sequences  (--batch-size on the command line, overriding the config)
+```
+
+**No default, anywhere.** A missing key is an error naming the file, the dotted
+key, and `--batch-size`. `--batch-size` still wins over both routes, and is
+checked before the config is read so it works even when the config cannot be.
+
+**Resolution order.** The batch size resolves *before* GPT-2 is loaded, so a
+broken config costs an error message rather than a 500 MB download followed by
+an error message.
+
+**What this cost.** `scripts/burst_match.py` now imports `burst.config`. The
+dependency runs one way only — nothing in `burst/` imports the script — so
+`burst/config.py` still imports nothing heavier than PyYAML and still loads on
+a machine with no ML stack. The batch-size tests run in the torch-free
+environment for exactly that reason.
+
+### D9. A second virtual environment, `.venv-ml/`
+
+Requirement 5 asks for proof that the config tests still pass without torch. The
+only way to prove that is to keep an environment that genuinely does not have
+it, so `.venv/` is untouched (`pyyaml`, `pytest`, nothing else) and a second
+environment `.venv-ml/` holds torch and transformers.
+
+`.gitignore` needed a new line: the existing unanchored `.venv/` pattern does
+not match the name `.venv-ml`, so without it a 2 GB environment would have shown
+up as untracked in every `git status` — and, worse, in the `dirty_files` list
+that `run_provenance.yaml` records.
+
+```
+.venv/       pip install -e ".[dev]"            156 config tests, no torch
+.venv-ml/    pip install -e ".[dev,measure]"    everything
+```
+
+---
+
 ## Smaller decisions, logged as instructed
 
 ### S1. Extra arithmetic sanity checks
@@ -357,6 +479,87 @@ Not checked: whether the file is actually *tracked* by git. It turns out this is
 already covered — `git status --porcelain` includes untracked files, so an
 uncommitted `configs/burst_texts/coherent.txt` makes the tree dirty and triggers
 the existing loud warning.
+
+### S16. The loss is computed here, not delegated to `labels=`
+
+`transformers` will compute the loss for you if you pass `labels=input_ids` to
+the model. `burst_match.py` computes it itself from the logits instead:
+
+```python
+shift_logits = logits[0, :-1, :].float()
+shift_labels = input_ids[0, 1:]
+F.cross_entropy(shift_logits, shift_labels, reduction="none")
+```
+
+Two reasons. The model would only hand back the *mean*, and requirement 1 needs
+the per-token vector to report the standard deviation, the max and the five most
+surprising tokens. And it pins the definition of "per-token loss" inside this
+repo rather than inheriting whatever a given `transformers` version does about
+label shifting — that behaviour has changed across major versions before, and a
+silent change to the definition would move every number the script prints
+without anything recording why.
+
+The `.float()` is deliberate too: it makes the number independent of whatever
+dtype the checkpoint happened to load in.
+
+### S17. Population standard deviation, not sample
+
+`loss_stats` divides by `n`, not `n - 1`. These tokens are not a sample drawn
+from a larger passage — they are the whole passage — so the number describes it
+rather than estimating anything. With a single prediction it is `0.0` rather
+than undefined.
+
+The test pins the choice explicitly: for `[0, 1, 2, 3, 4]` it asserts the result
+is `sqrt(2)` (population) and asserts it is *not* `sqrt(2.5)` (sample), so
+flipping the convention breaks a test rather than silently shifting a printed
+column.
+
+### S18. N tokens give N−1 losses, and both numbers are printed
+
+The first token has nothing before it, so it is context and never a target. A
+219-token passage has 218 next-token predictions and the mean loss is over 218
+values, not 219. The report prints `tokens 219 (218 next-token predictions)`
+rather than picking one and leaving you to guess which.
+
+The `position` on each of the five most surprising tokens is the index of the
+*predicted* token, so it is never 0, and it lines up with what you would count
+in the token list rather than with the index into the loss vector.
+
+### S19. Passages under two tokens are rejected
+
+Not in the spec, same spirit as the context-limit check at the other end. One
+token yields zero predictions, so there is no mean to take; without the check
+that surfaces as an empty-tensor `nan` rather than as a message. Empty and
+whitespace-only files are rejected for the same reason.
+
+### S20. No `--model` flag
+
+The model name is a module constant, not an argument. The whole value of this
+script is that every candidate passage is measured against the same fixed
+yardstick; a `--model` flag would let two passages be compared under different
+rulers and there would be nothing in the output to reveal it. If your own model
+eventually needs measuring, that is a different script with a different
+provenance story.
+
+### S21. The tests are split into torch-free and torch-only halves
+
+`tests/test_burst_match.py` has 31 tests that need no ML stack — the
+context-limit error, the length-mismatch warning and its factor, the loss
+statistics, the batch scaling, the report formatting, and the batch-size
+resolution added for D8 (PyYAML and `burst.config`, both already base
+dependencies) — and 12 that need torch.
+The torch ones are guarded with a `skipif` mark, deliberately **not** with
+`pytest.importorskip` at module level: `importorskip` raises during collection
+and would skip the entire file, silently including the 19 pure tests that exist
+precisely so they can run without torch.
+
+The tests needing the real GPT-2 weights skip through the fixture instead, so
+the suite is green on a machine with no network and no model cache rather than
+red for a reason that has nothing to do with the code.
+
+The measurable logic was factored to make this split possible: the arithmetic
+and the formatting are plain functions over plain numbers, and torch appears
+only in `per_token_losses`, `gradient_norm`, `measure` and `load_model`.
 
 ---
 
@@ -692,14 +895,62 @@ actually set, so the claim is evidenced rather than assumed.
   are the current releases, newer than the 6.0.2 / 8.x you may have seen
   elsewhere. Exact pins rather than ranges: a range would let a future PyYAML
   change how a number parses without anything in this repo recording it.
-- No dependencies beyond `pyyaml`, `pytest`, and the standard library.
+- No dependencies beyond `pyyaml`, `pytest`, and the standard library — for
+  `burst/` and `configs/`. That has not changed and must not.
+- `torch==2.13.0`, `transformers==5.14.1` — pinned the same way, in the
+  **optional** `measure` group, for `scripts/burst_match.py` alone. Installed
+  into a separate `.venv-ml/` so that the config suite can be *shown* to pass
+  without them, not merely asserted to. See D9.
+  - On a CPU-only machine, install torch from PyTorch's own index first:
+    `pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu`
+    — about 250 MB against about 2.5 GB for the default CUDA build on Windows.
+    The `==2.13.0` pin is satisfied by the `2.13.0+cpu` wheel; PEP 440 ignores
+    the local version segment when the specifier does not name one.
+  - GPT-2's weights are a further ~500 MB, downloaded on first run to
+    `C:\Users\<you>\.cache\huggingface\hub` (the script prints the path).
 - Built and tested on Windows. Note that `--outdir /tmp/testrun` on Windows
   resolves to `C:\tmp\testrun`; on the cluster it is the real `/tmp/testrun`.
   Nothing in the loader cares.
 
 ## Test coverage
 
-156 tests (112 before the checkpoint split; +44). The five originally required
+199 tests: 156 for the config system, 43 for `burst_match`.
+
+In the base environment (`.venv/`, no torch) the run is **187 passed, 12
+skipped** — the 156 config tests are untouched and unaffected, the 31 torch-free
+`burst_match` tests pass, and only the 12 that genuinely need torch skip. That
+is the evidence for requirement 5.
+
+### `burst_match` specifically
+
+- **determinism** — `test_same_file_measured_twice_is_bit_identical` compares
+  raw floats, not printed strings, because printing rounds and rounding would
+  hide a difference in the low bits. `test_determinism_survives_measuring_
+  another_file_in_between` measures A, then B, then A again, which is the test
+  that would fail if gradients accumulated. `test_model_is_in_eval_mode` pins
+  the reason it works at all.
+- **the over-context error** — both against the pure check
+  (`test_over_context_raises_and_names_the_actual_count`, plus boundary tests at
+  exactly 1024 and at 1025) and against the real tokenizer on a real ~1500-token
+  file, asserting the message names the true count.
+- **the unequal-length warning** — that it fires, that it does not fire when the
+  counts match, that it states the correct weighting factor, and that it picks
+  the extremes when three passages are compared.
+- **loss statistics on hand-checkable input** — `[0,1,2,3,4]` → mean 2,
+  std `sqrt(2)`, max 4; and, on the torch side, uniform logits over 8 classes →
+  exactly `ln(8)` for every token, whatever the tokens are.
+- **the gradient norm** — against a hand-computed one-parameter case
+  (`L = 4w²`, `dL/dw = 8w = 24` at `w = 3`).
+- **the batch size coming from the config** (D8) — that editing a throwaway
+  config changes the number the script uses, that the shipped `base.yaml` goes
+  through the validated loader path rather than the fallback, that a config the
+  loader rejects still yields the key *and* says so in the source string, that a
+  missing key raises rather than defaulting, that `--batch-size` wins, and that
+  a literal `256` has not crept back into the script.
+
+### Config system
+
+The five originally required
 cases are
 `test_typo_in_override_key_raises`,
 `test_null_injection_fields_raise_for_injecting_arm` /

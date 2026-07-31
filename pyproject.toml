@@ -21,6 +21,24 @@ dev = [
     "pytest==9.1.1",
 ]
 
+# scripts/burst_match.py only. Kept OUT of the base install on purpose: the
+# config system must keep loading on a laptop with no ML stack, and torch is
+# a multi-gigabyte dependency that nothing else in this repo needs. Installing
+# the base package and running the config tests must never pull these in.
+#
+#   pip install -e ".[dev]"              # config work -- no torch
+#   pip install -e ".[dev,measure]"      # burst_match work
+#
+# On a CPU-only machine, install torch from PyTorch's CPU index first to avoid
+# downloading the CUDA build (about 2.5 GB against about 250 MB):
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+# The pin below is satisfied by the CPU wheel: PEP 440 treats `==2.13.0` as
+# matching the local version `2.13.0+cpu`.
+measure = [
+    "torch==2.13.0",
+    "transformers==5.14.1",
+]
+
 [tool.setuptools]
 packages = ["burst"]
 

@@ -31,6 +31,12 @@ __pycache__/
 /venv/
 /env/
 
+# The separate environment holding torch and transformers for
+# scripts/burst_match.py. It is kept apart from .venv on purpose, so that the
+# config test suite can be proved to still pass with no ML stack installed.
+# `.venv/` above does not match this name.
+/.venv-ml/
+
 # Run outputs. The provenance record that matters (resolved_config.yaml and
 # run_provenance.yaml) is written into --outdir, which is chosen per machine
 # and deliberately not tracked here.

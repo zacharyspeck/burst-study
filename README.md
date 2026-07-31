@@ -46,18 +46,26 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `112 passed`, then the resolved config printed, exit status 0, and
+Expected: `187 passed, 12 skipped`, then the resolved config printed, exit
+status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
+
+The 12 skips are the `scripts/burst_match.py` tests that need torch, which the
+install above deliberately does not include. Skipped, not failed, is the
+correct result here — see
+[Matching candidate burst passages](#matching-candidate-burst-passages).
 
 If you see a **"WARNING: the working tree is DIRTY"** banner, stop and find out
 why before running anything real. On a fresh clone the tree should be clean, and
 a dirty tree means the recorded commit hash does not describe the code that ran.
 
 Requires Python 3.11+ (`python3 --version`). The only runtime dependency is
-PyYAML; `pytest` is for the tests. There is deliberately **no torch dependency**
-— loading a config must work on a login node with no GPU and no ML stack.
+PyYAML; `pytest` is for the tests. **`burst/` deliberately has no torch
+dependency** — loading a config must work on a login node with no GPU and no ML
+stack. `scripts/burst_match.py` does need torch, which is exactly why it is in
+an optional group that the install above does not pull in.
 
 `pip install -e .` also works but is not needed; `pyproject.toml` puts the repo
 root on `sys.path` for pytest, and `python -m burst.config` picks it up from the
@@ -168,7 +176,9 @@ configs/base.yaml                    every value shared by all 40 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
 scripts/generate_overrides.py        regenerates all 40 override files
-tests/test_config.py                 112 tests
+scripts/burst_match.py               measures candidate burst passages
+tests/test_config.py                 156 tests
+tests/test_burst_match.py            43 tests (12 need torch and skip without it)
 implementation-notes.md              decisions, assumptions, open questions
 ```
 
@@ -190,6 +200,68 @@ python scripts/generate_overrides.py --check    # verify, change nothing
 `--check` exits non-zero if any override is missing or hand-edited. Worth
 running before a launch batch. The seed count and arm names come from
 `configs/base.yaml`, so the study's shape is written down in one place only.
+
+### Matching candidate burst passages
+
+The coherent-vs-noise comparison only means anything if both passages deliver
+the same size shove to the weights. `scripts/burst_match.py` measures that shove
+on public GPT-2 (a stand-in — the study's own model does not exist yet):
+
+```bash
+python scripts/burst_match.py coherent.txt
+python scripts/burst_match.py coherent.txt noise.txt ordinary.txt
+```
+
+Per passage it prints the token count, the mean, standard deviation and max of
+the per-token loss, the five most surprising tokens, and the global gradient
+norm from one backward pass — both standalone and scaled by `1/batch_size`,
+which is what one sequence in a batch actually contributes. With two or more
+files it adds a comparison table of pairwise differences.
+
+Nothing is trained, nothing is saved. It **warns loudly if the passages differ
+in token count**, because loss is a mean over tokens and gradient norms from
+different denominators are not comparable, and it **errors rather than
+truncating** if a passage exceeds GPT-2's 1024-token context.
+
+### The batch size, and where the header says it came from
+
+The scaled figure needs `training.batch_size`. The script **reads it from
+`configs/base.yaml`** — there is no copy of it in the script, and no default
+anywhere. Every run states the value and its provenance on the first line:
+
+```
+batch:   256 sequences  (C:\...\configs\base.yaml, via burst.config loader)
+batch:   256 sequences  (C:\...\configs\base.yaml, direct YAML read -- burst.config declined: ...)
+batch:   512 sequences  (--batch-size on the command line, overriding the config)
+```
+
+The first line is the normal case: the value came through `burst.config` and
+passed the same validation a real run's config passes. The second appears when
+the loader refuses the file as a whole — a config mid-decision, or one that has
+drifted from the loader's schema — in which case the script reads that single
+key with PyYAML and names the loader's objection. The loader's validation is
+never relaxed to avoid this.
+
+If the key is absent, the script stops and says so. It will not guess: a wrong
+batch size silently rescales every headline number in the report.
+
+Point it at a different config with `--base-config PATH`, or bypass the config
+entirely with `--batch-size N`.
+
+### Installing
+
+This script is the one thing in the repo that needs torch, which is why torch is
+an optional dependency:
+
+```bash
+pip install -e ".[dev]"            # config work — no ML stack, 156 tests
+pip install -e ".[dev,measure]"    # adds torch + transformers
+```
+
+The dependency runs one way only: `burst_match.py` imports `burst.config`, and
+nothing in `burst/` imports it back. Loading a config still works on a laptop
+with no ML stack, because `burst/config.py` still imports nothing heavier than
+PyYAML.
 
 ---
 
