@@ -1,0 +1,1020 @@
+"""Configuration loader for the burst study.
+
+This module is the only thing in the repo. Every later component -- training
+loop, injection hook, analysis -- is meant to get its settings from here and
+nowhere else, so that "what produced this checkpoint" always has one answer.
+
+Usage from the command line::
+
+    python -m burst.config \\
+        --config configs/base.yaml \\
+        --run configs/runs/seed03_coherent.yaml \\
+        --outdir /tmp/testrun
+
+Usage from Python::
+
+    from burst.config import load_config
+    cfg = load_config("configs/base.yaml", "configs/runs/seed03_coherent.yaml",
+                      outdir="/scratch/runs/seed03_coherent")
+    print(cfg.run_name, cfg.training.total_steps)
+
+Two design notes that are not obvious from the code:
+
+1. Errors are raised, never `assert`ed. `python -O` deletes assert statements.
+   A validation layer that silently disappears under an optimisation flag is
+   worse than no validation layer, so every check below raises ConfigError.
+
+2. There is no `import torch` here and there never should be. Loading a config
+   must work on a laptop with no GPU and no ML stack installed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import dataclasses
+import platform
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+__all__ = [
+    "ARMS",
+    "INJECTING_ARMS",
+    "Config",
+    "ConfigError",
+    "load_config",
+    "run_name_for",
+]
+
+
+# ---------------------------------------------------------------------------
+# Constants that describe the study
+# ---------------------------------------------------------------------------
+
+#: The four arms, exactly as they must appear in a run override file.
+ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary", "twin")
+
+#: The arms that actually receive a burst. `twin` is the matched control: it
+#: gets no injection, so it does not need injection_step or
+#: burst_length_tokens filled in before it can be launched.
+INJECTING_ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary")
+
+#: A run override file may set these top-level keys and nothing else. This is
+#: stricter than "unknown keys are rejected" on purpose -- the study's claim is
+#: that the 40 runs differ only in seed and arm, and an override that quietly
+#: changed the learning rate for one run would invalidate that claim without
+#: leaving a trace. If a future experiment genuinely needs a third per-run
+#: knob, add it here deliberately.
+OVERRIDE_ALLOWED_KEYS: frozenset[str] = frozenset({"seed", "arm"})
+
+#: Canonical run name: seed{NN}_{arm}, seed zero-padded to two digits.
+RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z]+)$")
+
+#: Filenames written into the output directory.
+RESOLVED_CONFIG_FILENAME = "resolved_config.yaml"
+PROVENANCE_FILENAME = "run_provenance.yaml"
+
+
+# Keys that look like an output location. The output directory is a
+# command-line argument, not a config value, so that one config file works
+# unchanged on a laptop and on a cluster. Matching is on the exact lowercased
+# key name, plus the suffixes below -- deliberately not a substring search, so
+# that legitimate keys such as `checkpoint_interval` are not caught.
+OUTPUT_PATH_KEY_DENYLIST: frozenset[str] = frozenset({
+    "artifact_dir", "artifacts_dir", "ckpt_dir", "checkpoint_dir",
+    "data_dir", "dir", "log_dir", "logdir", "out", "outdir", "out_dir",
+    "outpath", "out_path", "output", "outputdir", "output_dir",
+    "output_path", "output_root", "path", "result_dir", "results_dir",
+    "root_dir", "run_dir", "rundir", "save_dir", "savedir", "save_path",
+    "scratch_dir", "work_dir", "workdir",
+})
+OUTPUT_PATH_KEY_SUFFIXES: tuple[str, ...] = (
+    "_dir", "_path", "_directory", "_folder",
+)
+
+
+class ConfigError(Exception):
+    """Every failure in this module. One exception type, so calling code and
+    tests only ever have to catch one thing."""
+
+
+# ---------------------------------------------------------------------------
+# YAML reading
+# ---------------------------------------------------------------------------
+
+
+class _StrictSafeLoader(yaml.SafeLoader):
+    """SafeLoader that refuses duplicate keys in a mapping.
+
+    PyYAML's default behaviour is to silently keep the LAST value for a
+    repeated key. In a provenance-critical config that is silent data loss: a
+    file containing `seed: 3` near the top and a forgotten `seed: 7` near the
+    bottom loads without complaint and the run is not the run you think it is.
+    """
+
+
+def _construct_mapping_no_duplicates(
+    loader: _StrictSafeLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict:
+    loader.flatten_mapping(node)
+    mapping: dict = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=True)
+        if key in mapping:
+            line = key_node.start_mark.line + 1
+            raise ConfigError(
+                f"duplicate key {key!r} on line {line}. "
+                "PyYAML would silently keep the last one; that is not "
+                "acceptable in a config whose whole job is provenance."
+            )
+        # deep=True forces each value to be fully built here rather than
+        # filled in later by PyYAML's two-pass machinery. Config files are
+        # small, so the cost is irrelevant and the behaviour is predictable.
+        mapping[key] = loader.construct_object(value_node, deep=True)
+    return mapping
+
+
+_StrictSafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_mapping_no_duplicates,
+)
+
+
+def _read_yaml(path: Path) -> dict:
+    """Read one YAML file into a plain dict, or raise ConfigError."""
+    if not path.is_file():
+        raise ConfigError(f"config file not found: {path}")
+    try:
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_StrictSafeLoader)
+    except ConfigError as exc:
+        raise ConfigError(f"{path}: {exc}") from None
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"{path} is not valid YAML:\n{exc}") from exc
+    if data is None:
+        raise ConfigError(f"{path} is empty")
+    if not isinstance(data, dict):
+        raise ConfigError(
+            f"{path} must contain a YAML mapping at the top level, "
+            f"got {type(data).__name__}"
+        )
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Structural checks on raw dicts, before any typing happens
+# ---------------------------------------------------------------------------
+
+
+def _reject_output_path_keys(data: dict, source: Path, prefix: str = "") -> None:
+    """Requirement: the output path is never a config value."""
+    for key, value in data.items():
+        dotted = f"{prefix}{key}"
+        lowered = str(key).lower()
+        if lowered in OUTPUT_PATH_KEY_DENYLIST or lowered.endswith(
+            OUTPUT_PATH_KEY_SUFFIXES
+        ):
+            raise ConfigError(
+                f"{source}: config contains an output-path-like key "
+                f"{dotted!r}.\n"
+                "Output locations must never live in a config file. The same "
+                "config has to run unchanged on your laptop and on your "
+                "collaborator's cluster, and a path baked into the config "
+                "makes that impossible -- it also makes resolved_config.yaml "
+                "differ between machines for reasons that have nothing to do "
+                "with the experiment.\n"
+                "Pass the location as --outdir on the command line instead."
+            )
+        if isinstance(value, dict):
+            _reject_output_path_keys(value, source, prefix=f"{dotted}.")
+
+
+def _strict_merge(base: dict, override: dict, source: Path, prefix: str = "") -> dict:
+    """Merge `override` onto `base`, rejecting any key not already in `base`.
+
+    This is what makes a typo fail loudly. `see: 3` is not a new key, it is a
+    misspelling of `seed`, and silently falling back to the default seed would
+    produce a run that is mislabelled forever.
+    """
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        dotted = f"{prefix}{key}"
+        if key not in base:
+            known = ", ".join(sorted(str(k) for k in base))
+            raise ConfigError(
+                f"{source}: unknown key {dotted!r}.\n"
+                "An override may only set keys that already exist in the base "
+                "config. This is deliberate: a typo must fail here rather "
+                "than silently leaving the base value in place.\n"
+                f"Keys available at this level: {known}"
+            )
+        base_is_mapping = isinstance(base[key], dict)
+        value_is_mapping = isinstance(value, dict)
+        if base_is_mapping != value_is_mapping:
+            raise ConfigError(
+                f"{source}: {dotted!r} is "
+                f"{'a section' if base_is_mapping else 'a value'} in the base "
+                f"config but "
+                f"{'a section' if value_is_mapping else 'a value'} in the "
+                "override."
+            )
+        if value_is_mapping:
+            merged[key] = _strict_merge(base[key], value, source, prefix=f"{dotted}.")
+        else:
+            merged[key] = value
+    return merged
+
+
+def _check_override_scope(override: dict, source: Path) -> None:
+    """Enforce that a run override sets only `seed` and `arm`."""
+    extra = sorted(set(override) - OVERRIDE_ALLOWED_KEYS)
+    if extra:
+        allowed = ", ".join(sorted(OVERRIDE_ALLOWED_KEYS))
+        raise ConfigError(
+            f"{source}: a run override may only set {allowed}, but this file "
+            f"also sets: {', '.join(extra)}.\n"
+            "The study's claim is that all 40 runs are identical except for "
+            "seed and arm. Changing anything else per-run would break that "
+            "claim silently. If you genuinely need another per-run knob, add "
+            "it to OVERRIDE_ALLOWED_KEYS in burst/config.py on purpose."
+        )
+
+
+# ---------------------------------------------------------------------------
+# The frozen config object
+#
+# Frozen dataclasses give attribute access (cfg.training.batch_size) and block
+# attribute assignment, which is requirement 7. Note that freezing a dataclass
+# does not freeze containers it holds, so `arms` is stored as a tuple rather
+# than a list.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ModelConfig:
+    n_layer: int
+    n_head: int
+    n_embd: int
+    vocab_size: int
+    block_size: int
+    expected_param_count: int
+    tie_embeddings: bool | None
+
+
+@dataclass(frozen=True)
+class TrainingConfig:
+    batch_size: int
+    seq_len: int
+    total_steps: int
+
+
+@dataclass(frozen=True)
+class OptimizerConfig:
+    name: str
+    weight_decay: float
+
+
+@dataclass(frozen=True)
+class LearningRateConfig:
+    schedule: str
+    peak: float
+    warmup_steps: int
+    final: float
+
+
+@dataclass(frozen=True)
+class CorpusConfig:
+    name: str
+    slice_description: str
+    expected_token_budget: int
+
+
+@dataclass(frozen=True)
+class DeterminismConfig:
+    deterministic: bool
+
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    n_seeds: int
+    arms: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class InjectionConfig:
+    injection_step: int | None
+    burst_length_tokens: int | None
+
+
+@dataclass(frozen=True)
+class CheckpointingConfig:
+    checkpoint_interval: int | None
+
+
+@dataclass(frozen=True)
+class Config:
+    seed: int
+    arm: str
+    model: ModelConfig
+    training: TrainingConfig
+    optimizer: OptimizerConfig
+    learning_rate: LearningRateConfig
+    corpus: CorpusConfig
+    determinism: DeterminismConfig
+    experiment: ExperimentConfig
+    injection: InjectionConfig
+    checkpointing: CheckpointingConfig
+
+    @property
+    def run_name(self) -> str:
+        """The canonical run name, e.g. 'seed03_coherent'."""
+        return run_name_for(self.seed, self.arm)
+
+    @property
+    def missing_for_launch(self) -> tuple[str, ...]:
+        """Fields still null that this run would need before it could train."""
+        return tuple(_missing_for_launch(self))
+
+
+#: Section name -> dataclass. Used to derive the set of keys the loader knows
+#: about, so the schema and the dataclasses cannot drift apart.
+_SECTION_CLASSES: dict[str, type] = {
+    "model": ModelConfig,
+    "training": TrainingConfig,
+    "optimizer": OptimizerConfig,
+    "learning_rate": LearningRateConfig,
+    "corpus": CorpusConfig,
+    "determinism": DeterminismConfig,
+    "experiment": ExperimentConfig,
+    "injection": InjectionConfig,
+    "checkpointing": CheckpointingConfig,
+}
+
+_TOP_LEVEL_SCALARS: frozenset[str] = frozenset({"seed", "arm"})
+
+
+def run_name_for(seed: int, arm: str) -> str:
+    """seed{NN}_{arm}, zero-padded to two digits."""
+    return f"seed{seed:02d}_{arm}"
+
+
+# ---------------------------------------------------------------------------
+# Shape and type validation
+# ---------------------------------------------------------------------------
+
+
+def _check_shape(merged: dict, source: Path) -> None:
+    """The merged config must have exactly the sections and keys we expect.
+
+    Catches both a missing key (base.yaml was edited down) and an extra key
+    (someone added a setting to base.yaml that the loader silently ignores,
+    which would make resolved_config.yaml describe a setting nothing reads).
+    """
+    expected_top = _TOP_LEVEL_SCALARS | set(_SECTION_CLASSES)
+    _compare_keys(set(merged), expected_top, "top level", source)
+
+    for section, cls in _SECTION_CLASSES.items():
+        value = merged[section]
+        if not isinstance(value, dict):
+            raise ConfigError(
+                f"{source}: {section!r} must be a section (a YAML mapping), "
+                f"got {type(value).__name__}"
+            )
+        expected = {f.name for f in dataclasses.fields(cls)}
+        _compare_keys(set(value), expected, f"section {section!r}", source)
+
+
+def _compare_keys(
+    actual: set, expected: set[str], where: str, source: Path
+) -> None:
+    missing = sorted(expected - actual)
+    extra = sorted(str(k) for k in actual - expected)
+    problems = []
+    if missing:
+        problems.append(f"missing: {', '.join(missing)}")
+    if extra:
+        problems.append(f"unexpected: {', '.join(extra)}")
+    if problems:
+        raise ConfigError(
+            f"{source}: {where} does not match the schema in burst/config.py "
+            f"({'; '.join(problems)})."
+        )
+
+
+def _type_error_hint(value: Any) -> str:
+    """Extra help for the two PyYAML traps that bite hardest."""
+    if isinstance(value, str) and re.fullmatch(r"[+-]?\d+(\.\d*)?[eE][+-]?\d+", value):
+        return (
+            "\nThis looks like scientific notation. PyYAML's float rule "
+            "requires a decimal point, so `6e-4` parses as the STRING '6e-4'. "
+            "Write it in plain decimal form instead: 0.0006"
+        )
+    if isinstance(value, bool):
+        return (
+            "\nPyYAML turns bare yes/no/on/off/true/false into booleans. If "
+            "you meant the word, quote it: \"no\""
+        )
+    return ""
+
+
+def _require(
+    merged: dict, section: str | None, key: str, kind: type | tuple[type, ...],
+    kind_name: str, source: str | Path, *, allow_null: bool = False,
+) -> Any:
+    """Fetch one field and check its Python type after parsing.
+
+    Every numeric field goes through here, which is requirement 3: a value
+    that arrives as a string fails immediately with a message naming the field.
+    """
+    container = merged if section is None else merged[section]
+    dotted = key if section is None else f"{section}.{key}"
+    value = container[key]
+
+    if value is None:
+        if allow_null:
+            return None
+        raise ConfigError(
+            f"{source}: {dotted} is null but is required and has no default. "
+            "Set it in the base config (or, for seed and arm, in the run "
+            "override)."
+        )
+
+    # bool is a subclass of int in Python, so `isinstance(True, int)` is True.
+    # Without this guard `total_steps: yes` would sail through as the int 1.
+    if kind is not bool and isinstance(value, bool):
+        raise ConfigError(
+            f"{source}: {dotted} must be {kind_name}, got bool ({value!r})."
+            + _type_error_hint(value)
+        )
+
+    if not isinstance(value, kind):
+        raise ConfigError(
+            f"{source}: {dotted} must be {kind_name}, got "
+            f"{type(value).__name__} ({value!r})." + _type_error_hint(value)
+        )
+    return value
+
+
+def _int(merged, section, key, source, *, allow_null=False):
+    return _require(merged, section, key, int, "an integer", source,
+                    allow_null=allow_null)
+
+
+def _float(merged, section, key, source, *, allow_null=False):
+    # int is accepted where a float is expected: widening is lossless, and
+    # `weight_decay: 0` is not a mistake worth failing over. The reverse is
+    # not accepted -- `total_steps: 0.5` is always a mistake.
+    value = _require(merged, section, key, (int, float), "a number", source,
+                     allow_null=allow_null)
+    return None if value is None else float(value)
+
+
+def _str(merged, section, key, source, *, allow_null=False):
+    return _require(merged, section, key, str, "a string", source,
+                    allow_null=allow_null)
+
+
+def _bool(merged, section, key, source, *, allow_null=False):
+    return _require(merged, section, key, bool, "a boolean (true/false)",
+                    source, allow_null=allow_null)
+
+
+def _build_config(merged: dict, source: str | Path) -> Config:
+    """Turn the validated dict into the frozen object, type-checking as we go."""
+    arms_raw = merged["experiment"]["arms"]
+    if not isinstance(arms_raw, list) or not all(isinstance(a, str) for a in arms_raw):
+        raise ConfigError(
+            f"{source}: experiment.arms must be a list of strings, got "
+            f"{arms_raw!r}"
+        )
+
+    return Config(
+        seed=_int(merged, None, "seed", source),
+        arm=_str(merged, None, "arm", source),
+        model=ModelConfig(
+            n_layer=_int(merged, "model", "n_layer", source),
+            n_head=_int(merged, "model", "n_head", source),
+            n_embd=_int(merged, "model", "n_embd", source),
+            vocab_size=_int(merged, "model", "vocab_size", source),
+            block_size=_int(merged, "model", "block_size", source),
+            expected_param_count=_int(merged, "model", "expected_param_count", source),
+            tie_embeddings=_bool(merged, "model", "tie_embeddings", source,
+                                 allow_null=True),
+        ),
+        training=TrainingConfig(
+            batch_size=_int(merged, "training", "batch_size", source),
+            seq_len=_int(merged, "training", "seq_len", source),
+            total_steps=_int(merged, "training", "total_steps", source),
+        ),
+        optimizer=OptimizerConfig(
+            name=_str(merged, "optimizer", "name", source),
+            weight_decay=_float(merged, "optimizer", "weight_decay", source),
+        ),
+        learning_rate=LearningRateConfig(
+            schedule=_str(merged, "learning_rate", "schedule", source),
+            peak=_float(merged, "learning_rate", "peak", source),
+            warmup_steps=_int(merged, "learning_rate", "warmup_steps", source),
+            final=_float(merged, "learning_rate", "final", source),
+        ),
+        corpus=CorpusConfig(
+            name=_str(merged, "corpus", "name", source),
+            slice_description=_str(merged, "corpus", "slice_description", source),
+            expected_token_budget=_int(merged, "corpus", "expected_token_budget", source),
+        ),
+        determinism=DeterminismConfig(
+            deterministic=_bool(merged, "determinism", "deterministic", source),
+        ),
+        experiment=ExperimentConfig(
+            n_seeds=_int(merged, "experiment", "n_seeds", source),
+            # tuple, not list: a frozen dataclass still hands out a mutable
+            # list if you put one in it.
+            arms=tuple(arms_raw),
+        ),
+        injection=InjectionConfig(
+            injection_step=_int(merged, "injection", "injection_step", source,
+                                allow_null=True),
+            burst_length_tokens=_int(merged, "injection", "burst_length_tokens",
+                                     source, allow_null=True),
+        ),
+        checkpointing=CheckpointingConfig(
+            checkpoint_interval=_int(merged, "checkpointing", "checkpoint_interval",
+                                     source, allow_null=True),
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Semantic validation
+# ---------------------------------------------------------------------------
+
+
+def _validate_semantics(cfg: Config, source: str | Path) -> None:
+    """Checks that need more than one field to make sense."""
+
+    # Requirement 5: the arm must be exactly one of the four literal names.
+    # Compared without any normalisation, so "Coherent" and "COHERENT" fail.
+    if cfg.arm not in ARMS:
+        hint = ""
+        if cfg.arm.lower() in ARMS:
+            hint = (
+                f"\n(Case matters. Did you mean {cfg.arm.lower()!r}?)"
+            )
+        raise ConfigError(
+            f"{source}: arm must be exactly one of {', '.join(ARMS)}; "
+            f"got {cfg.arm!r}.{hint}"
+        )
+
+    if tuple(cfg.experiment.arms) != ARMS:
+        raise ConfigError(
+            f"{source}: experiment.arms is {list(cfg.experiment.arms)} but "
+            f"burst/config.py defines the arms as {list(ARMS)}. These must "
+            "agree; change both or neither."
+        )
+
+    if not 0 <= cfg.seed < cfg.experiment.n_seeds:
+        raise ConfigError(
+            f"{source}: seed must be in 0..{cfg.experiment.n_seeds - 1} "
+            f"(experiment.n_seeds = {cfg.experiment.n_seeds}); got {cfg.seed}."
+        )
+
+    # Requirement 4: the token budget must be the product of the three numbers
+    # that produce it. If someone edits total_steps and forgets the budget,
+    # this fails at load rather than 40 runs later.
+    computed = cfg.training.batch_size * cfg.training.seq_len * cfg.training.total_steps
+    if computed != cfg.corpus.expected_token_budget:
+        raise ConfigError(
+            "token budget mismatch: "
+            f"batch_size ({cfg.training.batch_size}) * "
+            f"seq_len ({cfg.training.seq_len}) * "
+            f"total_steps ({cfg.training.total_steps}) = {computed}, "
+            f"but corpus.expected_token_budget = "
+            f"{cfg.corpus.expected_token_budget} "
+            f"(difference {computed - cfg.corpus.expected_token_budget}).\n"
+            "One of these four numbers was edited without the others. "
+            f"Source: {source}"
+        )
+
+    # Cheap arithmetic sanity checks in the same spirit as the one above.
+    if cfg.training.seq_len > cfg.model.block_size:
+        raise ConfigError(
+            f"{source}: training.seq_len ({cfg.training.seq_len}) exceeds "
+            f"model.block_size ({cfg.model.block_size}); the model cannot "
+            "attend over a sequence longer than its context window."
+        )
+    if cfg.model.n_embd % cfg.model.n_head != 0:
+        raise ConfigError(
+            f"{source}: model.n_embd ({cfg.model.n_embd}) is not divisible by "
+            f"model.n_head ({cfg.model.n_head}); the head dimension would not "
+            "be an integer."
+        )
+    if cfg.learning_rate.warmup_steps >= cfg.training.total_steps:
+        raise ConfigError(
+            f"{source}: learning_rate.warmup_steps "
+            f"({cfg.learning_rate.warmup_steps}) must be less than "
+            f"training.total_steps ({cfg.training.total_steps})."
+        )
+    if cfg.learning_rate.final > cfg.learning_rate.peak:
+        raise ConfigError(
+            f"{source}: learning_rate.final ({cfg.learning_rate.final}) is "
+            f"greater than learning_rate.peak ({cfg.learning_rate.peak}); a "
+            "cosine decay must decay."
+        )
+
+    # Only checkable once injection_step has been decided.
+    step = cfg.injection.injection_step
+    if step is not None and not 0 <= step < cfg.training.total_steps:
+        raise ConfigError(
+            f"{source}: injection.injection_step ({step}) must be within "
+            f"0..{cfg.training.total_steps - 1}."
+        )
+    burst = cfg.injection.burst_length_tokens
+    if burst is not None and burst <= 0:
+        raise ConfigError(
+            f"{source}: injection.burst_length_tokens ({burst}) must be "
+            "positive."
+        )
+
+    # Note deliberately NOT checked: that the twin arm has injection_step
+    # unset. injection_step lives in the shared base config, so once it is
+    # decided every arm sees it, including twin. Twin simply ignores it.
+
+
+def _missing_for_launch(cfg: Config) -> list[str]:
+    """Fields that are still null and that this arm needs in order to train."""
+    missing = []
+    if cfg.checkpointing.checkpoint_interval is None:
+        missing.append("checkpointing.checkpoint_interval")
+    if cfg.model.tie_embeddings is None:
+        missing.append("model.tie_embeddings")
+    if cfg.arm in INJECTING_ARMS:
+        if cfg.injection.injection_step is None:
+            missing.append("injection.injection_step")
+        if cfg.injection.burst_length_tokens is None:
+            missing.append("injection.burst_length_tokens")
+    return missing
+
+
+def _check_run_filename(run_path: Path, cfg: Config) -> None:
+    """If the override file is named like a run, its name must match contents.
+
+    Only checked when the filename actually looks like `seedNN_arm`, so an
+    ad-hoc or temporary override file is not blocked. Catches the copy-paste
+    error where seed05_noise.yaml contains `seed: 4`.
+    """
+    stem = run_path.stem
+    if not RUN_NAME_PATTERN.match(stem):
+        return
+    if stem != cfg.run_name:
+        raise ConfigError(
+            f"{run_path}: filename says {stem!r} but the contents resolve to "
+            f"{cfg.run_name!r} (seed={cfg.seed}, arm={cfg.arm!r}).\n"
+            "Regenerate the override files with "
+            "`python scripts/generate_overrides.py` rather than hand-editing."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Provenance
+# ---------------------------------------------------------------------------
+
+
+def _git_metadata(repo_root: Path) -> dict:
+    """Commit hash, branch, and whether the working tree is dirty.
+
+    Returns a dict that always has the same keys, so the provenance file has a
+    stable shape whether or not git is available.
+    """
+    info: dict[str, Any] = {
+        "repo_root": str(repo_root),
+        "git_available": False,
+        "commit": None,
+        "branch": None,
+        "dirty": None,
+        "dirty_files": [],
+        "error": None,
+    }
+
+    def _git(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_root), *args],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except FileNotFoundError:
+            info["error"] = "git executable not found on PATH"
+            return None
+        except subprocess.TimeoutExpired:
+            info["error"] = "git command timed out"
+            return None
+        if result.returncode != 0:
+            info["error"] = (result.stderr or result.stdout).strip() or (
+                f"git {' '.join(args)} exited {result.returncode}"
+            )
+            return None
+        return result.stdout.strip()
+
+    commit = _git("rev-parse", "HEAD")
+    if commit is None:
+        return info
+
+    info["git_available"] = True
+    info["commit"] = commit
+    info["branch"] = _git("rev-parse", "--abbrev-ref", "HEAD")
+
+    # --porcelain lists staged, unstaged and untracked changes. Untracked
+    # files count: an uncommitted module that the run imports is part of the
+    # experimental condition just as much as a modified one.
+    status = _git("status", "--porcelain")
+    if status is None:
+        info["dirty"] = None
+    else:
+        lines = [line for line in status.splitlines() if line.strip()]
+        info["dirty"] = bool(lines)
+        info["dirty_files"] = lines
+    return info
+
+
+def _warn_about_code_state(git: dict, stream) -> None:
+    """Loud warning if we cannot prove what code produced this run."""
+    bar = "=" * 74
+    if not git["git_available"]:
+        print(bar, file=stream)
+        print("WARNING: could not read git metadata for this checkout.", file=stream)
+        print(f"  reason: {git['error']}", file=stream)
+        print("  This run's code version cannot be reconstructed later.",
+              file=stream)
+        print(bar, file=stream)
+        return
+    if git["dirty"]:
+        print(bar, file=stream)
+        print("WARNING: the working tree is DIRTY.", file=stream)
+        print(f"  commit: {git['commit']}", file=stream)
+        print(f"  {len(git['dirty_files'])} uncommitted change(s):", file=stream)
+        for line in git["dirty_files"][:20]:
+            print(f"    {line}", file=stream)
+        if len(git["dirty_files"]) > 20:
+            print(f"    ... and {len(git['dirty_files']) - 20} more", file=stream)
+        print("  The code is part of the experimental condition. The commit",
+              file=stream)
+        print("  hash recorded above does NOT describe what actually ran.",
+              file=stream)
+        print("  Commit before launching anything you intend to publish.",
+              file=stream)
+        print(bar, file=stream)
+
+
+def _dump_yaml(data: dict) -> str:
+    return yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
+                          allow_unicode=True)
+
+
+def _write_provenance(
+    merged: dict,
+    cfg: Config,
+    outdir: Path,
+    base_path: Path,
+    run_path: Path,
+    *,
+    require_complete: bool,
+    force: bool,
+    stream,
+) -> None:
+    """Write resolved_config.yaml and run_provenance.yaml into outdir."""
+    outdir.mkdir(parents=True, exist_ok=True)
+    resolved_path = outdir / RESOLVED_CONFIG_FILENAME
+    resolved_text = _dump_yaml(merged)
+
+    # Round-trip check. safe_dump writes 0.00006 as `6.0e-05`; PyYAML inserts
+    # the `.0` precisely so the value reads back as a float and not as a
+    # string. Verify that rather than trust it -- if this ever breaks, the
+    # provenance record would be a different config from the one that ran.
+    reloaded = yaml.load(resolved_text, Loader=_StrictSafeLoader)
+    if reloaded != merged:
+        raise ConfigError(
+            "internal error: the resolved config did not survive a YAML "
+            "round-trip, so it cannot be trusted as a provenance record.\n"
+            f"wrote:  {merged}\nread back: {reloaded}"
+        )
+
+    if resolved_path.exists() and resolved_path.read_text(encoding="utf-8") != resolved_text:
+        if not force:
+            raise ConfigError(
+                f"{resolved_path} already exists and describes a DIFFERENT "
+                "config.\nOverwriting it would destroy the record of what "
+                "produced whatever else is in this directory. Use a fresh "
+                "--outdir, or pass --force if you are certain."
+            )
+        print(f"NOTE: overwriting a differing {RESOLVED_CONFIG_FILENAME} "
+              "because --force was given.", file=stream)
+
+    resolved_path.write_text(resolved_text, encoding="utf-8")
+
+    git = _git_metadata(_repo_root())
+    provenance = {
+        "run_name": cfg.run_name,
+        "seed": cfg.seed,
+        "arm": cfg.arm,
+        "written_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_files": {
+            "base_config": str(base_path.resolve()),
+            "run_override": str(run_path.resolve()),
+        },
+        "outdir": str(outdir.resolve()),
+        "launch_ready": not cfg.missing_for_launch,
+        "missing_for_launch": list(cfg.missing_for_launch),
+        "checked_for_launch": require_complete,
+        "git": git,
+        "environment": {
+            "python_version": sys.version.split()[0],
+            "platform": platform.platform(),
+            "hostname": platform.node(),
+            "pyyaml_version": yaml.__version__,
+        },
+        "command_line": list(sys.argv),
+    }
+    (outdir / PROVENANCE_FILENAME).write_text(_dump_yaml(provenance), encoding="utf-8")
+
+    _warn_about_code_state(git, stream)
+
+
+def _repo_root() -> Path:
+    """The directory containing the `burst` package.
+
+    Deliberately not the current working directory: the git state that matters
+    is the state of the code being run, not of wherever the shell happens to
+    be sitting.
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def load_config(
+    base_path: str | Path,
+    run_path: str | Path,
+    outdir: str | Path,
+    *,
+    require_complete: bool = True,
+    force: bool = False,
+    write_provenance: bool = True,
+    stream=None,
+) -> Config:
+    """Load base + override, validate, record provenance, return frozen config.
+
+    Args:
+        base_path: configs/base.yaml
+        run_path: configs/runs/seedNN_arm.yaml
+        outdir: where resolved_config.yaml and run_provenance.yaml go. Required,
+            and never read from a config file -- see requirement 6.
+        require_complete: if True (the default, and the right setting for any
+            code that is about to actually train), raise when a field this arm
+            needs is still null. The CLI sets this False unless --launch is
+            given, so that you can inspect a config while injection_step and
+            friends are still undecided.
+        force: allow overwriting an existing, differing resolved_config.yaml.
+        write_provenance: set False only in tests that do not care about files.
+        stream: where warnings go; defaults to stderr.
+
+    Returns:
+        A frozen Config.
+
+    Raises:
+        ConfigError: for every failure. The message names the field.
+    """
+    stream = sys.stderr if stream is None else stream
+    base_path = Path(base_path)
+    run_path = Path(run_path)
+    outdir = Path(outdir)
+
+    base_raw = _read_yaml(base_path)
+    run_raw = _read_yaml(run_path)
+
+    # Requirement 6, checked on both files before anything else looks at them.
+    _reject_output_path_keys(base_raw, base_path)
+    _reject_output_path_keys(run_raw, run_path)
+
+    # Unknown-key check first so a typo reports as a typo, then the narrower
+    # "overrides may only set seed and arm" rule.
+    merged = _strict_merge(base_raw, run_raw, run_path)
+    _check_override_scope(run_raw, run_path)
+
+    # Shape problems can only come from the base config (an override cannot
+    # introduce keys), but a bad *value* could come from either file, so the
+    # value-level errors name both.
+    _check_shape(merged, base_path)
+    source = f"{base_path} (+ override {run_path})"
+    cfg = _build_config(merged, source)
+    _validate_semantics(cfg, source)
+    _check_run_filename(run_path, cfg)
+
+    if require_complete:
+        missing = cfg.missing_for_launch
+        if missing:
+            raise ConfigError(
+                f"run {cfg.run_name!r} cannot be launched: the following "
+                "fields are still null and this arm needs them:\n"
+                + "".join(f"  - {name}\n" for name in missing)
+                + "Decide them in configs/base.yaml first. "
+                + (
+                    "(The twin arm does not need the injection fields, but "
+                    f"{cfg.arm!r} does.)"
+                    if cfg.arm in INJECTING_ARMS
+                    else ""
+                )
+            )
+
+    if write_provenance:
+        # Written before anything downstream is allowed to happen, so a run
+        # that crashes one step in still leaves behind an exact record of what
+        # it was trying to do.
+        _write_provenance(
+            merged, cfg, outdir, base_path, run_path,
+            require_complete=require_complete, force=force, stream=stream,
+        )
+
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m burst.config",
+        description=(
+            "Load the burst study config, write a provenance record into "
+            "--outdir, and print the resolved values."
+        ),
+    )
+    parser.add_argument("--config", required=True, metavar="PATH",
+                        help="base config, e.g. configs/base.yaml")
+    parser.add_argument("--run", required=True, metavar="PATH",
+                        help="run override, e.g. configs/runs/seed03_coherent.yaml")
+    parser.add_argument(
+        "--outdir", required=True, metavar="PATH",
+        help=("output directory for this run. Required, and deliberately not a "
+              "config value, so one config works on any machine."),
+    )
+    parser.add_argument(
+        "--launch", action="store_true",
+        help=("fail if any field this arm needs is still null. Use this in the "
+              "launcher; without it the config can be inspected while "
+              "injection_step and friends are undecided."),
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help=f"overwrite an existing, differing {RESOLVED_CONFIG_FILENAME}",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    try:
+        cfg = load_config(
+            args.config, args.run, args.outdir,
+            require_complete=args.launch, force=args.force,
+        )
+    except ConfigError as exc:
+        # No traceback: the message is the useful part, and a stack trace
+        # through a config loader tells you nothing you want to know.
+        print(f"\nCONFIG ERROR\n{exc}\n", file=sys.stderr)
+        return 1
+
+    outdir = Path(args.outdir)
+    print(f"run_name: {cfg.run_name}")
+    print(f"outdir:   {outdir.resolve()}")
+    print(f"wrote:    {RESOLVED_CONFIG_FILENAME}, {PROVENANCE_FILENAME}")
+    print()
+    print("resolved config")
+    print("-" * 74)
+    print(_dump_yaml(dataclasses.asdict(cfg)).rstrip())
+    print("-" * 74)
+
+    missing = cfg.missing_for_launch
+    if missing:
+        print()
+        print("NOT LAUNCH-READY. Still undecided for this arm:")
+        for name in missing:
+            print(f"  - {name}")
+        print("Loading succeeded because --launch was not given. Pass --launch")
+        print("to turn the list above into a hard failure.")
+    else:
+        print()
+        print("Launch-ready: every field this arm needs has a value.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

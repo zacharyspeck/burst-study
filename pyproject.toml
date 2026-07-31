@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "burst"
+version = "0.1.0"
+description = "Configuration scaffold for the burst injection study"
+requires-python = ">=3.11"
+
+# Exact pins, not ranges. A range would let a future PyYAML change how a
+# number parses without anything in this repo recording that it happened,
+# which is the same class of silent drift this whole config system exists to
+# prevent. Bump these deliberately and note it in implementation-notes.md.
+dependencies = [
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+]
+
+[tool.setuptools]
+packages = ["burst"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the repo root on sys.path so `import burst` works from a plain checkout,
+# without having to `pip install -e .` first. One less setup step to get wrong.
+pythonpath = ["."]

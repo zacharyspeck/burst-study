@@ -1,0 +1,130 @@
+# burst study -- base configuration
+#
+# Every value shared by all 40 runs lives here. A run override file
+# (configs/runs/seedNN_arm.yaml) may set ONLY `seed` and `arm`; anything else
+# is rejected by the loader. That restriction is the whole point: the study's
+# central claim is that the 40 runs were identical except for seed and arm,
+# and this file is the evidence.
+#
+# FORMATTING RULE, non-obvious and load-bearing:
+# Write every rate in plain decimal form (0.0006), never in scientific
+# notation (6e-4). PyYAML's float rule requires a decimal point, so `6e-4`
+# parses as the *string* '6e-4', not a number. Likewise never write a bare
+# no / yes / on / off as a value -- PyYAML turns those into booleans.
+# burst/config.py type-checks every field after parsing so either mistake
+# fails at load with the field name, but it is easier to just not make it.
+
+# ---------------------------------------------------------------------------
+# Per-run values. Left null on purpose: the run override file supplies them.
+# The loader always requires both to be non-null, even when only inspecting.
+# ---------------------------------------------------------------------------
+
+# Seed index, 0..9 (n_seeds below). Zero-padded to two digits in the run name.
+# The seed controls BOTH weight initialization AND data order. It is a single
+# knob for the entire stochastic state of a run, not just for init -- two runs
+# sharing a seed see the same initial weights and the same batch sequence, in
+# the same order, which is what makes an arm-to-arm comparison a matched pair.
+seed: null
+
+# One of the four arms listed under experiment.arms below. Exact lowercase
+# match; "Coherent" is rejected.
+arm: null
+
+# ---------------------------------------------------------------------------
+# Model: GPT-2 Base
+# ---------------------------------------------------------------------------
+model:
+  n_layer: 12
+  n_head: 12
+  n_embd: 768
+  vocab_size: 50257
+  block_size: 1024        # maximum context the model can attend over
+
+  # Parameter count this architecture is expected to produce, recorded so a
+  # later training run can check the model it built against the config that
+  # described it. Nothing in this repo computes it -- there is no model code
+  # here yet, by design.
+  expected_param_count: 124439808
+
+  # UNSET ON PURPOSE -- decided later. Whether the output projection reuses
+  # the token embedding matrix. Required non-null before any run is launched.
+  tie_embeddings: null
+
+# ---------------------------------------------------------------------------
+# Training
+# ---------------------------------------------------------------------------
+training:
+  batch_size: 256
+  seq_len: 1024
+  total_steps: 9536
+
+# ---------------------------------------------------------------------------
+# Optimizer
+# ---------------------------------------------------------------------------
+optimizer:
+  name: adamw
+  weight_decay: 0.1
+
+# ---------------------------------------------------------------------------
+# Learning rate schedule
+# ---------------------------------------------------------------------------
+learning_rate:
+  schedule: cosine
+  peak: 0.0006            # NOT 6e-4, see the formatting rule at the top
+  warmup_steps: 200
+  final: 0.00006          # NOT 6e-5
+
+# ---------------------------------------------------------------------------
+# Corpus
+# ---------------------------------------------------------------------------
+corpus:
+  name: openwebtext
+  slice_description: 2.5B token slice
+
+  # The loader asserts batch_size * seq_len * total_steps == this number.
+  # 256 * 1024 * 9536 = 2499805184. If someone edits one of the three and not
+  # the others, load fails immediately rather than 40 runs later.
+  expected_token_budget: 2499805184
+
+# ---------------------------------------------------------------------------
+# Determinism
+# ---------------------------------------------------------------------------
+determinism:
+  deterministic: true
+
+# ---------------------------------------------------------------------------
+# Experiment shape
+# ---------------------------------------------------------------------------
+experiment:
+  n_seeds: 10
+  arms:
+    - coherent            # a meaningful passage
+    - noise               # random real words
+    - ordinary            # normal text
+    - twin                # no injection at all -- the matched control
+
+# ---------------------------------------------------------------------------
+# Injection
+#
+# Both values are UNSET ON PURPOSE -- decided later. The coherent, noise and
+# ordinary arms all require them to be non-null before launch. The twin arm
+# does not: it receives no injection, so it launches fine with these still
+# null, and simply ignores them once they are filled in.
+# ---------------------------------------------------------------------------
+injection:
+  injection_step: null
+  burst_length_tokens: null
+
+# ---------------------------------------------------------------------------
+# Checkpointing
+#
+# UNSET ON PURPOSE -- decided later. Required non-null before any run is
+# launched, on every arm.
+#
+# Note this is an interval (a step count), not a directory. The output
+# directory is deliberately NOT in this file -- it is a required --outdir
+# command-line argument, so the same config runs unchanged on a laptop and on
+# a cluster. The loader rejects any config that contains a path-like key.
+# ---------------------------------------------------------------------------
+checkpointing:
+  checkpoint_interval: null

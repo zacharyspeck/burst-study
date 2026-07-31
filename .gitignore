@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# Run outputs never belong in the repo. The provenance record that matters
+# (resolved_config.yaml, run_provenance.yaml) is written into --outdir, which
+# is chosen per machine and is deliberately not tracked here.
+#
+# Leading slashes matter: a bare `runs/` would also match configs/runs/ and
+# silently untrack all 40 override files, which are very much part of the repo.
+/runs/
+/outputs/
