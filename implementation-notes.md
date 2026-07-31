@@ -8,6 +8,10 @@ down here rather than left in the code for you to discover.
 
 ## Open questions for you
 
+Current status: 1 and 2 are settled. **3 is open and is the one with a
+deadline** — it must be settled before the design freeze, because checkpoints
+that were not written cannot be recovered afterward.
+
 ### 1. ~~`expected_param_count` implies `tie_embeddings: true`~~ — RESOLVED
 
 **Resolved 2026-07-31: `tie_embeddings: true`.** The reasoning is now recorded
@@ -52,6 +56,58 @@ consistent with either `0..9` or `1..10`. I used **`0..9`** (`seed00` …
 If you want `1..10` instead, it is a one-line change in
 `scripts/generate_overrides.py` (`range(n_seeds)` → `range(1, n_seeds + 1)`) plus
 the range check in `_validate_semantics`. Say the word and I will flip it.
+
+### 3. Is one checkpoint inside the momentum window enough resolution?
+
+**Open. Must be settled before the design freeze. Cannot be settled yet.**
+
+This was briefly written up as answered by the checkpoint split. It is not, and
+the earlier wording overstated the case. Restating it properly:
+
+**What the split does establish.** `weights_only_interval: 50` samples the
+neighbourhood of the burst **20× more densely** than the 1000-step interval
+originally proposed, and does so at a fifth of the per-checkpoint cost, because
+weights-only checkpoints are ~0.5 GB against ~1.5 GB for full ones.
+
+**What it does not establish.** That 20× is a comparison against the old
+proposal, not a measurement of sufficiency. In absolute terms, AdamW's momentum
+smears a single batch's influence over a window of roughly 50 steps (Chang et
+al., arXiv 2406.11813). At `weights_only_interval: 50`, that window contains
+approximately **one** weights-only checkpoint.
+
+One sample inside the smear window tells you where the arms stood *after* the
+smear had played out. It does not tell you the *shape* of what happened during
+it — whether the arms separated immediately and then converged, separated
+monotonically, or crossed. Those are different claims about what the burst did,
+and a single post-hoc sample cannot distinguish them. If the shape of the
+divergence is part of what the study is measuring rather than just its endpoint,
+50 is not obviously enough.
+
+**Why the deadline is the design freeze, and not later.** Checkpoints that were
+not written cannot be recovered afterward. Every other parameter in this repo
+can be revisited by re-analysing existing artifacts; this one cannot. Choosing
+too coarse an interval is not a decision that can be corrected without re-running
+all 40 models — roughly 2,499,805,184 tokens × 40, which is the entire compute
+budget of the study.
+
+**Why it cannot be settled now.** The question is about resolution *near the
+burst*, so it depends on `injection_step`, which is still null and comes out of
+piloting. Until piloting fixes the injection step, there is no specific window
+to reason about.
+
+Two things to have in hand when it is settled:
+
+- **The AdamW betas are not in the config.** `optimizer` currently holds only
+  `name: adamw` and `weight_decay: 0.1`. The width of the momentum window is a
+  function of β₁ and β₂ — with β₁ = 0.9 the first-moment timescale is
+  1/(1−β₁) = 10 steps, and the second-moment timescale ranges from 20 steps at
+  β₂ = 0.95 to 1000 at β₂ = 0.999. The "roughly 50 steps" figure cannot be
+  checked against this config as written, and pinning the betas is a
+  prerequisite for reasoning about it rather than an independent nicety.
+- **A denser schedule near the burst is a schema change**, not just a different
+  number. `checkpointing` currently expresses a uniform interval; a window of
+  higher density around `injection_step` needs a different shape. Worth knowing
+  before the freeze, since the freeze is what makes it expensive.
 
 ---
 
@@ -386,6 +442,12 @@ plus a rule that the final step always writes a full checkpoint. Full detail in
 null fields, and `checkpoint_interval` no longer exists as a key anywhere** —
 the loader rejects it by name with a message pointing at the two replacements.
 
+What is resolved here is the *storage* question: the values are decided, they
+are validated, and they fit the budget. A separate question — whether 50 steps
+is enough *resolution* to measure the trajectory near the burst — was spun out
+of this one and is **still open**; see open question 3. Do not read this
+RESOLVED marker as covering it.
+
 The original sizing note is kept below because the per-checkpoint arithmetic is
 still exactly what the new numbers are built on.
 
@@ -426,10 +488,12 @@ would not fit.
 
 Two things worth deciding at the same time:
 
-- **Does the interval need to be denser near `injection_step`?** *Answered by
-  the split below:* a 50-step weights-only interval samples the neighbourhood of
-  the burst 20× more densely than the old 1000-step proposal, at a fifth of the
-  per-checkpoint cost. A separate non-uniform schedule is no longer needed.
+- **Does the interval need to be denser near `injection_step`?** **Still open —
+  see open question 3.** The split improves the sampling density near the burst
+  by 20× relative to the old 1000-step proposal, at a fifth of the
+  per-checkpoint cost. That is a comparison, not an answer: it does not
+  establish that 50 steps is *sufficient* resolution, only that it is much
+  better than 1000.
 - **Is fp32 optimizer state necessary?** Still open. Storing
   `exp_avg`/`exp_avg_sq` in bf16 would cut *full* checkpoints to ~1.0 GB. Under
   the schedule below that saves only 5 GB per run (full checkpoints are now a
