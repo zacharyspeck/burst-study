@@ -66,23 +66,26 @@ tells you why.
 
 ### `--launch`
 
-Four values in `configs/base.yaml` are still `null` on purpose — they have not
-been decided yet:
+Several values in `configs/base.yaml` are still `null` on purpose — they have
+not been decided yet:
 
 ```
 injection.injection_step
 injection.burst_length_tokens
+injection.burst_text_paths.{coherent,noise,ordinary}
 checkpointing.checkpoint_interval
-model.tie_embeddings
 ```
 
 Without `--launch`, the loader lets you inspect a config while those are
 undecided, and prints a `NOT LAUNCH-READY` block listing what is missing. With
 `--launch`, a missing value that this arm needs is a hard failure.
 
-`twin` receives no injection, so it does **not** need `injection_step` or
-`burst_length_tokens` and is launch-ready without them. The other three arms do
-need them. All four arms need `checkpoint_interval` and `tie_embeddings`.
+`twin` receives no injection, so it does **not** need `injection_step`,
+`burst_length_tokens`, or a burst text, and is launch-ready without them. The
+other three arms each need all three — and only *their own* burst text, not the
+other arms'. All four arms need `checkpoint_interval`.
+
+`model.tie_embeddings` is now decided (`true`); see the field table below.
 
 From Python the safe default is the other way round — `load_config()` uses
 `require_complete=True`, because anything calling it from code is about to
@@ -135,7 +138,7 @@ configs/base.yaml                    every value shared by all 40 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
 scripts/generate_overrides.py        regenerates all 40 override files
-tests/test_config.py                 86 tests
+tests/test_config.py                 112 tests
 implementation-notes.md              decisions, assumptions, open questions
 ```
 
@@ -179,7 +182,7 @@ running before a launch batch. The seed count and arm names come from
 | `vocab_size` | 50257 | GPT-2 BPE vocabulary |
 | `block_size` | 1024 | maximum context length |
 | `expected_param_count` | 124439808 | parameter count this architecture should produce, recorded so later training code can check the model it built against the config that described it |
-| `tie_embeddings` | **null** | whether the output projection reuses the token embedding matrix. Undecided. |
+| `tie_embeddings` | true | the output projection reuses the token embedding matrix. Forced by `expected_param_count`: 124,439,808 is the GPT-2 Base count *with* tying. Untied adds another `50257 × 768 = 38,597,376` parameters for a separate output projection, giving 163,037,184. GPT-2 ties by default. |
 
 ### `training`
 
@@ -213,6 +216,13 @@ running before a launch batch. The seed count and arm names come from
 | `slice_description` | `2.5B token slice` | human-readable note on which slice |
 | `expected_token_budget` | 2499805184 | `batch_size × seq_len × total_steps`, asserted at load |
 
+The corpus is **named, never located.** There is no corpus path field, and the
+loader rejects one if it is ever added — same rule as `--outdir`, for the same
+reason: your laptop and the cluster store OpenWebText in different places, and
+a path in the config would make the same experiment produce different
+`resolved_config.yaml` files on different machines. When the data pipeline
+arrives, the corpus location belongs on its command line.
+
 ### `determinism`
 
 | field | value | meaning |
@@ -232,12 +242,32 @@ running before a launch batch. The seed count and arm names come from
 | --- | --- | --- |
 | `injection_step` | **null** | the step at which the burst enters one training batch |
 | `burst_length_tokens` | **null** | how many tokens the burst is |
+| `burst_text_paths.coherent` | **null** | repo-relative path to the coherent arm's burst text |
+| `burst_text_paths.noise` | **null** | repo-relative path to the noise arm's burst text |
+| `burst_text_paths.ordinary` | **null** | repo-relative path to the ordinary arm's burst text |
 
-Once these are filled in they apply to every arm, including `twin`. Twin simply
-ignores them — the loader does not treat a non-null `injection_step` as an
-error for twin, because the value lives in the shared base config and cannot be
-turned off for one arm without breaking the "identical except seed and arm"
-guarantee.
+There is deliberately no `burst_text_paths.twin`; twin receives no text, and
+adding one is rejected by the schema check.
+
+**Burst text paths must be relative and must resolve inside this repository.**
+The loader rejects an absolute path (checked as absolute on *both* POSIX and
+Windows, so a Linux-style `/home/...` is refused on Windows too), and rejects
+anything that escapes the repo root via `..`. At launch (`--launch`) the file
+must also exist.
+
+The reason is provenance, not tidiness: the burst text is the study's
+independent variable — experimental *content*, not configuration. It has to be
+committed alongside the code so the git commit hash in `run_provenance.yaml`
+covers the text as well. A path outside the repo leaves the injected text
+unversioned, and points somewhere that will not exist on the other machine.
+
+Suggested home: `configs/burst_texts/<arm>.txt`.
+
+Once `injection_step` and `burst_length_tokens` are filled in they apply to
+every arm, including `twin`. Twin simply ignores them — the loader does not
+treat a non-null `injection_step` as an error for twin, because the value lives
+in the shared base config and cannot be turned off for one arm without breaking
+the "identical except seed and arm" guarantee.
 
 ### `checkpointing`
 
@@ -277,9 +307,12 @@ vanishes under an optimisation flag is worse than none.
 7. **Schema completeness.** The base config's sections and keys must match the
    loader's dataclasses exactly — a key added to `base.yaml` that no code reads
    is a provenance hole, and is rejected.
-8. **No output paths in configs.** See above.
-9. **Immutability.** Frozen dataclasses all the way down; `arms` is a tuple, not
-   a list.
+8. **No output paths in configs.** No corpus path either. See above.
+9. **Burst text paths stay inside the repo.** Relative only, no escaping via
+   `..`, and the file must exist at launch — so the recorded commit hash covers
+   the injected text.
+10. **Immutability.** Frozen dataclasses all the way down; `arms` is a tuple,
+    not a list.
 
 ---
 

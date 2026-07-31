@@ -8,10 +8,10 @@ down here rather than left in the code for you to discover.
 
 ## Open questions for you
 
-These are the only things I could not resolve from the spec. Nothing is
-blocked on them — the repo works as-is — but two of them are worth a look.
+### 1. ~~`expected_param_count` implies `tie_embeddings: true`~~ — RESOLVED
 
-### 1. `expected_param_count` implies `tie_embeddings: true`
+**Resolved 2026-07-31: `tie_embeddings: true`.** The reasoning is now recorded
+in a comment in `configs/base.yaml`. Original note kept below for the record.
 
 `124439808` is exactly the GPT-2 Base parameter count **with tied embeddings**:
 
@@ -34,9 +34,10 @@ at it is exactly the kind of silent decision this repo exists to prevent. But
 one of the two numbers will have to move. Flagging it now rather than after 40
 runs.
 
-I also did not add a load-time assertion on parameter count, because it cannot
-be computed without knowing `tie_embeddings`. Once you decide it, that check is
-about six lines and is worth adding.
+`checkpoint_interval` remains `null` and is still the one always-required
+undecided value. Now that `tie_embeddings` is known, a load-time parameter-count
+assertion is computable — see "Not yet enforced" below for why it still is not
+in the loader.
 
 ### 2. Seeds are 0-indexed
 
@@ -222,6 +223,129 @@ excluded all 40 files in `configs/runs/`. Fixed to `/runs/` (repo root only),
 with a comment. Noting it because it is the exact failure mode this repo is
 built to prevent, and it nearly shipped.
 
+### S12. Corpus already had no path field — no change made
+
+Checked on request. `corpus` holds `name: openwebtext`, `slice_description`,
+and `expected_token_budget`, and no location of any kind. The existing
+output-path rule already rejects a corpus path if one is ever added, at any
+nesting depth: `corpus.data_path`, `corpus.data_dir`, `corpus.root_dir`,
+`corpus.path` and so on all fail with the "same config on laptop and cluster"
+error. There was a test for `corpus.data_path` from the start; I added four more
+key spellings plus a test asserting the shipped `corpus` section holds nothing
+path-shaped.
+
+So there was nothing to move to a launch-time argument, and I did not invent a
+`--corpus-path` flag for a field that does not exist. When the data pipeline
+arrives, the corpus location belongs on *its* command line.
+
+### S13. Burst text paths: shape chosen, and why
+
+The spec said the burst text must live inside the repo but did not say how the
+field is shaped, and there was no field yet. I used a per-arm mapping:
+
+```yaml
+injection:
+  burst_text_paths:
+    coherent: null
+    noise: null
+    ordinary: null
+```
+
+rather than a single `burst_text_path`. Reason: `base.yaml` is shared by all 40
+runs and only `arm` distinguishes them, so a single field could not hold three
+different texts — and giving each arm its own per-run override would break the
+"identical except seed and arm" guarantee. `twin` deliberately has no entry, and
+the schema check rejects one if added, since a burst text for the no-injection
+control is a value that would look meaningful and mean nothing.
+
+Access is `cfg.injection.burst_text_paths.for_arm(cfg.arm)`, written as an
+explicit `if` chain rather than `getattr(self, arm)` so the twin case is visible
+rather than an `AttributeError` waiting to happen.
+
+Consequences worth knowing:
+
+- Only the *running arm's* text is required at launch. A `coherent` run does not
+  care whether the noise text has been written yet.
+- `burst_text_paths` is explicitly exempted from the output-path denylist
+  (`CONTENT_PATH_KEYS_EXEMPT`) because it legitimately holds paths. The
+  exemption is by dotted key name, so renaming the field cannot slip it past
+  *either* check — it would start tripping the denylist instead.
+
+### S14. Absolute-path detection is checked on both POSIX and Windows rules
+
+`PureWindowsPath("/burst.txt").is_absolute()` is `False` — no drive letter — so
+a Linux-style absolute path written by your collaborator would pass a naive
+check run on your Windows laptop, and a `C:\...` path would pass on the
+cluster. `_looks_absolute` tests leading `/` and `\`, both `PurePosixPath` and
+`PureWindowsPath`, and a bare drive prefix like `C:burst.txt`. The config has to
+be rejected identically on both machines or the rule is theatre. There is a
+parametrized test covering all four forms.
+
+### S15. Burst text existence is checked at launch only
+
+Not requested; added because a path pointing at a file that does not exist fails
+the stated goal ("the commit hash covers the text") just as thoroughly as an
+absolute path does, and a run that discovers this at the injection step has
+already burned most of its compute. Checked only under `require_complete=True`,
+since at inspect time the path may reasonably be decided before the text is
+written. One line to remove if you disagree.
+
+Not checked: whether the file is actually *tracked* by git. It turns out this is
+already covered — `git status --porcelain` includes untracked files, so an
+uncommitted `configs/burst_texts/coherent.txt` makes the tree dirty and triggers
+the existing loud warning.
+
+---
+
+## Not yet enforced
+
+Two values in `configs/base.yaml` are currently **inert** — the loader carries
+them, validates their type, and writes them into `resolved_config.yaml`, but
+nothing anywhere acts on them. They look like guarantees and are not, until the
+training loop implements them. Written down here so that does not get lost.
+
+### `model.expected_param_count` is not compared against anything
+
+The loader checks it is an integer and nothing else. No model exists in this
+repo, so there is nothing to count.
+
+**The training loop must count the real model's parameters and fail if they
+disagree with this number.** Something like
+`sum(p.numel() for p in model.parameters())`, checked before step 0 and failing
+loudly, not warning. With `tie_embeddings: true` now decided the expected value
+is unambiguous — `124439808`, and `163037184` if tying were ever turned off —
+so there is no excuse for the check to be soft.
+
+The failure this guards against: an architecture change that quietly does not
+match the config describing it, making every `resolved_config.yaml` in the study
+a record of a model that was never built.
+
+### `determinism.deterministic: true` sets nothing
+
+It is a boolean in a YAML file. The loader does not import torch and never
+will, so it configures no runtime behaviour whatsoever.
+
+**The training loop must actually configure determinism when this is true**, and
+that means all of it, not just the seed:
+
+- `torch.manual_seed(seed)` / `torch.cuda.manual_seed_all(seed)`
+- `torch.use_deterministic_algorithms(True)`
+- `torch.backends.cudnn.deterministic = True`, `benchmark = False`
+- `CUBLAS_WORKSPACE_CONFIG=:4096:8` in the environment — cuBLAS is
+  non-deterministic without it and `use_deterministic_algorithms(True)` raises
+  at runtime if it is unset
+- deterministic DataLoader ordering: `shuffle` driven by a seeded generator,
+  `worker_init_fn` seeding each worker, and a fixed `num_workers`
+
+This one matters more than it looks. The study's entire claim is that two runs
+were matched except for the injection. If determinism is merely *declared* and
+not configured, two runs with the same seed diverge anyway, and every
+arm-to-arm difference is confounded by nondeterminism that nothing recorded.
+
+A reasonable follow-up: have the training loop write an
+`environment_asserted.yaml` next to `resolved_config.yaml` recording what it
+actually set, so the claim is evidenced rather than assumed.
+
 ---
 
 ## Environment as built
@@ -238,7 +362,7 @@ built to prevent, and it nearly shipped.
 
 ## Test coverage
 
-86 tests. The five required cases are
+112 tests. The five required cases are
 `test_typo_in_override_key_raises`,
 `test_null_injection_fields_raise_for_injecting_arm` /
 `test_null_injection_fields_are_fine_for_twin`,
@@ -247,9 +371,15 @@ built to prevent, and it nearly shipped.
 `test_output_path_key_in_config_raises`.
 
 The rest cover the YAML traps, duplicate keys, immutability, the provenance
-files, the overwrite guard, the schema check, all 40 generated overrides
-loading, a mechanical check that the 40 runs differ *only* in seed and arm, and
-the CLI end to end.
+files, the overwrite guard, the schema check, burst text path containment,
+corpus path rejection, all 40 generated overrides loading, a mechanical check
+that the 40 runs differ *only* in seed and arm, and the CLI end to end.
+
+Note that the null-required-field coverage now hangs off `checkpoint_interval`
+and the injection fields rather than `tie_embeddings`, since that value has been
+decided. `test_null_tie_embeddings_would_still_raise` keeps the check itself
+under test by setting it back to null in a throwaway config, so deciding the
+value did not quietly delete the behaviour.
 
 Tests build a throwaway copy of the real `configs/base.yaml` and edit one thing,
 rather than using a hand-written fixture — so they break if `base.yaml` drifts,

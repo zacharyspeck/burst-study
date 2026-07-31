@@ -39,7 +39,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import yaml
@@ -98,6 +98,16 @@ OUTPUT_PATH_KEY_DENYLIST: frozenset[str] = frozenset({
 OUTPUT_PATH_KEY_SUFFIXES: tuple[str, ...] = (
     "_dir", "_path", "_directory", "_folder",
 )
+
+# Dotted keys that are allowed to hold a path despite the rule above, because
+# they point at *input content committed inside this repo* rather than at an
+# output location on some particular machine. These get a stricter check of
+# their own in _validate_burst_text_paths: relative only, and must resolve
+# inside the repo root. Listed explicitly so that renaming the field cannot
+# accidentally slip it past either check.
+CONTENT_PATH_KEYS_EXEMPT: frozenset[str] = frozenset({
+    "injection.burst_text_paths",
+})
 
 
 class ConfigError(Exception):
@@ -176,6 +186,10 @@ def _reject_output_path_keys(data: dict, source: Path, prefix: str = "") -> None
     """Requirement: the output path is never a config value."""
     for key, value in data.items():
         dotted = f"{prefix}{key}"
+        if dotted in CONTENT_PATH_KEYS_EXEMPT:
+            # Neither the key itself nor anything under it is an output
+            # location. Validated separately and more strictly.
+            continue
         lowered = str(key).lower()
         if lowered in OUTPUT_PATH_KEY_DENYLIST or lowered.endswith(
             OUTPUT_PATH_KEY_SUFFIXES
@@ -307,9 +321,38 @@ class ExperimentConfig:
 
 
 @dataclass(frozen=True)
+class BurstTextPaths:
+    """Repo-relative path to the burst text for each injecting arm.
+
+    There is deliberately no `twin` field: twin receives no injection, so a
+    burst text for it would be a meaningless value that base.yaml could carry
+    around looking meaningful. The schema check rejects one if it appears.
+    """
+
+    coherent: str | None
+    noise: str | None
+    ordinary: str | None
+
+    def for_arm(self, arm: str) -> str | None:
+        """The burst text path this arm will use, or None if it has none."""
+        # Written out rather than getattr(self, arm) so that the twin case is
+        # visible instead of being an AttributeError waiting to happen.
+        if arm == "coherent":
+            return self.coherent
+        if arm == "noise":
+            return self.noise
+        if arm == "ordinary":
+            return self.ordinary
+        if arm == "twin":
+            return None
+        raise ConfigError(f"no burst text path defined for arm {arm!r}")
+
+
+@dataclass(frozen=True)
 class InjectionConfig:
     injection_step: int | None
     burst_length_tokens: int | None
+    burst_text_paths: BurstTextPaths
 
 
 @dataclass(frozen=True)
@@ -356,6 +399,12 @@ _SECTION_CLASSES: dict[str, type] = {
     "checkpointing": CheckpointingConfig,
 }
 
+#: Nested mappings inside a section, keyed by dotted path. Same purpose as
+#: _SECTION_CLASSES, one level deeper.
+_SUBSECTION_CLASSES: dict[str, type] = {
+    "injection.burst_text_paths": BurstTextPaths,
+}
+
 _TOP_LEVEL_SCALARS: frozenset[str] = frozenset({"seed", "arm"})
 
 
@@ -388,6 +437,17 @@ def _check_shape(merged: dict, source: Path) -> None:
             )
         expected = {f.name for f in dataclasses.fields(cls)}
         _compare_keys(set(value), expected, f"section {section!r}", source)
+
+    for dotted, cls in _SUBSECTION_CLASSES.items():
+        section, key = dotted.split(".")
+        value = merged[section][key]
+        if not isinstance(value, dict):
+            raise ConfigError(
+                f"{source}: {dotted!r} must be a mapping, got "
+                f"{type(value).__name__}"
+            )
+        expected = {f.name for f in dataclasses.fields(cls)}
+        _compare_keys(set(value), expected, f"section {dotted!r}", source)
 
 
 def _compare_keys(
@@ -424,16 +484,29 @@ def _type_error_hint(value: Any) -> str:
 
 
 def _require(
-    merged: dict, section: str | None, key: str, kind: type | tuple[type, ...],
-    kind_name: str, source: str | Path, *, allow_null: bool = False,
+    merged: dict, section: str | tuple[str, ...] | None, key: str,
+    kind: type | tuple[type, ...], kind_name: str, source: str | Path, *,
+    allow_null: bool = False,
 ) -> Any:
     """Fetch one field and check its Python type after parsing.
 
     Every numeric field goes through here, which is requirement 3: a value
     that arrives as a string fails immediately with a message naming the field.
+
+    `section` is None for a top-level key, a string for a section, or a tuple
+    of names for something nested deeper.
     """
-    container = merged if section is None else merged[section]
-    dotted = key if section is None else f"{section}.{key}"
+    if section is None:
+        parts: tuple[str, ...] = ()
+    elif isinstance(section, str):
+        parts = (section,)
+    else:
+        parts = tuple(section)
+
+    container = merged
+    for part in parts:
+        container = container[part]
+    dotted = ".".join((*parts, key))
     value = container[key]
 
     if value is None:
@@ -483,6 +556,9 @@ def _str(merged, section, key, source, *, allow_null=False):
 def _bool(merged, section, key, source, *, allow_null=False):
     return _require(merged, section, key, bool, "a boolean (true/false)",
                     source, allow_null=allow_null)
+
+
+_BURST_TEXTS: tuple[str, ...] = ("injection", "burst_text_paths")
 
 
 def _build_config(merged: dict, source: str | Path) -> Config:
@@ -541,6 +617,14 @@ def _build_config(merged: dict, source: str | Path) -> Config:
                                 allow_null=True),
             burst_length_tokens=_int(merged, "injection", "burst_length_tokens",
                                      source, allow_null=True),
+            burst_text_paths=BurstTextPaths(
+                coherent=_str(merged, _BURST_TEXTS, "coherent", source,
+                              allow_null=True),
+                noise=_str(merged, _BURST_TEXTS, "noise", source,
+                           allow_null=True),
+                ordinary=_str(merged, _BURST_TEXTS, "ordinary", source,
+                              allow_null=True),
+            ),
         ),
         checkpointing=CheckpointingConfig(
             checkpoint_interval=_int(merged, "checkpointing", "checkpoint_interval",
@@ -640,9 +724,67 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             "positive."
         )
 
+    _validate_burst_text_paths(cfg, source)
+
     # Note deliberately NOT checked: that the twin arm has injection_step
     # unset. injection_step lives in the shared base config, so once it is
     # decided every arm sees it, including twin. Twin simply ignores it.
+
+
+_WHY_BURST_TEXT_MUST_BE_IN_REPO = (
+    "The burst text is experimental content, not configuration -- it is the "
+    "independent variable of the study. It has to be committed alongside the "
+    "code so that the git commit hash recorded in run_provenance.yaml covers "
+    "the text too. A path outside the repository would leave the injected "
+    "text unversioned and would differ between your laptop and the cluster, "
+    "which makes the run impossible to reproduce."
+)
+
+
+def _looks_absolute(value: str) -> bool:
+    """True if `value` is absolute on *either* POSIX or Windows.
+
+    Checked both ways on purpose. PureWindowsPath('/burst.txt').is_absolute()
+    is False (no drive letter), so a Linux-style absolute path written by your
+    collaborator would sail through a naive check run on Windows -- and vice
+    versa. The config has to be rejected identically on both machines.
+    """
+    if value.startswith(("/", "\\")):
+        return True
+    if PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute():
+        return True
+    # "C:burst.txt" is drive-relative rather than absolute, but it is still
+    # anchored to a particular machine's filesystem.
+    return bool(PureWindowsPath(value).drive)
+
+
+def _validate_burst_text_paths(cfg: Config, source: str | Path) -> None:
+    """Burst text paths must be relative and must live inside this repo."""
+    repo_root = _repo_root().resolve()
+    for arm in INJECTING_ARMS:
+        value = cfg.injection.burst_text_paths.for_arm(arm)
+        if value is None:
+            continue
+        dotted = f"injection.burst_text_paths.{arm}"
+
+        if not value.strip():
+            raise ConfigError(f"{source}: {dotted} is empty.")
+
+        if _looks_absolute(value):
+            raise ConfigError(
+                f"{source}: {dotted} is an absolute path ({value!r}). It must "
+                "be written relative to the repository root, "
+                f"e.g. 'configs/burst_texts/{arm}.txt'.\n"
+                + _WHY_BURST_TEXT_MUST_BE_IN_REPO
+            )
+
+        resolved = (repo_root / value).resolve()
+        if not resolved.is_relative_to(repo_root):
+            raise ConfigError(
+                f"{source}: {dotted} ({value!r}) resolves to {resolved}, "
+                f"which is outside the repository at {repo_root}.\n"
+                + _WHY_BURST_TEXT_MUST_BE_IN_REPO
+            )
 
 
 def _missing_for_launch(cfg: Config) -> list[str]:
@@ -657,7 +799,31 @@ def _missing_for_launch(cfg: Config) -> list[str]:
             missing.append("injection.injection_step")
         if cfg.injection.burst_length_tokens is None:
             missing.append("injection.burst_length_tokens")
+        # Only this arm's text matters. A coherent run does not care whether
+        # the noise text has been written yet.
+        if cfg.injection.burst_text_paths.for_arm(cfg.arm) is None:
+            missing.append(f"injection.burst_text_paths.{cfg.arm}")
     return missing
+
+
+def _check_burst_text_exists(cfg: Config) -> None:
+    """At launch time the burst text file has to actually be there.
+
+    Deliberately not checked when merely inspecting a config: the path may be
+    decided before the text is written. Checked only under require_complete,
+    because a run that reaches the injection step and finds no file has
+    already wasted most of its compute.
+    """
+    value = cfg.injection.burst_text_paths.for_arm(cfg.arm)
+    if value is None:
+        return
+    path = (_repo_root() / value).resolve()
+    if not path.is_file():
+        raise ConfigError(
+            f"run {cfg.run_name!r} cannot be launched: "
+            f"injection.burst_text_paths.{cfg.arm} points at {value!r}, but "
+            f"no file exists at {path}."
+        )
 
 
 def _check_run_filename(run_path: Path, cfg: Config) -> None:
@@ -931,6 +1097,7 @@ def load_config(
                     else ""
                 )
             )
+        _check_burst_text_exists(cfg)
 
     if write_provenance:
         # Written before anything downstream is allowed to happen, so a run

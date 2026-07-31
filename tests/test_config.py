@@ -98,52 +98,85 @@ def test_override_may_not_change_shared_values(tmp_path):
 
 def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
     """coherent/noise/ordinary need injection_step and burst_length_tokens."""
-    base = write_base(
-        tmp_path,
-        model__tie_embeddings=True,
-        checkpointing__checkpoint_interval=500,
-    )
+    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
     run = write_run(tmp_path, "seed: 3\narm: coherent\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
     message = str(exc.value)
     assert "injection.injection_step" in message
     assert "injection.burst_length_tokens" in message
+    assert "injection.burst_text_paths.coherent" in message
     assert "cannot be launched" in message
 
 
 @pytest.mark.parametrize("arm", ["coherent", "noise", "ordinary"])
 def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
-    base = write_base(
-        tmp_path,
-        model__tie_embeddings=True,
-        checkpointing__checkpoint_interval=500,
-    )
+    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
     run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
-    with pytest.raises(ConfigError, match="injection.injection_step"):
+    with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
+    assert "injection.injection_step" in str(exc.value)
+    # only this arm's burst text is demanded, not the other two
+    assert f"injection.burst_text_paths.{arm}" in str(exc.value)
+    for other in set(ARMS) - {arm}:
+        assert f"burst_text_paths.{other}" not in str(exc.value)
 
 
 def test_null_injection_fields_are_fine_for_twin(tmp_path):
     """twin receives no injection, so it launches with those fields null."""
-    base = write_base(
-        tmp_path,
-        model__tie_embeddings=True,
-        checkpointing__checkpoint_interval=500,
-    )
+    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.arm == "twin"
     assert cfg.injection.injection_step is None
     assert cfg.injection.burst_length_tokens is None
+    assert cfg.injection.burst_text_paths.for_arm("twin") is None
     assert cfg.missing_for_launch == ()
 
 
-def test_twin_still_requires_the_non_injection_fields(tmp_path):
-    """twin is exempt from the injection fields only, not from the rest."""
-    base = write_base(tmp_path, model__tie_embeddings=True)  # interval left null
+def test_twin_still_requires_checkpoint_interval(tmp_path):
+    """twin is exempt from the injection fields only, not from the rest.
+
+    checkpoint_interval is the remaining always-required null, so it carries
+    the null-required-field coverage for a non-injection field now that
+    tie_embeddings has been decided.
+    """
+    base = write_base(tmp_path)  # checkpoint_interval left null, as shipped
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run, require_complete=True)
+    assert "checkpointing.checkpoint_interval" in str(exc.value)
+    assert "cannot be launched" in str(exc.value)
+
+
+@pytest.mark.parametrize("arm", ARMS)
+def test_checkpoint_interval_required_by_every_arm(tmp_path, arm):
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
     with pytest.raises(ConfigError, match="checkpointing.checkpoint_interval"):
+        load(tmp_path, base, run, require_complete=True)
+
+
+def test_tie_embeddings_is_decided_in_the_real_base_config():
+    """It is `true`; 124439808 is the tied-embedding parameter count."""
+    data = base_dict()
+    assert data["model"]["tie_embeddings"] is True
+    assert data["model"]["expected_param_count"] == 124439808
+
+
+def test_checkpoint_interval_is_still_undecided_in_the_real_base_config():
+    assert base_dict()["checkpointing"]["checkpoint_interval"] is None
+
+
+def test_null_tie_embeddings_would_still_raise(tmp_path):
+    """The check did not go away when the value was decided."""
+    base = write_base(
+        tmp_path,
+        model__tie_embeddings=None,
+        checkpointing__checkpoint_interval=500,
+    )
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError, match="model.tie_embeddings"):
         load(tmp_path, base, run, require_complete=True)
 
 
@@ -225,6 +258,144 @@ def test_checkpoint_interval_is_not_mistaken_for_a_path(tmp_path):
     run = write_run(tmp_path, "seed: 3\narm: coherent\n")
     cfg = load(tmp_path, base, run)
     assert cfg.checkpointing.checkpoint_interval == 500
+
+
+# ---------------------------------------------------------------------------
+# corpus must be named, never located
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_names_the_dataset_and_holds_no_path():
+    corpus = base_dict()["corpus"]
+    assert corpus["name"] == "openwebtext"
+    for key in corpus:
+        lowered = key.lower()
+        assert not lowered.endswith(("_dir", "_path", "_directory", "_folder"))
+        assert lowered not in {"path", "dir", "root_dir", "data_dir", "location"}
+
+
+@pytest.mark.parametrize(
+    "key", ["data_path", "data_dir", "corpus_path", "root_dir", "path"]
+)
+def test_corpus_path_key_is_rejected(tmp_path, key):
+    data = base_dict()
+    data["corpus"][key] = "/data/openwebtext"
+    base = tmp_path / "base.yaml"
+    base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match="output-path-like key"):
+        load(tmp_path, base, run)
+
+
+# ---------------------------------------------------------------------------
+# burst text paths must be repo-relative and inside the repo
+# ---------------------------------------------------------------------------
+
+
+def valid_burst_base(tmp_path, path_value):
+    return write_base(
+        tmp_path,
+        checkpointing__checkpoint_interval=500,
+        injection__injection_step=4768,
+        injection__burst_length_tokens=64,
+        injection__burst_text_paths__coherent=path_value,
+    )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "/home/zach/burst/coherent.txt",       # posix absolute
+        "C:\\Users\\speck\\coherent.txt",      # windows absolute
+        "\\\\cluster\\share\\coherent.txt",    # UNC
+        "C:coherent.txt",                      # windows drive-relative
+    ],
+)
+def test_absolute_burst_text_path_is_rejected(tmp_path, bad):
+    """Rejected identically on Windows and Linux, not just on the host OS."""
+    base = valid_burst_base(tmp_path, bad)
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert "injection.burst_text_paths.coherent" in message
+    assert "absolute path" in message
+    assert "version" in message  # explains it must be version-controlled
+
+
+def test_burst_text_path_escaping_the_repo_is_rejected(tmp_path):
+    base = valid_burst_base(tmp_path, "../../outside/coherent.txt")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert "outside the repository" in message
+    assert "git commit hash" in message
+
+
+def test_empty_burst_text_path_is_rejected(tmp_path):
+    base = valid_burst_base(tmp_path, "   ")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match="is empty"):
+        load(tmp_path, base, run)
+
+
+def test_repo_relative_burst_text_path_is_accepted(tmp_path):
+    base = valid_burst_base(tmp_path, "configs/burst_texts/coherent.txt")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    cfg = load(tmp_path, base, run)
+    assert cfg.injection.burst_text_paths.coherent == "configs/burst_texts/coherent.txt"
+    assert cfg.injection.burst_text_paths.for_arm("coherent") == (
+        "configs/burst_texts/coherent.txt"
+    )
+
+
+def test_burst_text_paths_key_is_not_caught_by_the_output_path_rule(tmp_path):
+    """The exemption works; a path-holding content key is allowed through."""
+    base = valid_burst_base(tmp_path, "configs/burst_texts/coherent.txt")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    load(tmp_path, base, run)  # must not raise
+
+
+def test_launch_requires_the_burst_text_file_to_exist(tmp_path):
+    base = valid_burst_base(tmp_path, "configs/burst_texts/nope.txt")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match="no file exists at"):
+        load(tmp_path, base, run, require_complete=True)
+
+
+def test_launch_succeeds_when_the_burst_text_file_exists(tmp_path):
+    # README.md stands in for a burst text: it is a real, committed file
+    # inside the repo, which is exactly what the rule requires.
+    base = valid_burst_base(tmp_path, "README.md")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    cfg = load(tmp_path, base, run, require_complete=True)
+    assert cfg.missing_for_launch == ()
+
+
+def test_twin_needs_no_burst_text(tmp_path):
+    """twin launches with every burst text path still null."""
+    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    cfg = load(tmp_path, base, run, require_complete=True)
+    assert cfg.missing_for_launch == ()
+
+
+def test_a_twin_burst_text_entry_is_rejected(tmp_path):
+    """twin receives no text, so there is no slot for one."""
+    data = base_dict()
+    data["injection"]["burst_text_paths"]["twin"] = "configs/burst_texts/twin.txt"
+    base = tmp_path / "base.yaml"
+    base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match="unexpected: twin"):
+        load(tmp_path, base, run)
+
+
+def test_burst_text_paths_start_null_in_the_real_base_config():
+    paths = base_dict()["injection"]["burst_text_paths"]
+    assert set(paths) == {"coherent", "noise", "ordinary"}
+    assert all(value is None for value in paths.values())
 
 
 # ---------------------------------------------------------------------------

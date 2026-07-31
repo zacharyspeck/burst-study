@@ -46,9 +46,14 @@ model:
   # here yet, by design.
   expected_param_count: 124439808
 
-  # UNSET ON PURPOSE -- decided later. Whether the output projection reuses
-  # the token embedding matrix. Required non-null before any run is launched.
-  tie_embeddings: null
+  # Whether the output projection reuses the token embedding matrix.
+  #
+  # DECIDED: true. This is forced by expected_param_count above -- 124439808 is
+  # the GPT-2 Base count only with the embeddings tied. Untied, a separate
+  # output projection adds another vocab_size * n_embd = 50257 * 768 =
+  # 38597376 parameters, giving 163037184. GPT-2 ties by default, so `true`
+  # keeps the architecture and the recorded parameter count consistent.
+  tie_embeddings: true
 
 # ---------------------------------------------------------------------------
 # Training
@@ -106,14 +111,31 @@ experiment:
 # ---------------------------------------------------------------------------
 # Injection
 #
-# Both values are UNSET ON PURPOSE -- decided later. The coherent, noise and
-# ordinary arms all require them to be non-null before launch. The twin arm
+# Everything here is UNSET ON PURPOSE -- decided later. The coherent, noise and
+# ordinary arms all require these to be non-null before launch. The twin arm
 # does not: it receives no injection, so it launches fine with these still
 # null, and simply ignores them once they are filled in.
 # ---------------------------------------------------------------------------
 injection:
   injection_step: null
   burst_length_tokens: null
+
+  # Where the burst text for each injecting arm lives. One entry per injecting
+  # arm; twin has no entry because it receives no text at all.
+  #
+  # These paths MUST be relative to the repository root, and the loader
+  # enforces it. The burst text is experimental content, not configuration --
+  # it is the independent variable of the study. It has to be committed
+  # alongside the code so that the git commit hash recorded in
+  # run_provenance.yaml covers the text as well. An absolute path would point
+  # outside the repo, would differ between a laptop and a cluster, and would
+  # leave the injected text unversioned, which makes the run unreproducible.
+  #
+  # Example, once decided:  coherent: configs/burst_texts/coherent.txt
+  burst_text_paths:
+    coherent: null
+    noise: null
+    ordinary: null
 
 # ---------------------------------------------------------------------------
 # Checkpointing
