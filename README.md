@@ -103,7 +103,6 @@ not been decided yet:
 injection.injection_step
 injection.burst_length_tokens
 injection.burst_text_paths.{coherent,noise,ordinary}
-checkpointing.checkpoint_interval
 ```
 
 Without `--launch`, the loader lets you inspect a config while those are
@@ -113,9 +112,10 @@ undecided, and prints a `NOT LAUNCH-READY` block listing what is missing. With
 `twin` receives no injection, so it does **not** need `injection_step`,
 `burst_length_tokens`, or a burst text, and is launch-ready without them. The
 other three arms each need all three — and only *their own* burst text, not the
-other arms'. All four arms need `checkpoint_interval`.
+other arms'.
 
-`model.tie_embeddings` is now decided (`true`); see the field table below.
+`model.tie_embeddings` (`true`) and the two `checkpointing` intervals (`50` and
+`1000`) are decided; see the field tables below.
 
 From Python the safe default is the other way round — `load_config()` uses
 `require_complete=True`, because anything calling it from code is about to
@@ -220,7 +220,7 @@ running before a launch batch. The seed count and arm names come from
 | --- | --- | --- |
 | `batch_size` | 256 | sequences per optimizer step |
 | `seq_len` | 1024 | tokens per sequence |
-| `total_steps` | 9536 | optimizer steps for the whole run |
+| `total_steps` | 9536 | optimizer steps for the whole run. **Steps are 0-indexed**, so the first is 0 and the last is `total_steps - 1` = 9535. Anything keying off "the last step" must compute it, never hardcode 9535. |
 
 ### `optimizer`
 
@@ -303,7 +303,65 @@ the "identical except seed and arm" guarantee.
 
 | field | value | meaning |
 | --- | --- | --- |
-| `checkpoint_interval` | **null** | steps between checkpoints. Undecided. An *interval*, not a directory. |
+| `weights_only_interval` | 50 | steps between **weights-only** checkpoints (weights + step number, ~0.5 GB) |
+| `full_interval` | 1000 | steps between **full** checkpoints (weights + optimizer state + step + RNG state, ~1.5 GB) |
+
+Both are intervals in optimizer steps, not directories.
+
+Two schedules rather than one because the two reasons to checkpoint have very
+different costs. **Full** checkpoints exist for crash recovery — they carry
+everything needed to resume bit-identically, and AdamW's two moment buffers are
+each another full copy of the parameters, hence ~1.5 GB. **Weights-only**
+checkpoints exist to measure how the model changes during training. Every
+metric in this study is a function of the weights alone, so weights-only is
+sufficient for measurement, and that is exactly what makes a 50-step interval
+affordable — the same density at full-checkpoint size would cost three times as
+much.
+
+Two rules the loader encodes and the **training loop must implement**:
+
+- **Precedence.** When both intervals fire on the same step, write the **full**
+  checkpoint only; a weights-only file there would duplicate data already
+  inside it. This is why `full_interval` must be an exact multiple of
+  `weights_only_interval` — the loader rejects any other pairing, since
+  otherwise the schedules drift and "the same step" stops being well defined.
+- **Final step.** The last step (`total_steps - 1` = 9535) always saves a
+  **full** checkpoint regardless of interval. 9536 divides by neither 50 nor
+  1000, so without this rule the finished model — what every headline
+  comparison is computed on — would never be written.
+
+A checkpoint is due after every N *completed* steps, i.e. at 0-indexed step `s`
+when `(s + 1) % N == 0`. The first weights-only checkpoint lands at step 49.
+
+### Derived: the checkpoint plan
+
+The loader computes the schedule from the config the same way it computes the
+token budget — never hardcoded, so it stays correct if `total_steps` changes:
+
+```python
+plan = cfg.checkpoint_plan
+plan.last_step                 # 9535
+plan.weights_only_count        # 181
+plan.full_count                # 10
+plan.estimated_bytes_per_run   # 105_500_000_000   (105.5 GB)
+plan.estimated_bytes_all_runs  # 4_220_000_000_000 (4.22 TB)
+
+cfg.checkpoint_kind_at(49)     # "weights_only"
+cfg.checkpoint_kind_at(999)    # "full"   <- precedence
+cfg.checkpoint_kind_at(9535)   # "full"   <- final-step rule
+cfg.checkpoint_kind_at(48)     # None
+```
+
+`checkpoint_kind_at()` is the single definition of the schedule. It writes
+nothing — it is a pure function of the config — but the training loop must call
+it, or reproduce it exactly, so the two rules above cannot end up implemented
+two different ways. `python -m burst.config …` prints the plan, and it is
+recorded in `run_provenance.yaml`.
+
+The 0.5 GB and 1.5 GB figures are **estimates for 124M fp32 parameters, not
+measurements**: weights are `124439808 × 4 = 497,759,232` bytes and a full
+checkpoint adds two AdamW moment buffers. Nothing in this repo has ever written
+a checkpoint.
 
 ---
 
@@ -331,12 +389,15 @@ vanishes under an optimisation flag is worse than none.
 5. **Arithmetic.** `batch_size × seq_len × total_steps` must equal
    `expected_token_budget`. Also: `seq_len ≤ block_size`, `n_embd` divisible by
    `n_head`, `warmup_steps < total_steps`, `final ≤ peak`, `seed` in range,
-   `injection_step` within the run.
+   `injection_step` within the run, both checkpoint intervals positive, and
+   `full_interval` an exact multiple of `weights_only_interval`.
 6. **Arm validation.** Exactly one of the four literal names, no case
    normalisation. A case variant gets a hint.
 7. **Schema completeness.** The base config's sections and keys must match the
    loader's dataclasses exactly — a key added to `base.yaml` that no code reads
-   is a provenance hole, and is rejected.
+   is a provenance hole, and is rejected. A key that has been *removed* from
+   the schema (currently `checkpoint_interval`) fails with an error naming what
+   replaced it, rather than a generic "unknown key".
 8. **No output paths in configs.** No corpus path either. See above.
 9. **Burst text paths stay inside the repo.** Relative only, no escaping via
    `..`, and the file must exist at launch — so the recorded commit hash covers
@@ -387,8 +448,21 @@ every depth and can silently exclude real content.
 Training loop, model definition, data pipeline, tokenizer, metrics, analysis,
 the injection hook, and any launcher beyond the override generator.
 
-Three obligations that later modules must honour — a held-out data reservation,
-RNG state in checkpoints, and the storage arithmetic behind
-`checkpoint_interval` — are recorded under "Cross-module obligations" in
-`implementation-notes.md`. Read that before building the data pipeline or the
-training loop.
+Obligations that later modules must honour are recorded in
+`implementation-notes.md` — read it before building the data pipeline or the
+training loop:
+
+- a **held-out data reservation**, which must be carved out when the corpus is
+  tokenized or it will not exist when the metrics module needs it
+- **RNG state in checkpoints**, without which a resumed run silently diverges
+  from an uninterrupted one
+- the **checkpoint precedence and final-step rules**, which this repo defines
+  and validates but cannot enforce — `Config.checkpoint_kind_at()` is the
+  single definition and the training loop must call it or reproduce it exactly
+- the **0-indexed step convention**, including that step 0 is not a checkpoint
+  step
+
+Two config values are also still **inert** — `expected_param_count` is compared
+against nothing because no model exists, and `determinism: true` configures
+nothing because no training code exists. Both are listed under "Not yet
+enforced".

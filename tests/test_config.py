@@ -1,4 +1,4 @@
-"""Tests for burst.config.
+﻿"""Tests for burst.config.
 
 Each test builds a throwaway copy of the real configs/base.yaml in tmp_path,
 edits one thing, and checks that the loader complains about exactly that
@@ -98,7 +98,7 @@ def test_override_may_not_change_shared_values(tmp_path):
 
 def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
     """coherent/noise/ordinary need injection_step and burst_length_tokens."""
-    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
     run = write_run(tmp_path, "seed: 3\narm: coherent\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
@@ -111,7 +111,7 @@ def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
 
 @pytest.mark.parametrize("arm", ["coherent", "noise", "ordinary"])
 def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
-    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
     run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
@@ -124,7 +124,7 @@ def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
 
 def test_null_injection_fields_are_fine_for_twin(tmp_path):
     """twin receives no injection, so it launches with those fields null."""
-    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.arm == "twin"
@@ -134,26 +134,47 @@ def test_null_injection_fields_are_fine_for_twin(tmp_path):
     assert cfg.missing_for_launch == ()
 
 
-def test_twin_still_requires_checkpoint_interval(tmp_path):
+def test_twin_still_requires_the_checkpoint_intervals(tmp_path):
     """twin is exempt from the injection fields only, not from the rest.
 
-    checkpoint_interval is the remaining always-required null, so it carries
-    the null-required-field coverage for a non-injection field now that
-    tie_embeddings has been decided.
+    This is the retargeted null-required-field coverage for a non-injection
+    field: it used to hang off checkpoint_interval, which no longer exists.
+    Both replacement fields now carry it.
     """
-    base = write_base(tmp_path)  # checkpoint_interval left null, as shipped
+    base = write_base(
+        tmp_path,
+        checkpointing__weights_only_interval=None,
+        checkpointing__full_interval=None,
+    )
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
-    assert "checkpointing.checkpoint_interval" in str(exc.value)
-    assert "cannot be launched" in str(exc.value)
+    message = str(exc.value)
+    assert "checkpointing.weights_only_interval" in message
+    assert "checkpointing.full_interval" in message
+    assert "cannot be launched" in message
 
 
 @pytest.mark.parametrize("arm", ARMS)
-def test_checkpoint_interval_required_by_every_arm(tmp_path, arm):
-    base = write_base(tmp_path)
+def test_checkpoint_intervals_required_by_every_arm(tmp_path, arm):
+    base = write_base(
+        tmp_path,
+        checkpointing__weights_only_interval=None,
+        checkpointing__full_interval=None,
+    )
     run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
-    with pytest.raises(ConfigError, match="checkpointing.checkpoint_interval"):
+    with pytest.raises(ConfigError, match="checkpointing.weights_only_interval"):
+        load(tmp_path, base, run, require_complete=True)
+
+
+@pytest.mark.parametrize(
+    "field", ["weights_only_interval", "full_interval"]
+)
+def test_either_checkpoint_interval_null_alone_raises(tmp_path, field):
+    """Each field is required independently, not just as a pair."""
+    base = write_base(tmp_path, **{f"checkpointing__{field}": None})
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError, match=f"checkpointing.{field}"):
         load(tmp_path, base, run, require_complete=True)
 
 
@@ -164,8 +185,17 @@ def test_tie_embeddings_is_decided_in_the_real_base_config():
     assert data["model"]["expected_param_count"] == 124439808
 
 
-def test_checkpoint_interval_is_still_undecided_in_the_real_base_config():
-    assert base_dict()["checkpointing"]["checkpoint_interval"] is None
+def test_checkpoint_intervals_are_decided_in_the_real_base_config():
+    ckpt = base_dict()["checkpointing"]
+    assert set(ckpt) == {"weights_only_interval", "full_interval"}
+    assert ckpt["weights_only_interval"] == 50
+    assert ckpt["full_interval"] == 1000
+    # the whole point of the multiple rule
+    assert ckpt["full_interval"] % ckpt["weights_only_interval"] == 0
+
+
+def test_the_old_checkpoint_interval_key_is_gone_from_the_base_config():
+    assert "checkpoint_interval" not in base_dict()["checkpointing"]
 
 
 def test_null_tie_embeddings_would_still_raise(tmp_path):
@@ -173,7 +203,7 @@ def test_null_tie_embeddings_would_still_raise(tmp_path):
     base = write_base(
         tmp_path,
         model__tie_embeddings=None,
-        checkpointing__checkpoint_interval=500,
+        checkpointing__weights_only_interval=50, checkpointing__full_interval=1000,
     )
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     with pytest.raises(ConfigError, match="model.tie_embeddings"):
@@ -252,12 +282,13 @@ def test_output_path_key_in_override_raises(tmp_path):
         load(tmp_path, base, run)
 
 
-def test_checkpoint_interval_is_not_mistaken_for_a_path(tmp_path):
+def test_checkpoint_intervals_are_not_mistaken_for_paths(tmp_path):
     """The denylist must not catch legitimate keys that merely sound similar."""
-    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    base = write_base(tmp_path)
     run = write_run(tmp_path, "seed: 3\narm: coherent\n")
     cfg = load(tmp_path, base, run)
-    assert cfg.checkpointing.checkpoint_interval == 500
+    assert cfg.checkpointing.weights_only_interval == 50
+    assert cfg.checkpointing.full_interval == 1000
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +319,241 @@ def test_corpus_path_key_is_rejected(tmp_path, key):
 
 
 # ---------------------------------------------------------------------------
+# checkpoint schedule: validation, precedence, derived storage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [0, -1, -50])
+@pytest.mark.parametrize("field", ["weights_only_interval", "full_interval"])
+def test_non_positive_checkpoint_interval_raises(tmp_path, field, bad):
+    base = write_base(tmp_path, **{f"checkpointing__{field}": bad})
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert f"checkpointing.{field}" in message
+    assert "positive" in message
+
+
+@pytest.mark.parametrize("full", [1010, 51, 999, 75, 1049])
+def test_full_interval_must_be_a_multiple_of_weights_only(tmp_path, full):
+    base = write_base(tmp_path, checkpointing__full_interval=full)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert "exact multiple" in message
+    assert "precedence" in message
+    assert str(full) in message
+
+
+@pytest.mark.parametrize("full", [50, 100, 1000, 1500, 2000, 9550])
+def test_multiples_of_weights_only_interval_are_accepted(tmp_path, full):
+    base = write_base(tmp_path, checkpointing__full_interval=full)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    cfg = load(tmp_path, base, run)
+    assert cfg.checkpointing.full_interval == full
+
+
+def test_float_interval_is_rejected(tmp_path):
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50.5)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError,
+                       match="weights_only_interval must be an integer"):
+        load(tmp_path, base, run)
+
+
+# --- the removed key ---
+
+
+def test_old_checkpoint_interval_key_in_base_raises(tmp_path):
+    data = base_dict()
+    data["checkpointing"]["checkpoint_interval"] = 500
+    base = tmp_path / "base.yaml"
+    base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert "no longer exists" in message
+    # the error must name both replacements
+    assert "checkpointing.weights_only_interval" in message
+    assert "checkpointing.full_interval" in message
+
+
+def test_old_checkpoint_interval_key_in_override_raises(tmp_path):
+    base = write_base(tmp_path)
+    run = write_run(tmp_path,
+                    "seed: 3\narm: coherent\ncheckpointing:\n"
+                    "  checkpoint_interval: 500\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    assert "no longer exists" in str(exc.value)
+    assert "weights_only_interval" in str(exc.value)
+
+
+def test_old_key_at_top_level_also_raises(tmp_path):
+    """Caught wherever it appears, not only in the checkpointing section."""
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: coherent\ncheckpoint_interval: 500\n")
+    with pytest.raises(ConfigError, match="no longer exists"):
+        load(tmp_path, base, run)
+
+
+# --- precedence and the final-step rule ---
+
+
+def real_cfg(tmp_path, **edits):
+    base = write_base(tmp_path, **edits)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    return load(tmp_path, base, run)
+
+
+def test_last_step_is_zero_indexed(tmp_path):
+    cfg = real_cfg(tmp_path)
+    assert cfg.training.total_steps == 9536
+    assert cfg.last_step == 9535
+
+
+def test_checkpoint_kind_precedence_full_wins(tmp_path):
+    """When both intervals fire on the same step, only the full one counts."""
+    cfg = real_cfg(tmp_path)
+    # step 999 -> 1000 completed steps -> both 50 and 1000 divide it
+    assert 1000 % 50 == 0
+    assert cfg.checkpoint_kind_at(999) == "full"
+    # a step where only the 50 interval fires
+    assert cfg.checkpoint_kind_at(49) == "weights_only"
+    # a step where neither fires
+    assert cfg.checkpoint_kind_at(48) is None
+
+
+@pytest.mark.parametrize("step", [999, 1999, 4999, 8999])
+def test_every_full_firing_step_is_full_not_weights_only(tmp_path, step):
+    cfg = real_cfg(tmp_path)
+    assert cfg.checkpoint_kind_at(step) == "full"
+
+
+def test_final_step_is_always_full(tmp_path):
+    """9536 divides by neither 50 nor 1000, so only the rule saves it."""
+    cfg = real_cfg(tmp_path)
+    assert 9536 % 50 != 0 and 9536 % 1000 != 0
+    assert cfg.checkpoint_kind_at(cfg.last_step) == "full"
+
+
+def test_final_step_rule_follows_total_steps_not_a_hardcoded_9536(tmp_path):
+    cfg = real_cfg(tmp_path, training__total_steps=2000,
+                   corpus__expected_token_budget=256 * 1024 * 2000)
+    assert cfg.last_step == 1999
+    assert cfg.checkpoint_kind_at(1999) == "full"
+    with pytest.raises(ConfigError, match="outside this run"):
+        cfg.checkpoint_kind_at(9535)
+
+
+def test_checkpoint_kind_rejects_out_of_range_steps(tmp_path):
+    cfg = real_cfg(tmp_path)
+    for bad in (-1, 9536, 99999):
+        with pytest.raises(ConfigError, match="outside this run"):
+            cfg.checkpoint_kind_at(bad)
+
+
+def test_first_weights_only_checkpoint_is_after_n_completed_steps(tmp_path):
+    """Interval 50 means step 49, not step 0 and not step 50."""
+    cfg = real_cfg(tmp_path)
+    assert cfg.checkpoint_kind_at(0) is None
+    assert cfg.checkpoint_kind_at(49) == "weights_only"
+    assert cfg.checkpoint_kind_at(50) is None
+
+
+# --- derived storage ---
+
+
+def test_checkpoint_plan_counts_match_a_brute_force_walk(tmp_path):
+    """The counting formula must agree with walking every step."""
+    cfg = real_cfg(tmp_path)
+    plan = cfg.checkpoint_plan
+    kinds = [cfg.checkpoint_kind_at(s) for s in range(cfg.training.total_steps)]
+    assert plan.weights_only_count == kinds.count("weights_only")
+    assert plan.full_count == kinds.count("full")
+
+
+def test_checkpoint_plan_for_the_real_config(tmp_path):
+    cfg = real_cfg(tmp_path)
+    plan = cfg.checkpoint_plan
+    # 9536 // 50 = 190 firings, 9536 // 1000 = 9 of which are full,
+    # plus one more full for the final step (9536 divides neither).
+    assert plan.weights_only_count == 181
+    assert plan.full_count == 10
+    assert plan.estimated_bytes_per_run == 181 * 500_000_000 + 10 * 1_500_000_000
+    assert plan.estimated_bytes_per_run == 105_500_000_000       # 105.5 GB
+    assert plan.estimated_bytes_all_runs == 105_500_000_000 * 40  # 4.22 TB
+    assert plan.last_step == 9535
+
+
+@pytest.mark.parametrize(
+    "total,wo,full,exp_wo,exp_full",
+    [
+        # last step is neither firing -> final rule adds a full checkpoint
+        (9536, 50, 1000, 181, 10),
+        # last step is exactly a full firing -> no extra checkpoint
+        (1000, 50, 1000, 19, 1),
+        # last step is a weights-only firing -> promoted to full, not counted twice
+        (1050, 50, 1000, 19, 2),
+        # intervals larger than the run -> only the mandatory final full one
+        (100, 200, 400, 0, 1),
+    ],
+)
+def test_checkpoint_plan_edge_cases(tmp_path, total, wo, full, exp_wo, exp_full):
+    cfg = real_cfg(
+        tmp_path,
+        training__total_steps=total,
+        corpus__expected_token_budget=256 * 1024 * total,
+        checkpointing__weights_only_interval=wo,
+        checkpointing__full_interval=full,
+        learning_rate__warmup_steps=min(200, total - 1),
+    )
+    plan = cfg.checkpoint_plan
+    assert (plan.weights_only_count, plan.full_count) == (exp_wo, exp_full)
+    kinds = [cfg.checkpoint_kind_at(s) for s in range(total)]
+    assert plan.weights_only_count == kinds.count("weights_only")
+    assert plan.full_count == kinds.count("full")
+
+
+def test_checkpoint_plan_tracks_total_steps(tmp_path):
+    """Derived, not hardcoded: change total_steps and the plan changes."""
+    cfg = real_cfg(tmp_path, training__total_steps=4768,
+                   corpus__expected_token_budget=256 * 1024 * 4768)
+    plan = cfg.checkpoint_plan
+    assert plan.last_step == 4767
+    assert plan.weights_only_count == 4768 // 50 - 4768 // 1000   # 95 - 4 = 91
+    assert plan.full_count == 4768 // 1000 + 1                    # 4 + 1 = 5
+
+
+def test_checkpoint_plan_raises_while_intervals_are_undecided(tmp_path):
+    cfg = real_cfg(tmp_path, checkpointing__full_interval=None)
+    with pytest.raises(ConfigError, match="not decided yet"):
+        _ = cfg.checkpoint_plan
+    with pytest.raises(ConfigError, match="not decided yet"):
+        cfg.checkpoint_kind_at(49)
+
+
+def test_checkpoint_plan_is_frozen(tmp_path):
+    plan = real_cfg(tmp_path).checkpoint_plan
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        plan.full_count = 999
+
+
+def test_checkpoint_plan_is_recorded_in_provenance(tmp_path):
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    outdir = tmp_path / "out"
+    load_config(base, run, outdir, require_complete=False)
+    meta = yaml.safe_load((outdir / "run_provenance.yaml").read_text(encoding="utf-8"))
+    assert meta["checkpoint_plan"]["weights_only_count"] == 181
+    assert meta["checkpoint_plan"]["full_count"] == 10
+    assert meta["checkpoint_plan"]["last_step"] == 9535
+
+
+# ---------------------------------------------------------------------------
 # burst text paths must be repo-relative and inside the repo
 # ---------------------------------------------------------------------------
 
@@ -295,7 +561,7 @@ def test_corpus_path_key_is_rejected(tmp_path, key):
 def valid_burst_base(tmp_path, path_value):
     return write_base(
         tmp_path,
-        checkpointing__checkpoint_interval=500,
+        checkpointing__weights_only_interval=50, checkpointing__full_interval=1000,
         injection__injection_step=4768,
         injection__burst_length_tokens=64,
         injection__burst_text_paths__coherent=path_value,
@@ -375,7 +641,7 @@ def test_launch_succeeds_when_the_burst_text_file_exists(tmp_path):
 
 def test_twin_needs_no_burst_text(tmp_path):
     """twin launches with every burst text path still null."""
-    base = write_base(tmp_path, checkpointing__checkpoint_interval=500)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.missing_for_launch == ()

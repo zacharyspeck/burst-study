@@ -34,10 +34,13 @@ at it is exactly the kind of silent decision this repo exists to prevent. But
 one of the two numbers will have to move. Flagging it now rather than after 40
 runs.
 
-`checkpoint_interval` remains `null` and is still the one always-required
-undecided value. Now that `tie_embeddings` is known, a load-time parameter-count
-assertion is computable — see "Not yet enforced" below for why it still is not
-in the loader.
+Now that `tie_embeddings` is known, a load-time parameter-count assertion is
+computable — see "Not yet enforced" below for why it still is not in the loader.
+
+(The old `checkpoint_interval` was the other always-required null at the time
+this was written. It has since been decided and split in two; see "The
+checkpoint schedule decision". `checkpointing` now has no null fields, and the
+only values still undecided are the four in `injection`.)
 
 ### 2. Seeds are 0-indexed
 
@@ -204,9 +207,13 @@ seed and arm" guarantee. Twin ignores the value.
 ### S9. Output-path denylist is exact-match plus suffixes, not substring
 
 `OUTPUT_PATH_KEY_DENYLIST` matches whole lowercased key names, plus the
-suffixes `_dir`, `_path`, `_directory`, `_folder`. Substring matching would
-have caught `checkpoint_interval` as a false positive. There is a test pinning
-that specific non-behaviour.
+suffixes `_dir`, `_path`, `_directory`, `_folder`. Substring matching would have
+caught the checkpointing interval keys as false positives. There is a test
+pinning that specific non-behaviour.
+
+Note `burst_text_paths` is exempted by dotted name (`CONTENT_PATH_KEYS_EXEMPT`)
+rather than by being un-matchable, so renaming it cannot slip it past both
+checks — see S13.
 
 ### S10. Git state is read from the code's repo, not the working directory
 
@@ -364,12 +371,23 @@ Related, and cheap: on resume, verify the loaded checkpoint's step number and
 config hash against the run being resumed, and refuse to resume across a
 mismatch.
 
-### 3. `checkpoint_interval` is a storage decision
+### 3. ~~`checkpoint_interval` is a storage decision~~ — RESOLVED
 
-**Owner: me. Still undecided — it is the one remaining always-required null in
-`configs/base.yaml`.**
+**Resolved 2026-07-31.** Split into two fields:
 
-Recorded here so the value gets chosen against a number instead of a vibe.
+```yaml
+checkpointing:
+  weights_only_interval: 50      # ~0.5 GB each
+  full_interval: 1000            # ~1.5 GB each
+```
+
+plus a rule that the final step always writes a full checkpoint. Full detail in
+"The checkpoint schedule decision" below. **`checkpointing` no longer has any
+null fields, and `checkpoint_interval` no longer exists as a key anywhere** —
+the loader rejects it by name with a message pointing at the two replacements.
+
+The original sizing note is kept below because the per-checkpoint arithmetic is
+still exactly what the new numbers are built on.
 
 Per-checkpoint size, at 124,439,808 parameters in fp32:
 
@@ -408,15 +426,147 @@ would not fit.
 
 Two things worth deciding at the same time:
 
-- **Does the interval need to be denser near `injection_step`?** The burst is
-  the event the study is about, and a uniform interval may sample it too
-  coarsely to see what happens immediately after. If the answer is yes, the
-  config needs a schedule rather than a single integer, and that is a schema
-  change to `checkpointing` — worth knowing before 40 runs, not after.
-- **Is fp32 optimizer state necessary?** Storing `exp_avg`/`exp_avg_sq` in
-  bf16 would cut checkpoints to ~1.0 GB, a third off every row above. That is a
-  numerics decision, not a storage one, and it interacts with
-  `determinism: true` — so it belongs with the training loop, not here.
+- **Does the interval need to be denser near `injection_step`?** *Answered by
+  the split below:* a 50-step weights-only interval samples the neighbourhood of
+  the burst 20× more densely than the old 1000-step proposal, at a fifth of the
+  per-checkpoint cost. A separate non-uniform schedule is no longer needed.
+- **Is fp32 optimizer state necessary?** Still open. Storing
+  `exp_avg`/`exp_avg_sq` in bf16 would cut *full* checkpoints to ~1.0 GB. Under
+  the schedule below that saves only 5 GB per run (full checkpoints are now a
+  small share of the total), so the pressure is off. Still a numerics decision
+  that interacts with `determinism: true`, and it belongs with the training
+  loop.
+
+---
+
+## The checkpoint schedule decision
+
+**Decided 2026-07-31. Owner: me. No nulls left in `checkpointing`.**
+
+```yaml
+checkpointing:
+  weights_only_interval: 50      # weights + step number,            ~0.5 GB
+  full_interval: 1000            # + optimizer state + RNG state,    ~1.5 GB
+```
+
+### Why two schedules instead of one
+
+The two reasons to save a checkpoint have very different costs, and a single
+interval forced them to share the expensive one.
+
+- **Full checkpoints exist for crash recovery.** They carry weights, optimizer
+  state, the step number and the RNG state — everything needed to resume a dead
+  run bit-identically (see obligation 2 above). AdamW's two moment buffers are
+  each another full copy of the parameters, which is why a full checkpoint is
+  ~1.5 GB and not ~0.5 GB.
+- **Weights-only checkpoints exist to measure how the model changes during
+  training.** They carry the weights and the step number, nothing else.
+
+**Every metric in this study is a function of the weights alone.** So
+weights-only checkpoints are sufficient for measurement — and that is precisely
+what makes a 50-step interval affordable. The same sampling density at
+full-checkpoint size would cost three times as much and would not fit alongside
+the corpus and any re-runs.
+
+### The two rules
+
+**Precedence.** When both intervals fire on the same step, write the **full**
+checkpoint only. A weights-only file at that step would duplicate data already
+inside the full one. This is why `full_interval` must be an exact multiple of
+`weights_only_interval`; the loader rejects any other pairing, because otherwise
+the two schedules drift and "both fire on the same step" becomes an accident of
+arithmetic rather than a rule.
+
+**Final step.** The last step always writes a **full** checkpoint regardless of
+interval. 9536 is divisible by neither 50 nor 1000, so without this rule the
+finished model — the thing every headline comparison in the study is computed
+on — would never be written at all. The rule keys off the computed last step
+(`total_steps - 1`), never a literal 9535, so it survives a change to
+`total_steps`. There is a test that changes `total_steps` and asserts the rule
+follows it.
+
+### Resulting storage
+
+Counting steps 0..9535, with a checkpoint due at step `s` when
+`(s + 1) % N == 0`:
+
+```
+weights-only firings    9536 // 50   = 190
+full firings            9536 // 1000 =   9      (all 9 are also wo firings)
+final-step rule         9536 % 1000 != 0        -> +1 full
+```
+
+| kind | count | each | per run |
+| --- | ---: | ---: | ---: |
+| weights-only | 190 − 9 = **181** | 0.5 GB | 90.5 GB |
+| full | 9 + 1 = **10** | 1.5 GB | 15.0 GB |
+| **total per run** | 191 | | **105.5 GB** |
+| **all 40 runs** | 7,640 | | **4.22 TB** |
+
+That is **42% of the 10 TB budget**, leaving 5.8 TB for the tokenized corpus,
+the held-out slice (obligation 1) and re-runs. A second full pass of the study
+would not fit alongside the first; one arm re-run (10 runs, ~1.06 TB) would.
+
+The loader computes all of this from the config rather than storing it —
+`cfg.checkpoint_plan` exposes `last_step`, `weights_only_count`, `full_count`,
+`estimated_bytes_per_run` and `estimated_bytes_all_runs`, and it is written into
+`run_provenance.yaml`. There is a test that walks all 9,536 steps calling
+`checkpoint_kind_at()` and asserts the brute-force counts match the closed-form
+ones, so the formula cannot quietly drift from the rule.
+
+The 0.5 GB and 1.5 GB figures are **estimates, not measurements** — stated as
+such in a comment beside the constants. Nothing in this repo has ever written a
+checkpoint. Framework overhead, compression, and bf16 optimizer state would all
+move them.
+
+### What the training loop owes this
+
+`Config.checkpoint_kind_at(step)` returns `"full"`, `"weights_only"` or `None`
+and is the single definition of the schedule. It writes nothing — it is a pure
+function of the config — but **the training loop must call it, or reproduce it
+exactly.** Both rules above are currently enforced only in the sense that the
+loader computes counts consistent with them; nothing writes a file.
+
+Concretely, the training loop still owes:
+
+- **The precedence rule an actual implementation.** Nothing stops a training
+  loop from checking `step % 50 == 0` and `step % 1000 == 0` independently and
+  writing both files. That would silently inflate storage by 15 GB per run and
+  put two files at the same step whose relationship nothing documents.
+- **The final-step rule an actual implementation.** This is the one that
+  matters most: skip it and there is no finished-model checkpoint at all, and
+  every headline comparison in the study has nothing to run on. It must compute
+  `total_steps - 1` rather than hardcode 9535.
+- **Honouring the 0-indexed convention**, including that step 0 is not a
+  checkpoint step — see below.
+
+---
+
+## Step indexing: 0-indexed, and step 0 is not a checkpoint step
+
+Recorded because it was load-bearing well before it was written down anywhere.
+
+**The repo already committed to 0-indexed steps**, implicitly. `_validate_semantics`
+range-checks `injection_step` as `0 <= step < total_steps` and its error message
+reads `must be within 0..9535`. Nothing anywhere implied 1-indexing. So:
+
+- the first optimizer step is **0**
+- the last is **`total_steps - 1` = 9535**
+- `Config.last_step` is the only place that arithmetic appears
+
+**A checkpoint is due after every N *completed* steps**, i.e. at step `s` when
+`(s + 1) % N == 0`. With `weights_only_interval: 50` the first checkpoint lands
+at step **49**, not step 0 and not step 50.
+
+**Step 0 is therefore never a checkpoint step.** This was already assumed and
+never stated: the storage table in the original version of this file counted
+`floor(9536 / interval)` firings, which is only correct if step 0 is excluded —
+including it would have given one more per run. The convention is now explicit
+in `configs/base.yaml`, in the README, and in `checkpoint_kind_at()`.
+
+The training loop must honour all of this. If it 1-indexes its own step counter,
+`injection_step`, the checkpoint schedule and the final-step rule all land one
+step off, and nothing in this repo would detect it.
 
 ---
 
@@ -485,7 +635,8 @@ actually set, so the claim is evidenced rather than assumed.
 
 ## Test coverage
 
-112 tests. The five required cases are
+156 tests (112 before the checkpoint split; +44). The five originally required
+cases are
 `test_typo_in_override_key_raises`,
 `test_null_injection_fields_raise_for_injecting_arm` /
 `test_null_injection_fields_are_fine_for_twin`,
@@ -495,14 +646,45 @@ actually set, so the claim is evidenced rather than assumed.
 
 The rest cover the YAML traps, duplicate keys, immutability, the provenance
 files, the overwrite guard, the schema check, burst text path containment,
-corpus path rejection, all 40 generated overrides loading, a mechanical check
-that the 40 runs differ *only* in seed and arm, and the CLI end to end.
+corpus path rejection, the checkpoint schedule, all 40 generated overrides
+loading, a mechanical check that the 40 runs differ *only* in seed and arm, and
+the CLI end to end.
 
-Note that the null-required-field coverage now hangs off `checkpoint_interval`
-and the injection fields rather than `tie_embeddings`, since that value has been
-decided. `test_null_tie_embeddings_would_still_raise` keeps the check itself
-under test by setting it back to null in a throwaway config, so deciding the
-value did not quietly delete the behaviour.
+### Where the null-required-field coverage lives
+
+It has been retargeted twice, never deleted, because it keeps landing on
+whichever value is currently undecided:
+
+- originally `tie_embeddings` → decided, so
+  `test_null_tie_embeddings_would_still_raise` now sets it back to null in a
+  throwaway config to keep the *check* under test
+- then `checkpoint_interval` → removed, so
+  `test_twin_still_requires_the_checkpoint_intervals` and
+  `test_checkpoint_intervals_required_by_every_arm` (parametrized over all four
+  arms) now null out the two replacement fields explicitly, plus
+  `test_either_checkpoint_interval_null_alone_raises` proves each field is
+  required independently rather than only as a pair
+
+The general principle: when a value gets decided, the test that proved it was
+required gets pointed at a throwaway null config rather than removed. Otherwise
+deciding a value silently deletes the validation that guarded it.
+
+### Checkpoint schedule coverage specifically
+
+- validation: non-positive intervals (both fields × 0, −1, −50), non-multiple
+  `full_interval` (1010, 51, 999, 75, 1049), accepted multiples (50, 100, 1000,
+  1500, 2000, 9550), float interval rejected
+- the removed key: `checkpoint_interval` in the base, in an override, and at
+  top level — each asserting the error names *both* replacements
+- precedence: `checkpoint_kind_at()` returns `"full"` at every step where both
+  fire, `"weights_only"` where only the 50 fires, `None` in between
+- the final-step rule, including a case with `total_steps: 2000` proving it
+  tracks the config rather than a hardcoded 9536
+- `test_checkpoint_plan_counts_match_a_brute_force_walk` walks all 9,536 steps
+  and asserts the closed-form counts equal the walked ones — this is the test
+  that stops the formula and the rule from drifting apart
+- four plan edge cases: last step is neither firing / is a full firing / is a
+  weights-only firing that gets promoted / intervals larger than the whole run
 
 Tests build a throwaway copy of the real `configs/base.yaml` and edit one thing,
 rather than using a hand-written fixture — so they break if `base.yaml` drifts,

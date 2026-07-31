@@ -61,6 +61,15 @@ model:
 training:
   batch_size: 256
   seq_len: 1024
+
+  # Optimizer steps for the whole run.
+  #
+  # Steps are 0-INDEXED: the first step is 0 and the LAST STEP IS 9535
+  # (total_steps - 1). The loader already assumed this -- injection_step is
+  # range-checked as 0 <= step < total_steps -- but it was never written down,
+  # so it is written down here. The training loop must honour it, and anything
+  # that keys off "the last step" must compute total_steps - 1 rather than
+  # hardcoding 9535.
   total_steps: 9536
 
 # ---------------------------------------------------------------------------
@@ -140,13 +149,50 @@ injection:
 # ---------------------------------------------------------------------------
 # Checkpointing
 #
-# UNSET ON PURPOSE -- decided later. Required non-null before any run is
-# launched, on every arm.
+# DECIDED. Two schedules rather than one, because the two reasons to save a
+# checkpoint have very different costs:
 #
-# Note this is an interval (a step count), not a directory. The output
+#   FULL checkpoints exist for CRASH RECOVERY. They carry weights, optimizer
+#   state, the step number and the RNG state -- everything needed to resume a
+#   dead run bit-identically. ~1.5 GB, because AdamW's two moment buffers are
+#   each another full copy of the parameters.
+#
+#   WEIGHTS-ONLY checkpoints exist to MEASURE how the model changes during
+#   training. They carry the weights and the step number, nothing else.
+#   ~0.5 GB.
+#
+# Every metric in this study is a function of the weights alone, so
+# weights-only checkpoints are sufficient for measurement. That is precisely
+# what makes a 50-step interval affordable -- at full-checkpoint size the same
+# sampling density would cost three times as much.
+#
+# Both values are intervals in optimizer steps, not directories. The output
 # directory is deliberately NOT in this file -- it is a required --outdir
 # command-line argument, so the same config runs unchanged on a laptop and on
 # a cluster. The loader rejects any config that contains a path-like key.
+#
+# Two rules the loader encodes and the TRAINING LOOP MUST IMPLEMENT:
+#
+#   PRECEDENCE. When both intervals fire on the same step, write the FULL
+#   checkpoint only. A weights-only file at that step would duplicate data
+#   already inside the full one. This is why full_interval must be an exact
+#   multiple of weights_only_interval -- the loader rejects any other pairing,
+#   since otherwise the two schedules drift and "same step" stops being a
+#   well-defined idea.
+#
+#   FINAL STEP. The last step (total_steps - 1 = 9535) always saves a FULL
+#   checkpoint, whatever the intervals say. 9536 is divisible by neither 50
+#   nor 1000, so without this rule the finished model -- the thing every
+#   headline comparison in the study is computed on -- would never be written
+#   at all. The rule keys off the computed last step, never a literal 9535.
+#
+# A checkpoint is due after every N *completed* steps, i.e. at 0-indexed step s
+# when (s + 1) % N == 0. So the first weights-only checkpoint lands at step 49,
+# not step 0.
+#
+# The loader derives the resulting counts and the storage estimate from these
+# two numbers and total_steps; run `python -m burst.config ...` to print them.
 # ---------------------------------------------------------------------------
 checkpointing:
-  checkpoint_interval: null
+  weights_only_interval: 50
+  full_interval: 1000

@@ -77,6 +77,40 @@ OVERRIDE_ALLOWED_KEYS: frozenset[str] = frozenset({"seed", "arm"})
 #: Canonical run name: seed{NN}_{arm}, seed zero-padded to two digits.
 RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z]+)$")
 
+#: The two kinds of checkpoint, returned by Config.checkpoint_kind_at().
+CHECKPOINT_FULL = "full"
+CHECKPOINT_WEIGHTS_ONLY = "weights_only"
+
+# Per-checkpoint sizes used for the storage estimate.
+#
+# ESTIMATES, NOT MEASUREMENTS. Derived arithmetically for 124,439,808 fp32
+# parameters: weights alone are 124439808 x 4 = 497,759,232 bytes, and a full
+# checkpoint adds AdamW's two moment buffers, each another full copy, for
+# 1,493,277,696. Rounded to clean decimal GB. Nothing in this repo has ever
+# written a checkpoint, so these have not been checked against a real file --
+# framework overhead, compression and any bf16 optimizer state would all move
+# them. Treat the resulting totals as a planning figure, not a guarantee.
+WEIGHTS_ONLY_CHECKPOINT_BYTES = 500_000_000     # 0.5 GB
+FULL_CHECKPOINT_BYTES = 1_500_000_000           # 1.5 GB
+
+#: Config keys that used to exist and have been replaced. Checked on every
+#: config file before anything else, so an old file fails with an error that
+#: names the replacement rather than a generic "unknown key".
+REMOVED_KEYS: dict[str, str] = {
+    "checkpoint_interval": (
+        "replaced by two fields, checkpointing.weights_only_interval and "
+        "checkpointing.full_interval.\n"
+        "A single interval could not express the actual decision: full "
+        "checkpoints (weights + optimizer + step + RNG state, ~1.5 GB) exist "
+        "for crash recovery, while weights-only checkpoints (~0.5 GB) exist to "
+        "measure how the model changes during training. Every metric in this "
+        "study is a function of the weights alone, so the measurement schedule "
+        "can be much denser than the recovery schedule.\n"
+        "Set both fields in configs/base.yaml. full_interval must be an exact "
+        "multiple of weights_only_interval."
+    ),
+}
+
 #: Filenames written into the output directory.
 RESOLVED_CONFIG_FILENAME = "resolved_config.yaml"
 PROVENANCE_FILENAME = "run_provenance.yaml"
@@ -86,7 +120,7 @@ PROVENANCE_FILENAME = "run_provenance.yaml"
 # command-line argument, not a config value, so that one config file works
 # unchanged on a laptop and on a cluster. Matching is on the exact lowercased
 # key name, plus the suffixes below -- deliberately not a substring search, so
-# that legitimate keys such as `checkpoint_interval` are not caught.
+# that legitimate keys such as `full_interval` are not caught.
 OUTPUT_PATH_KEY_DENYLIST: frozenset[str] = frozenset({
     "artifact_dir", "artifacts_dir", "ckpt_dir", "checkpoint_dir",
     "data_dir", "dir", "log_dir", "logdir", "out", "outdir", "out_dir",
@@ -213,6 +247,24 @@ def _reject_output_path_keys(data: dict, source: Path, prefix: str = "") -> None
             )
         if isinstance(value, dict):
             _reject_output_path_keys(value, source, prefix=f"{dotted}.")
+
+
+def _reject_removed_keys(data: dict, source: Path, prefix: str = "") -> None:
+    """Fail loudly on a key that used to exist, naming what replaced it.
+
+    Runs on the raw files before the merge, so an old config gets this message
+    rather than "unknown key" from the merge or "unexpected" from the schema
+    check -- neither of which would tell you what to do about it.
+    """
+    for key, value in data.items():
+        dotted = f"{prefix}{key}"
+        explanation = REMOVED_KEYS.get(str(key))
+        if explanation is not None:
+            raise ConfigError(
+                f"{source}: {dotted!r} no longer exists -- {explanation}"
+            )
+        if isinstance(value, dict):
+            _reject_removed_keys(value, source, prefix=f"{dotted}.")
 
 
 def _strict_merge(base: dict, override: dict, source: Path, prefix: str = "") -> dict:
@@ -363,7 +415,31 @@ class InjectionConfig:
 
 @dataclass(frozen=True)
 class CheckpointingConfig:
-    checkpoint_interval: int | None
+    #: Steps between weights-only checkpoints (weights + step number, ~0.5 GB).
+    weights_only_interval: int | None
+    #: Steps between full checkpoints (weights + optimizer + step + RNG state,
+    #: ~1.5 GB). Must be an exact multiple of weights_only_interval.
+    full_interval: int | None
+
+
+@dataclass(frozen=True)
+class CheckpointPlan:
+    """What the checkpoint schedule works out to, derived from the config.
+
+    Computed the same way as the token-budget assertion: from the numbers in
+    the config, never hardcoded, so it stays correct if total_steps changes.
+    """
+
+    #: 0-indexed index of the final optimizer step (total_steps - 1).
+    last_step: int
+    #: Checkpoints actually written as weights-only, after precedence.
+    weights_only_count: int
+    #: Checkpoints written as full, including the mandatory final-step one.
+    full_count: int
+    #: Estimated bytes on disk for one run.
+    estimated_bytes_per_run: int
+    #: Estimated bytes for the whole study (n_seeds x number of arms).
+    estimated_bytes_all_runs: int
 
 
 @dataclass(frozen=True)
@@ -389,6 +465,103 @@ class Config:
     def missing_for_launch(self) -> tuple[str, ...]:
         """Fields still null that this run would need before it could train."""
         return tuple(_missing_for_launch(self))
+
+    @property
+    def last_step(self) -> int:
+        """Index of the final optimizer step.
+
+        Steps are 0-indexed, so this is total_steps - 1. Everything that needs
+        "the last step" goes through here rather than repeating the arithmetic.
+        """
+        return self.training.total_steps - 1
+
+    def checkpoint_kind_at(self, step: int) -> str | None:
+        """Which checkpoint, if any, is due at this 0-indexed step.
+
+        Returns CHECKPOINT_FULL, CHECKPOINT_WEIGHTS_ONLY, or None.
+
+        This is the single definition of the schedule. It writes nothing --
+        it is a pure function of the config -- but the training loop must call
+        it (or reproduce it exactly) so that the precedence and final-step
+        rules cannot be implemented two different ways.
+
+        A checkpoint is due after every N *completed* steps, so it fires at
+        step s when (s + 1) % N == 0. With weights_only_interval 50, the first
+        one lands at step 49, not step 0.
+        """
+        interval_wo, interval_full = self._require_intervals()
+        if not 0 <= step <= self.last_step:
+            raise ConfigError(
+                f"step {step} is outside this run: steps are 0-indexed and run "
+                f"0..{self.last_step} (total_steps = "
+                f"{self.training.total_steps})."
+            )
+        # Final-step rule first: the finished model is what every headline
+        # comparison is computed on, so it is always a full checkpoint no
+        # matter what the intervals say.
+        if step == self.last_step:
+            return CHECKPOINT_FULL
+        completed = step + 1
+        # Precedence: full wins. A weights-only file here would duplicate data
+        # already inside the full checkpoint at the same step.
+        if completed % interval_full == 0:
+            return CHECKPOINT_FULL
+        if completed % interval_wo == 0:
+            return CHECKPOINT_WEIGHTS_ONLY
+        return None
+
+    @property
+    def checkpoint_plan(self) -> CheckpointPlan:
+        """Counts and storage estimate implied by the two intervals.
+
+        Computed by counting, not by simulation: the study is 9536 steps now
+        but the arithmetic must stay cheap if that grows.
+        """
+        interval_wo, interval_full = self._require_intervals()
+        total = self.training.total_steps
+
+        # Firings over steps 0..last, using (s + 1) % N == 0, are exactly the
+        # multiples of N in 1..total_steps.
+        wo_firings = total // interval_wo
+        full_firings = total // interval_full
+
+        # Because full_interval is validated to be a multiple of
+        # weights_only_interval, every full firing is also a weights-only
+        # firing -- so full_firings is exactly the overlap to subtract.
+        last_is_full_firing = total % interval_full == 0
+        last_is_wo_firing = total % interval_wo == 0
+
+        full_count = full_firings + (0 if last_is_full_firing else 1)
+        weights_only_count = wo_firings - full_firings
+        if last_is_wo_firing and not last_is_full_firing:
+            # The last step was going to be weights-only; the final-step rule
+            # promotes it to full, so it must not be counted twice.
+            weights_only_count -= 1
+
+        per_run = (
+            weights_only_count * WEIGHTS_ONLY_CHECKPOINT_BYTES
+            + full_count * FULL_CHECKPOINT_BYTES
+        )
+        n_runs = self.experiment.n_seeds * len(self.experiment.arms)
+        return CheckpointPlan(
+            last_step=self.last_step,
+            weights_only_count=weights_only_count,
+            full_count=full_count,
+            estimated_bytes_per_run=per_run,
+            estimated_bytes_all_runs=per_run * n_runs,
+        )
+
+    def _require_intervals(self) -> tuple[int, int]:
+        interval_wo = self.checkpointing.weights_only_interval
+        interval_full = self.checkpointing.full_interval
+        if interval_wo is None or interval_full is None:
+            raise ConfigError(
+                "the checkpoint schedule is not decided yet: "
+                "checkpointing.weights_only_interval and "
+                "checkpointing.full_interval must both be set before the "
+                "schedule or its storage estimate can be computed."
+            )
+        return interval_wo, interval_full
 
 
 #: Section name -> dataclass. Used to derive the set of keys the loader knows
@@ -633,8 +806,11 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             ),
         ),
         checkpointing=CheckpointingConfig(
-            checkpoint_interval=_int(merged, "checkpointing", "checkpoint_interval",
-                                     source, allow_null=True),
+            weights_only_interval=_int(merged, "checkpointing",
+                                       "weights_only_interval", source,
+                                       allow_null=True),
+            full_interval=_int(merged, "checkpointing", "full_interval",
+                               source, allow_null=True),
         ),
     )
 
@@ -730,11 +906,56 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             "positive."
         )
 
+    _validate_checkpoint_intervals(cfg, source)
     _validate_burst_text_paths(cfg, source)
 
     # Note deliberately NOT checked: that the twin arm has injection_step
     # unset. injection_step lives in the shared base config, so once it is
     # decided every arm sees it, including twin. Twin simply ignores it.
+
+
+def _validate_checkpoint_intervals(cfg: Config, source: str | Path) -> None:
+    """Both intervals positive, and full an exact multiple of weights-only.
+
+    Each is checked independently of the other being set, so a half-decided
+    config still gets the complaint that applies to it.
+    """
+    interval_wo = cfg.checkpointing.weights_only_interval
+    interval_full = cfg.checkpointing.full_interval
+
+    for name, value in (
+        ("weights_only_interval", interval_wo),
+        ("full_interval", interval_full),
+    ):
+        if value is not None and value <= 0:
+            raise ConfigError(
+                f"{source}: checkpointing.{name} must be a positive number of "
+                f"steps; got {value}. An interval of 0 or less does not "
+                "describe a schedule."
+            )
+
+    if interval_wo is None or interval_full is None:
+        return
+
+    # The precedence rule ("when both fire on the same step, write the full
+    # one only") is only well defined if the two schedules actually line up.
+    # With, say, 50 and 1500 they would coincide; with 50 and 1010 a full
+    # checkpoint would land on steps no weights-only checkpoint ever touches,
+    # and "both fire on the same step" would become an accident of arithmetic
+    # rather than a rule.
+    if interval_full % interval_wo != 0:
+        raise ConfigError(
+            f"{source}: checkpointing.full_interval ({interval_full}) must be "
+            f"an exact multiple of checkpointing.weights_only_interval "
+            f"({interval_wo}); {interval_full} / {interval_wo} = "
+            f"{interval_full / interval_wo:.4g}.\n"
+            "The two schedules have to align, otherwise the precedence rule "
+            "(full checkpoint wins when both fire on the same step) is not "
+            "well defined.\n"
+            f"Nearest valid values: "
+            f"{(interval_full // interval_wo) * interval_wo} or "
+            f"{(interval_full // interval_wo + 1) * interval_wo}."
+        )
 
 
 _WHY_BURST_TEXT_MUST_BE_IN_REPO = (
@@ -796,8 +1017,10 @@ def _validate_burst_text_paths(cfg: Config, source: str | Path) -> None:
 def _missing_for_launch(cfg: Config) -> list[str]:
     """Fields that are still null and that this arm needs in order to train."""
     missing = []
-    if cfg.checkpointing.checkpoint_interval is None:
-        missing.append("checkpointing.checkpoint_interval")
+    if cfg.checkpointing.weights_only_interval is None:
+        missing.append("checkpointing.weights_only_interval")
+    if cfg.checkpointing.full_interval is None:
+        missing.append("checkpointing.full_interval")
     if cfg.model.tie_embeddings is None:
         missing.append("model.tie_embeddings")
     if cfg.arm in INJECTING_ARMS:
@@ -1001,6 +1224,15 @@ def _write_provenance(
         "launch_ready": not cfg.missing_for_launch,
         "missing_for_launch": list(cfg.missing_for_launch),
         "checked_for_launch": require_complete,
+        # Derived, not configured. Recorded so a later audit can see what
+        # checkpoint schedule this run believed it was following without
+        # having to recompute it from the intervals.
+        "checkpoint_plan": (
+            dataclasses.asdict(cfg.checkpoint_plan)
+            if cfg.checkpointing.weights_only_interval is not None
+            and cfg.checkpointing.full_interval is not None
+            else None
+        ),
         "git": git,
         "environment": {
             "python_version": sys.version.split()[0],
@@ -1069,6 +1301,11 @@ def load_config(
 
     base_raw = _read_yaml(base_path)
     run_raw = _read_yaml(run_path)
+
+    # Removed keys first, so an out-of-date config gets an error naming its
+    # replacement rather than a generic "unknown key" from the merge.
+    _reject_removed_keys(base_raw, base_path)
+    _reject_removed_keys(run_raw, run_path)
 
     # Requirement 6, checked on both files before anything else looks at them.
     _reject_output_path_keys(base_raw, base_path)
@@ -1174,6 +1411,30 @@ def main(argv: list[str] | None = None) -> int:
     print("-" * 74)
     print(_dump_yaml(dataclasses.asdict(cfg)).rstrip())
     print("-" * 74)
+
+    if (cfg.checkpointing.weights_only_interval is not None
+            and cfg.checkpointing.full_interval is not None):
+        plan = cfg.checkpoint_plan
+        gb = 1_000_000_000
+        print()
+        print("checkpoint plan (derived from the config, not configured)")
+        print("-" * 74)
+        print(f"  steps                0..{plan.last_step} "
+              f"(0-indexed; total_steps = {cfg.training.total_steps})")
+        print(f"  weights-only         {plan.weights_only_count:>6} x 0.5 GB "
+              f"= {plan.weights_only_count * WEIGHTS_ONLY_CHECKPOINT_BYTES / gb:>8.1f} GB"
+              f"   (every {cfg.checkpointing.weights_only_interval} steps)")
+        print(f"  full                 {plan.full_count:>6} x 1.5 GB "
+              f"= {plan.full_count * FULL_CHECKPOINT_BYTES / gb:>8.1f} GB"
+              f"   (every {cfg.checkpointing.full_interval} steps, "
+              f"+ final step {plan.last_step})")
+        print(f"  per run              "
+              f"{plan.estimated_bytes_per_run / gb:>28.1f} GB")
+        print(f"  all "
+              f"{cfg.experiment.n_seeds * len(cfg.experiment.arms)} runs         "
+              f"{plan.estimated_bytes_all_runs / gb / 1000:>28.2f} TB")
+        print("  (sizes are estimates for 124M fp32 params, not measurements)")
+        print("-" * 74)
 
     missing = cfg.missing_for_launch
     if missing:
