@@ -197,13 +197,19 @@ def _reject_output_path_keys(data: dict, source: Path, prefix: str = "") -> None
             raise ConfigError(
                 f"{source}: config contains an output-path-like key "
                 f"{dotted!r}.\n"
-                "Output locations must never live in a config file. The same "
-                "config has to run unchanged on your laptop and on your "
-                "collaborator's cluster, and a path baked into the config "
+                "Machine-specific locations must never live in a config file. "
+                "The same config has to run unchanged on your laptop and on "
+                "your collaborator's cluster, and a path baked into the config "
                 "makes that impossible -- it also makes resolved_config.yaml "
                 "differ between machines for reasons that have nothing to do "
                 "with the experiment.\n"
-                "Pass the location as --outdir on the command line instead."
+                "Pass the location as a command-line argument instead. The "
+                "run's output directory is --outdir; a corpus or dataset "
+                "location belongs on the data pipeline's command line, not "
+                "here (the corpus is named in the config, never located).\n"
+                "The one exception is injection.burst_text_paths, which is "
+                "repo-relative experimental content rather than a machine "
+                "location, and is validated separately."
             )
         if isinstance(value, dict):
             _reject_output_path_keys(value, source, prefix=f"{dotted}.")
