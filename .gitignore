@@ -1,18 +1,66 @@
-# Python
+# ---------------------------------------------------------------------------
+# HOW TO EDIT THIS FILE
+#
+# A pattern without a leading slash matches at EVERY depth. `runs/` does not
+# mean "the runs directory at the repo root", it means "any directory named
+# runs, anywhere" -- which is exactly how an earlier version of this file
+# silently excluded all 40 override files in configs/runs/.
+#
+# Rule used below:
+#   - Tool-generated names that could never be study content (__pycache__,
+#     .pytest_cache, .venv) stay UNANCHORED on purpose. They should be ignored
+#     wherever they turn up.
+#   - Ordinary English words that could plausibly name a real directory
+#     (runs, outputs, data, corpus, results, checkpoints) are ANCHORED with a
+#     leading slash, so they can only match at the repo root.
+#
+# Re-run the audit after any change here. Output from this command is a bug:
+#   git check-ignore -v configs/base.yaml configs/runs/seed03_coherent.yaml \
+#                       configs/burst_texts/coherent.txt
+# ---------------------------------------------------------------------------
+
+# Python, tool-generated. Unanchored deliberately.
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-
-# Virtual environment
 .venv/
-venv/
 
-# Run outputs never belong in the repo. The provenance record that matters
-# (resolved_config.yaml, run_provenance.yaml) is written into --outdir, which
-# is chosen per machine and is deliberately not tracked here.
-#
-# Leading slashes matter: a bare `runs/` would also match configs/runs/ and
-# silently untrack all 40 override files, which are very much part of the repo.
+# Virtual environments at the repo root. `venv` is an ordinary word, so it is
+# anchored -- an unanchored `venv/` would also swallow e.g. configs/venv/.
+/venv/
+/env/
+
+# Run outputs. The provenance record that matters (resolved_config.yaml and
+# run_provenance.yaml) is written into --outdir, which is chosen per machine
+# and deliberately not tracked here.
 /runs/
 /outputs/
+/results/
+/checkpoints/
+
+# Corpus and tokenized data. The corpus is NAMED in the config, never located
+# in it, and never stored in the repo.
+/data/
+/corpus/
+
+# Model weights, optimizer state and tokenized shards, wherever they land.
+# Extensions rather than directory names, on purpose: --outdir can point
+# anywhere, and a ~1.5 GB checkpoint must not be committable by accident.
+#
+# Note what is NOT here: *.txt. The burst texts are .txt and MUST be tracked --
+# the whole point of injection.burst_text_paths is that the commit hash covers
+# them. Do not add a *.txt rule.
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.npy
+*.npz
+*.arrow
+*.h5
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

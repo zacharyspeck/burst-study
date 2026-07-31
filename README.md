@@ -20,18 +20,48 @@ checkpoint" always has exactly one answer.
 
 ---
 
-## Setup
+## Collaborator setup (Linux)
+
+Everything below is plain POSIX. The repo was developed on Windows but has no
+Windows-specific code; see "Platform notes" at the bottom.
 
 ```bash
-python -m venv .venv
-.venv/Scripts/activate          # Windows
-# source .venv/bin/activate     # Linux / macOS
+git clone <repo-url> burst-study
+cd burst-study
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Exact pins. Do not use a requirements range -- a PyYAML upgrade can change
+# how a number parses, which is the whole class of bug this repo guards against.
 pip install pyyaml==6.0.3 pytest==9.1.1
+
+# 1. run the tests
+python -m pytest -q
+
+# 2. run the acceptance command
+python -m burst.config \
+    --config configs/base.yaml \
+    --run    configs/runs/seed03_coherent.yaml \
+    --outdir /tmp/testrun
 ```
 
-Python 3.11+. The only runtime dependency is PyYAML; `pytest` is for the tests.
-There is deliberately no torch dependency — loading a config must work on a
-laptop with no GPU and no ML stack installed.
+Expected: `112 passed`, then the resolved config printed, exit status 0, and
+`resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
+with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
+are still undecided; see [`--launch`](#--launch).
+
+If you see a **"WARNING: the working tree is DIRTY"** banner, stop and find out
+why before running anything real. On a fresh clone the tree should be clean, and
+a dirty tree means the recorded commit hash does not describe the code that ran.
+
+Requires Python 3.11+ (`python3 --version`). The only runtime dependency is
+PyYAML; `pytest` is for the tests. There is deliberately **no torch dependency**
+— loading a config must work on a login node with no GPU and no ML stack.
+
+`pip install -e .` also works but is not needed; `pyproject.toml` puts the repo
+root on `sys.path` for pytest, and `python -m burst.config` picks it up from the
+working directory.
 
 ## Verify the whole thing in one command
 
@@ -316,7 +346,49 @@ vanishes under an optimisation flag is worse than none.
 
 ---
 
+## Platform notes
+
+Developed on Windows, intended to run on a Linux cluster. Nothing here is
+platform-specific:
+
+- **Line endings** are normalised by `.gitattributes` (`* text=auto eol=lf`), so
+  a Linux checkout gets LF regardless of what the Windows working copy holds.
+- **Paths** are all `pathlib`; nothing concatenates separators by hand.
+- **`--outdir /tmp/testrun`** is a real path on Linux. On Windows the same string
+  resolves to `C:\tmp\testrun`. The loader does not care either way.
+- **Absolute-path rejection** for burst texts is evaluated under *both* POSIX and
+  Windows rules, so a `/home/...` path is refused on Windows and a `C:\...` path
+  is refused on Linux. The config is rejected identically on both machines.
+- **`.venv/Scripts/` vs `.venv/bin/`** is the only genuine difference, and it is
+  in the setup instructions above, not in any code.
+- **No torch, no CUDA, no GPU** is touched by this repo.
+
+One nit: `scripts/generate_overrides.py` has a `#!/usr/bin/env python` shebang.
+On distributions where only `python3` exists, invoke it as
+`python3 scripts/generate_overrides.py` (or activate the venv first, which is
+what the instructions above do) rather than executing it directly.
+
+## What is tracked
+
+Tracked: the configs (`configs/base.yaml`, all 40 overrides), the burst texts
+once they exist (`configs/burst_texts/*.txt`), the package, the tests, the
+generator, and the docs.
+
+Not tracked: checkpoints and weights (`*.pt`, `*.ckpt`, `*.safetensors`,
+`*.bin`, …), corpus and tokenized data (`/data/`, `/corpus/`), run outputs
+(`/runs/`, `/outputs/`, `/results/`, `/checkpoints/`), `.venv/`, `__pycache__/`.
+
+`.gitignore` explains the anchoring rule it follows, and why. If you edit it,
+re-run the audit at the top of that file — an unanchored pattern matches at
+every depth and can silently exclude real content.
+
 ## Not in this repo, on purpose
 
 Training loop, model definition, data pipeline, tokenizer, metrics, analysis,
 the injection hook, and any launcher beyond the override generator.
+
+Three obligations that later modules must honour — a held-out data reservation,
+RNG state in checkpoints, and the storage arithmetic behind
+`checkpoint_interval` — are recorded under "Cross-module obligations" in
+`implementation-notes.md`. Read that before building the data pipeline or the
+training loop.

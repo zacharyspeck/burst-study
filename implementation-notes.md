@@ -297,6 +297,129 @@ the existing loud warning.
 
 ---
 
+## Cross-module obligations
+
+Decisions one module has to make on behalf of a module that gets built later.
+Each one is cheap to honour at the right moment and expensive-to-impossible to
+retrofit, which is why the reason is written down and not just the rule.
+
+### 1. Reserve a held-out slice when the corpus is tokenized
+
+**Owner: the data pipeline. Deadline: tokenization, i.e. the first time the
+corpus is touched.**
+
+The metrics module computes a loss barrier by interpolating two finished models
+and evaluating the blend. Evaluating a blend requires text that **no run trained
+on** — otherwise the barrier measures memorisation rather than the shape of the
+loss landscape between the two solutions.
+
+The ordering problem: the metrics module is built *before* the data pipeline in
+our sequence. So at the moment the requirement becomes visible, the module that
+has to satisfy it does not exist yet, and by the time the data pipeline is
+written the requirement is easy to forget. If the held-out slice is not carved
+out during tokenization, it does not exist when the metrics module needs it, and
+the only fix is re-tokenizing the corpus and re-running all 40 models.
+
+**The held-out slice must be byte-identical across all 40 runs.** A barrier is a
+number on an evaluation set; two barriers computed on different held-out text
+are not comparable, and the study compares barriers between arms and between
+seeds constantly. That means the slice is chosen once, deterministically, and
+recorded — not sampled per run, and not derived from a per-run seed.
+
+Note the interaction with `corpus.expected_token_budget` (2499805184): that
+figure is the number of tokens **trained on**. If the held-out slice is carved
+out of the same 2.5B slice, the training budget shrinks and the token-budget
+assertion in the loader starts failing. Reserve it from *outside* the training
+slice, or the arithmetic check and the reservation will collide. Decide which
+before tokenizing.
+
+### 2. Save RNG state in every checkpoint
+
+**Owner: the training loop. Deadline: the first time a checkpoint is written.**
+
+A checkpoint must persist the random number generator state alongside weights,
+optimizer state and step number.
+
+Without it, a run that dies at step 6000 and resumes from the step-5500
+checkpoint diverges from a run that was never interrupted — same seed, same
+config, different trajectory, because the RNG restarts from a different point in
+its stream. That breaks the bit-identical guarantee the entire study rests on,
+and it breaks it *silently*: the resumed run finishes normally and produces a
+checkpoint that looks exactly as legitimate as any other. Nothing downstream can
+detect it. On a 40-run study on shared cluster hardware, at least one
+preemption is close to certain, so this is not a hypothetical.
+
+Everything stateful has to be captured, not just torch:
+
+- Python's `random` — `random.getstate()`
+- NumPy — `np.random.get_state()`, plus any explicit `Generator` objects
+- torch CPU — `torch.get_rng_state()`
+- torch CUDA — `torch.cuda.get_rng_state_all()` (all devices, not just device 0)
+- DataLoader worker state, if `num_workers > 0`. Workers are separately seeded
+  processes; restoring the parent's RNG does not restore theirs. This usually
+  means recording the epoch/iteration position and the base seed so worker
+  seeding is reproducible, rather than trying to serialise worker RNGs directly.
+
+Related, and cheap: on resume, verify the loaded checkpoint's step number and
+config hash against the run being resumed, and refuse to resume across a
+mismatch.
+
+### 3. `checkpoint_interval` is a storage decision
+
+**Owner: me. Still undecided — it is the one remaining always-required null in
+`configs/base.yaml`.**
+
+Recorded here so the value gets chosen against a number instead of a vibe.
+
+Per-checkpoint size, at 124,439,808 parameters in fp32:
+
+```
+weights                 124439808 x 4 bytes            =  0.50 GB
+AdamW exp_avg           124439808 x 4 bytes            =  0.50 GB
+AdamW exp_avg_sq        124439808 x 4 bytes            =  0.50 GB
+RNG state, step, config                                 negligible
+                                                          -------
+full checkpoint                                        ~= 1.50 GB
+```
+
+That is why the figure is ~1.5 GB and not ~0.5 GB: the optimizer state is two
+more full copies of the parameters, and it has to be saved for a checkpoint to
+be resumable at all (see obligation 2).
+
+Across `total_steps: 9536` and 40 runs, at 1.5 GB per checkpoint, TB = 1000 GB:
+
+| interval | checkpoints/run | per run | all 40 runs | of 10 TB |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 95 | 142.5 GB | **5.70 TB** | 57% |
+| 200 | 47 | 70.5 GB | 2.82 TB | 28% |
+| 250 | 38 | 57.0 GB | 2.28 TB | 23% |
+| 500 | 19 | 28.5 GB | **1.14 TB** | 11% |
+| 1000 | 9 | 13.5 GB | 0.54 TB | 5% |
+
+(Counts are `floor(9536 / interval)`; add one checkpoint per run if a final
+checkpoint at step 9536 is written separately, which adds 60 GB across the
+study at any interval.)
+
+So both ends are affordable against 10 TB — 100 leaves 4.3 TB of headroom, 500
+leaves 8.9 TB. The constraint is not really capacity, it is that the headroom
+also has to hold the tokenized corpus, the held-out slice, and any re-runs. A
+single full re-run of the study at interval 100 would need another 5.7 TB and
+would not fit.
+
+Two things worth deciding at the same time:
+
+- **Does the interval need to be denser near `injection_step`?** The burst is
+  the event the study is about, and a uniform interval may sample it too
+  coarsely to see what happens immediately after. If the answer is yes, the
+  config needs a schedule rather than a single integer, and that is a schema
+  change to `checkpointing` — worth knowing before 40 runs, not after.
+- **Is fp32 optimizer state necessary?** Storing `exp_avg`/`exp_avg_sq` in
+  bf16 would cut checkpoints to ~1.0 GB, a third off every row above. That is a
+  numerics decision, not a storage one, and it interacts with
+  `determinism: true` — so it belongs with the training loop, not here.
+
+---
+
 ## Not yet enforced
 
 Two values in `configs/base.yaml` are currently **inert** — the loader carries
