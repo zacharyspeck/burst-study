@@ -135,7 +135,9 @@ class TokenLoss:
 class Measurement:
     """Everything one passage produced. Raw numbers only, no formatting."""
 
-    path: Path
+    #: A Path when the passage came from a file, or a plain label like
+    #: "noise k=5" when match_sweep generated it in memory.
+    path: Path | str
     n_tokens: int
     mean_loss: float
     std_loss: float
@@ -483,6 +485,61 @@ def cache_location() -> str:
         return "~/.cache/huggingface/hub (platform default, guessed)"
 
 
+def _from_pretrained(build, *, cache: str, size: str, stream):
+    """Cache first, then the network, with the download announced up front.
+
+    Shared by load_tokenizer and load_model so that both report a cache miss,
+    a download and a failure the same way. `build(local_only=...)` returns
+    whatever is being loaded.
+    """
+    try:
+        loaded = build(local_only=True)
+        print("         found in cache, loading from disk", file=stream)
+        return loaded
+    except Exception as cache_miss:
+        print(f"         NOT in cache -- downloading {size} now.", file=stream)
+        print("         First run only; it is cached above afterwards.",
+              file=stream)
+        stream.flush()
+        try:
+            loaded = build(local_only=False)
+        except Exception as exc:
+            raise BurstMatchError(
+                f"{MODEL_NAME} is not in the cache at {cache}, and downloading "
+                "it failed.\n"
+                "This script needs the files once. Either connect to a "
+                "network and run it again, or copy a populated cache "
+                "directory into place from a machine that has one.\n"
+                f"cache lookup said:  {cache_miss}\n"
+                f"download said:      {exc}"
+            ) from exc
+        print("         download complete", file=stream)
+        return loaded
+
+
+def load_tokenizer(stream=None):
+    """The GPT-2 tokenizer on its own, without the 500 MB of weights.
+
+    Split out of load_model for scripts/make_bursts.py, which has to count
+    tokens to match passage lengths but never runs the model. Deliberately
+    does not import torch: the tokenizer does not need it, and neither should
+    anything that only wants to count tokens.
+    """
+    stream = sys.stdout if stream is None else stream
+    _import_transformers()
+    from transformers import AutoTokenizer
+
+    cache = cache_location()
+    print(f"tokeniser: {MODEL_NAME}", file=stream)
+    print(f"cache:   {cache}", file=stream)
+    stream.flush()
+    return _from_pretrained(
+        lambda local_only: AutoTokenizer.from_pretrained(
+            MODEL_NAME, local_files_only=local_only),
+        cache=cache, size="a few MB", stream=stream,
+    )
+
+
 def load_model(stream=None):
     """Load GPT-2 and its tokenizer, saying out loud what it is doing.
 
@@ -503,37 +560,14 @@ def load_model(stream=None):
     print(f"cache:   {cache}", file=stream)
     stream.flush()
 
-    def _load(*, local_only: bool):
-        tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_NAME, local_files_only=local_only
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME, local_files_only=local_only
-        )
-        return tokenizer, model
-
-    try:
-        tokenizer, model = _load(local_only=True)
-        print("         found in cache, loading from disk", file=stream)
-    except Exception as cache_miss:
-        print(f"         NOT in cache -- downloading ~{DOWNLOAD_MB} MB now.",
-              file=stream)
-        print("         First run only; it is cached above afterwards.",
-              file=stream)
-        stream.flush()
-        try:
-            tokenizer, model = _load(local_only=False)
-        except Exception as exc:
-            raise BurstMatchError(
-                f"GPT-2 is not in the cache at {cache}, and downloading it "
-                "failed.\n"
-                "This script needs the model files once. Either connect to a "
-                "network and run it again, or copy a populated cache "
-                "directory into place from a machine that has one.\n"
-                f"cache lookup said:  {cache_miss}\n"
-                f"download said:      {exc}"
-            ) from exc
-        print("         download complete", file=stream)
+    tokenizer, model = _from_pretrained(
+        lambda local_only: (
+            AutoTokenizer.from_pretrained(MODEL_NAME, local_files_only=local_only),
+            AutoModelForCausalLM.from_pretrained(
+                MODEL_NAME, local_files_only=local_only),
+        ),
+        cache=cache, size=f"~{DOWNLOAD_MB} MB", stream=stream,
+    )
 
     # Requirement 1. eval() is what actually makes this deterministic: GPT-2
     # has dropout on the embeddings, the attention weights and the MLP, and in
@@ -605,25 +639,34 @@ def gradient_norm(loss, model) -> float:
 
 
 def measure(path: Path, tokenizer, model) -> Measurement:
-    """Everything this script knows how to say about one passage.
+    """Everything this script knows how to say about one passage on disk."""
+    if not path.is_file():
+        raise BurstMatchError(f"no such file: {path}")
+    return measure_text(path.read_text(encoding="utf-8"), path, tokenizer, model)
+
+
+def measure_text(text: str, source, tokenizer, model) -> Measurement:
+    """The same measurement, on a string that need not be a file.
+
+    Split out of measure() for scripts/match_sweep.py, which generates a noise
+    passage per window size and would otherwise have to write each one to a
+    temporary file purely to hand it back. `source` is whatever should be
+    printed as the passage's name -- a Path, or a label like "noise k=5".
 
     One forward pass and one backward pass. No optimizer, no weight update,
     nothing written to disk.
     """
     import torch
 
-    if not path.is_file():
-        raise BurstMatchError(f"no such file: {path}")
-    text = path.read_text(encoding="utf-8")
     if not text.strip():
-        raise BurstMatchError(f"{path}: file is empty (or only whitespace).")
+        raise BurstMatchError(f"{source}: file is empty (or only whitespace).")
 
     ids = tokenizer(text, add_special_tokens=False)["input_ids"]
     n_tokens = len(ids)
     # Length checks before the forward pass, so an over-long passage costs an
     # error message rather than a wasted minute of compute.
-    check_context_limit(n_tokens, path)
-    check_measurable(n_tokens, path)
+    check_context_limit(n_tokens, source)
+    check_measurable(n_tokens, source)
 
     # Re-seeded per passage so that measuring A then B gives B the same
     # starting state as measuring B alone would.
@@ -651,7 +694,7 @@ def measure(path: Path, tokenizer, model) -> Measurement:
         for j, value in enumerate(values)
     ]
     return Measurement(
-        path=path,
+        path=source,
         n_tokens=n_tokens,
         mean_loss=mean,
         std_loss=std,
@@ -773,9 +816,13 @@ def format_comparison(measurements, batch_size: int) -> str:
     return "\n".join(lines)
 
 
-def _short(path: Path) -> str:
-    """Filename only, for table rows where the full path would not fit."""
-    return path.name
+def _short(path: Path | str) -> str:
+    """Filename only, for table rows where the full path would not fit.
+
+    A plain label passes through unchanged -- Path("noise k=5").name is
+    "noise k=5" -- so measurements of generated text need no special case.
+    """
+    return Path(path).name
 
 
 def _pct(a: float, b: float) -> str:

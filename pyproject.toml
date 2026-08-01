@@ -37,6 +37,10 @@ dev = [
 measure = [
     "torch==2.13.0",
     "transformers==5.14.1",
+    # scripts/make_bursts.py streams the OpenWebText slice it cuts the
+    # ordinary and noise spans from. Only the first run needs it online; the
+    # slice is cached under a gitignored path afterwards.
+    "datasets==5.0.1",
 ]
 
 [tool.setuptools]

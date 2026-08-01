@@ -313,6 +313,47 @@ that `run_provenance.yaml` records.
 .venv-ml/    pip install -e ".[dev,measure]"    everything
 ```
 
+### D10. `burst_match.py` refactored twice so the new scripts could reuse it
+
+The brief for step 8 said to import and reuse the measurement rather than
+reimplement it, and to log the refactor if one was needed. Two were, both
+extractions with no behaviour change:
+
+- **`measure_text(text, source, tokenizer, model)`** split out of
+  `measure(path, ...)`, which now reads the file and delegates. `match_sweep.py`
+  generates a noise passage per window size in memory and would otherwise have
+  had to write each one to a temporary file purely to hand it straight back.
+  `Measurement.path` is consequently typed `Path | str` and holds a label such
+  as `noise k=5` for generated text; `_short()` wraps it in `Path()` so table
+  rows need no special case.
+- **`load_tokenizer()`** split out of `load_model()`, sharing a new
+  `_from_pretrained()` helper that holds the cache-first / announce-the-
+  download / clear-failure logic both now use. `make_bursts.py` has to count
+  tokens to match passage lengths but never runs the model, and making it
+  download 500 MB of weights to do that would be silly. `load_tokenizer` also
+  does not import torch — the tokenizer does not need it, so counting tokens
+  now works in the base environment if `transformers` is present.
+
+No measurement logic changed, and the existing tests for it were not touched.
+
+### D11. The topic of `ordinary.txt` is whatever the seed selected
+
+`--seed 0` selected, for the ordinary arm, a passage from a Wikipedia-derived
+OpenWebText document about research on the black–white IQ gap. It passes every
+quality filter — 95% alphabetic, ASCII, twelve sentence ends, unmistakably
+ordinary prose — and the selection is exactly the blind seeded procedure the
+brief asked for.
+
+**Flagged rather than silently reseeded.** Quietly rerolling until the topic
+looked innocuous would defeat the point of a blind selection procedure and
+would not have been recorded anywhere. But the ordinary arm is the "normal
+text" control, and a passage on race and IQ is not neutral ground to inject
+into a model and then measure. Whether that matters for this study is a
+judgment call belonging to whoever runs it, not to this script.
+
+Changing it costs one flag: `--seed 1` selects different spans, and everything
+downstream regenerates reproducibly. Recorded here so the choice is a choice.
+
 ---
 
 ## Smaller decisions, logged as instructed
@@ -560,6 +601,78 @@ red for a reason that has nothing to do with the code.
 The measurable logic was factored to make this split possible: the arithmetic
 and the formatting are plain functions over plain numbers, and torch appears
 only in `per_token_losses`, `gradient_norm`, `measure` and `load_model`.
+
+### S22. Two span filters are stricter than the brief said
+
+The brief asked to skip spans that are "mostly non-ASCII" and "mostly
+punctuation or digits" — literally, above 50%. The thresholds shipped are 10%
+non-ASCII and 25% punctuation-or-digits.
+
+A span that is 45% CJK or 40% digits is not ordinary English prose, and the
+ordinary arm's whole job is to be indistinguishable from the training
+distribution. There are far more clean spans in the pool than the two needed
+(0 of the candidates examined at `--seed 0` were rejected), so the strict
+reading costs nothing and the loose one would eventually admit a page of
+tables. The two thresholds the brief gave as numbers — 40% alphabetic, 3
+sentence-ending marks — are used exactly as given. All four are constants at
+the top of `make_bursts.py` and are written into `provenance.json`.
+
+### S23. No trailing newline on any burst file
+
+`bursts/coherent.txt` is 962 bytes, ends with `collaboration.`, and has no
+terminating newline. That is the strict reading of "verbatim, no trailing
+additions", and it is also the only version that works: a trailing newline is
+**a token** under the GPT-2 tokenizer, so a file ending in one tokenizes one
+longer than a file that does not. Since N is defined by tokenizing
+`coherent.txt` and the other two are built to match it, the convention has to
+be identical across all three, and "none" is the only one that keeps N equal to
+the token count of the text itself.
+
+`write_text()` passes `newline="\n"` explicitly. Without it Python on Windows
+translates every `\n` to `\r\n`, the files stop being byte-identical to the
+same files generated on the cluster, and `.gitattributes`' `eol=lf` rewrites
+them on the next checkout anyway. A test asserts no CR bytes and no trailing
+newline in all three files.
+
+### S24. `--k` is required, with no default
+
+Which window size to use is explicitly out of scope for this step, so
+`make_bursts.py` will not run without being told one. A default would have
+become the answer by sitting there. `--seed` does default to 0, because *some*
+seed has to be picked for the run to be reproducible at all and the value is
+recorded in `provenance.json` either way.
+
+For the same reason `match_sweep.py` prints its table and stops. It does not
+rank rows, mark a best k, or say anything about matching — the tolerance is not
+set, and a script that highlighted a row would be setting it.
+
+### S25. `provenance.json` carries no timestamp
+
+Acceptance required that two runs with the same arguments produce identical
+files, and `provenance.json` is one of the files. A `written_at_utc` field —
+which `run_provenance.yaml` does carry, correctly, because a run happens at a
+time — would have made every run differ from every other. Nothing
+machine-dependent goes in either, for the same reason. What it does record:
+seed, k, N, the dataset and split, both source spans as (document index, word
+offset, word count), all four filter thresholds, the SHA-256 of each file, and
+whether trimming cut mid-word.
+
+The corpus slice itself is cached under a gitignored `/.corpus-cache/` and is
+never committed — corpus data is data. The burst texts cut from it are content,
+and are committed. That distinction is the one CLAUDE.md rule 3 says needs
+judgment; this is the worked example of it.
+
+### S26. A fresh rng per k in the sweep
+
+`match_sweep.py` builds a new `random.Random(seed)` for each window size
+rather than threading one rng through the loop. Otherwise the shuffle at k=5
+would depend on how many draws k=3 happened to consume, and the rows would not
+be independent measurements of the same dial — reordering the `--k` list would
+change the numbers.
+
+The span selection rng is separate again, and is driven through the same
+`select_spans()` call `make_bursts.py` uses, so the sweep measures the passage
+that script would actually produce rather than a similar-looking one.
 
 ---
 
@@ -914,12 +1027,13 @@ actually set, so the claim is evidenced rather than assumed.
 
 ## Test coverage
 
-199 tests: 156 for the config system, 43 for `burst_match`.
+227 tests: 156 for the config system, 43 for `burst_match`, 28 for
+`make_bursts` and the committed burst files.
 
-In the base environment (`.venv/`, no torch) the run is **187 passed, 12
-skipped** — the 156 config tests are untouched and unaffected, the 31 torch-free
-`burst_match` tests pass, and only the 12 that genuinely need torch skip. That
-is the evidence for requirement 5.
+In the base environment (`.venv/`, no torch) the run is **212 passed, 15
+skipped** — the 156 config tests are untouched and unaffected, and only the 15
+that genuinely need torch or `transformers` skip. That is the evidence for
+requirement 5.
 
 ### `burst_match` specifically
 
@@ -947,6 +1061,25 @@ is the evidence for requirement 5.
   loader rejects still yields the key *and* says so in the source string, that a
   missing key raises rather than defaulting, that `--batch-size` wins, and that
   a literal `256` has not crept back into the script.
+
+### `make_bursts` and the burst files
+
+- **the window shuffle** — reproducible for a given seed and k, different for a
+  different seed or k, every word preserved, and — the property that makes k a
+  dial at all — no word crossing a window boundary. The final partial window is
+  asserted to actually get reordered, not merely to keep its words.
+- **the span filters** — prose passes; non-ASCII, digit-and-punctuation, and
+  navigation-bar spans are each rejected by the filter that should catch them.
+  Fractions are asserted to ignore whitespace, so they do not depend on how the
+  page was wrapped.
+- **the guard on `coherent.txt`** — that pointing an output path at it exits 1
+  before anything loads, and that a *missing* coherent passage is an error
+  rather than an invitation to generate one.
+- **the committed files themselves** — all three present, no CR bytes, no
+  trailing newline, SHA-256 matching `provenance.json`, and (tokenizer
+  permitting) all three at the same token count, equal to the recorded target.
+  These are step 8's acceptance criteria turned into something that keeps
+  being checked rather than something that was true once.
 
 ### Config system
 

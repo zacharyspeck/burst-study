@@ -1,0 +1,43 @@
+{
+  "target_tokens": 194,
+  "seed": 0,
+  "window_size_k": 5,
+  "tokenizer": "gpt2",
+  "dataset": {
+    "name": "Skylion007/openwebtext",
+    "split": "train",
+    "documents_cached": 200
+  },
+  "span_words_requested": 388,
+  "filters": {
+    "max_non_ascii_fraction": 0.1,
+    "max_punct_digit_fraction": 0.25,
+    "min_alpha_fraction": 0.4,
+    "min_sentence_ends": 3
+  },
+  "files": {
+    "coherent.txt": {
+      "tokens": 194,
+      "sha256": "1487f2d232b0f6bed128f4ecc696917357813a591a7156be3eeeefad0c83db7c",
+      "source": "hand-written, fixed, not generated"
+    },
+    "ordinary.txt": {
+      "tokens": 194,
+      "sha256": "f4f087ce7df940b5936c7e330a26dcd8ef589ed26197d65a462663d9148cd5fc",
+      "source": "contiguous OpenWebText span, trimmed",
+      "doc_index": 135,
+      "word_start": 5432,
+      "word_count": 388,
+      "trim_cut_mid_word": false
+    },
+    "noise.txt": {
+      "tokens": 194,
+      "sha256": "43b13febfb4a48cf414e2cfd14024012e7ae18cf1c19e9ab6e3d800f130ad8d5",
+      "source": "contiguous OpenWebText span, word-shuffled in non-overlapping windows of k=5, trimmed",
+      "doc_index": 96,
+      "word_start": 388,
+      "word_count": 388,
+      "trim_cut_mid_word": false
+    }
+  }
+}

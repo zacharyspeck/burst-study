@@ -37,6 +37,12 @@ __pycache__/
 # `.venv/` above does not match this name.
 /.venv-ml/
 
+# The cached OpenWebText slice that scripts/make_bursts.py cuts spans from.
+# Corpus data is never committed -- the corpus is named in the config, never
+# vendored. The burst texts cut FROM it are committed, because those are
+# experimental content rather than data; see bursts/ and CLAUDE.md.
+/.corpus-cache/
+
 # Run outputs. The provenance record that matters (resolved_config.yaml and
 # run_provenance.yaml) is written into --outdir, which is chosen per machine
 # and deliberately not tracked here.
