@@ -1383,23 +1383,33 @@ TINY = ArchSpec(n_layer=2, n_head=4, n_embd=16, n_inner=32,
 def build_tiny_model(seed: int = 0):
     """A small GPT-2 built in process. No download, no committed fixture.
 
-    THE LAYERNORM RANDOMISATION BELOW IS LOAD-BEARING, NOT COSMETIC.
+    THE RANDOMISATION BELOW IS LOAD-BEARING, NOT COSMETIC. It was got wrong
+    twice, and each time the wrong version made a test vacuous rather than
+    failing.
 
-    A freshly constructed GPT2LMHeadModel has every LayerNorm gain at exactly
-    1.0 and every LayerNorm bias at exactly 0.0, because that is nn.LayerNorm's
-    default init and GPT-2's init routine does not touch it. A model in that
-    state is NOT a generic point in weight space -- diag(gamma) is the identity,
-    so it commutes with everything, and residual rotation passes its
-    equivalence test on a technicality.
+    A freshly constructed GPT2LMHeadModel is not a generic point in weight
+    space. Its init routine leaves two whole families of tensor at structured
+    values, and structure is exactly what a symmetry test hides behind:
 
-    Measured on the untouched fixture: all gains == 1.0, all biases == 0.0.
-    Measured on real GPT-2: gains span 2.557e-04 to 17.42, with 0.02% of them
-    within 1% of 1.0. The default fixture is degenerate exactly where the
-    rotation question is decided, and testing against it would have reported
-    residual rotation as a symmetry when it is not.
+    1. EVERY LAYERNORM GAIN IS EXACTLY 1.0 and every LayerNorm bias exactly
+       0.0. Then diag(gamma) is the identity, it commutes with any rotation,
+       and residual rotation passes its equivalence test on a technicality --
+       measured 1.763e-07 on the default fixture against 5.456e-01 once the
+       gains are randomised. Real GPT-2's gains span 2.557e-04 to 17.42, with
+       0.02% within 1% of 1.0.
 
-    So the gains are drawn log-normal and the biases normal, putting the
-    fixture at a generic point. Every other tensor is left at GPT-2's own init.
+    2. EVERY Conv1D BIAS IS EXACTLY 0.0 -- c_attn, attn.c_proj, c_fc and
+       mlp.c_proj alike. This one is worse, because it silently empties the
+       head-internal step of its content: with b_Q == 0 the augmenting row of
+       the Q/K affine invariant is a row of zeros, so the augmented invariant
+       and the weights-only invariant are THE SAME MATRIX. The mutation fault
+       that drops the bias row would have been undetectable, and the whole
+       affine-invariant amendment would have been a no-op that still passed
+       every test. Real GPT-2's biases reach 1.34 (c_attn), 2.68
+       (attn.c_proj), 0.75 (c_fc) and 1.48 (mlp.c_proj).
+
+    So gains are drawn log-normal, and every bias in the model is drawn normal.
+    Weight matrices are left at GPT-2's own init, which is already generic.
     """
     torch = _torch()
     from transformers.models.gpt2.modeling_gpt2 import GPT2Config, GPT2LMHeadModel
@@ -1418,8 +1428,24 @@ def build_tiny_model(seed: int = 0):
             ln.weight.copy_(torch.exp(
                 torch.randn(ln.weight.shape, generator=gen) * 0.5))
             ln.bias.copy_(torch.randn(ln.bias.shape, generator=gen) * 0.1)
+        for block in model.transformer.h:
+            for proj in (block.attn.c_attn, block.attn.c_proj,
+                         block.mlp.c_fc, block.mlp.c_proj):
+                proj.bias.copy_(
+                    torch.randn(proj.bias.shape, generator=gen) * 0.3)
     model.eval()
     return model
+
+
+def _conv1d_biases(model):
+    """Every Conv1D bias in the model, in a fixed order. Used by the fixture
+    genericity test, which exists because these were zero once."""
+    out = []
+    for block in model.transformer.h:
+        for proj in (block.attn.c_attn, block.attn.c_proj,
+                     block.mlp.c_fc, block.mlp.c_proj):
+            out.append(proj.bias)
+    return out
 
 
 def _all_layernorms(model):
@@ -1444,3 +1470,736 @@ def build_real_gpt2():
         raise CanonicalizeError(f"GPT-2 unavailable: {exc}") from exc
     model.eval()
     return model
+
+
+def build_degenerate_model(seed: int = 0, gap: float = 1e-6):
+    """A model whose WEIGHTS-ONLY Q/K invariant is NEARLY 2-fold degenerate.
+
+    Built so that the bias row is the only thing that can break the tie, which
+    is what makes the "drop the bias row" mutation fault detectable. Per head:
+
+      W_Q = U diag(s)  with U orthonormal and s carrying a repeated value
+      W_K = V          with V orthonormal
+
+    so the weights-only invariant W_Q W_K^T has singular values exactly `s`,
+    two of which are separated by only `gap`. Its SVD basis is therefore almost
+    arbitrary inside that 2-dimensional subspace: determined to roughly
+    eps/gap, so two models that differ by a hair land on different bases and
+    the "canonical" form built from it is not canonical.
+
+    NEARLY rather than exactly degenerate on purpose. At an exact tie the
+    head-internal step's own spectrum guard refuses outright, which is safe but
+    demonstrates nothing -- the failure this fixture has to exhibit is the
+    silent one, where canonicalization proceeds and returns different answers
+    for the same model.
+
+    Augmenting with b_Q adds a rank-one term to the Gram matrix, which splits
+    the pair -- so the augmented invariant IS well defined on the same model.
+    That contrast is the whole point of the fixture.
+    """
+    torch = _torch()
+
+    model = build_tiny_model(seed=seed)
+    arch = TINY
+    dh = arch.head_dim
+    gen = torch.Generator().manual_seed(seed + 4801)
+    # Two singular values separated by `gap`, the rest well spread.
+    s = torch.ones(dh, dtype=torch.float32)
+    s[0] = 2.0
+    s[2] = 1.0 - gap           # -> e.g. [2.0, 1.0, 1.0-gap, 0.5] for dh == 4
+    if dh >= 4:
+        s[-1] = 0.5
+    with torch.no_grad():
+        for block in model.transformer.h:
+            c_attn = block.attn.c_attn
+            for h in range(arch.n_head):
+                q, k = (head_columns(w, h, arch) for w in ("q", "k"))
+                u = _random_orthogonal(arch.n_embd, gen, torch.float32)[:, :dh]
+                v = _random_orthogonal(arch.n_embd, gen, torch.float32)[:, :dh]
+                c_attn.weight[:, q] = u * s.unsqueeze(0)
+                c_attn.weight[:, k] = v
+                # Non-zero, and with weight on the degenerate coordinates, so
+                # the rank-one update actually splits them.
+                c_attn.bias[q] = torch.randn(dh, generator=gen) * 0.5 + 0.5
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Canonicalization
+#
+# A CanonStep is the deterministic UNSCRAMBLE. It is not the inverse of any one
+# Symmetry -- it rewrites a model into the single representative of its orbit,
+# whatever gauge it arrived in.
+#
+# RECIPE ORDER IS PART OF THE DEFINITION OF CANONICAL FORM, not a convenience.
+# Gain absorption rewrites c_attn's input rows and the head-internal step reads
+# c_attn. Zeroing b_K changes which invariant the head-internal step should
+# form. The two sort steps compute their keys from tensors the earlier steps
+# rewrite. Reordering the recipe therefore produces a different canonical form,
+# and tests/test_canonicalize_recipe.py pins that by running permuted orders
+# and asserting the round trip breaks.
+# ---------------------------------------------------------------------------
+
+
+def _paired_svd(F, G, sign_fix: bool = True):
+    """Compact SVD of ``F @ G.T`` via QR plus a small core SVD.
+
+    F is (m, d) and G is (n, d) with d the head dimension, so ``F @ G.T`` is
+    (m, n) of rank at most d. Forming it explicitly would be an (m, n) matrix
+    for no reason; QR-ing each factor and taking the SVD of the d-by-d core
+    gives the same decomposition for a fraction of the work.
+
+    THE SIGN CONVENTION IS LOAD-BEARING. Each singular-vector pair may be
+    negated together without changing the product, so without a convention the
+    "canonical" form is only canonical up to 2^d sign choices and the round
+    trip fails. The convention: make the largest-magnitude entry of each column
+    of U positive, ties broken to the lowest index. `sign_fix=False` exists so
+    a mutation test can disable it and prove the round trip catches that.
+    """
+    torch = _torch()
+    Qf, Rf = torch.linalg.qr(F)
+    Qg, Rg = torch.linalg.qr(G)
+    u, s, vh = torch.linalg.svd(Rf @ Rg.T)
+    U = Qf @ u
+    V = Qg @ vh.transpose(-2, -1)
+    if sign_fix:
+        cols = torch.arange(U.shape[1])
+        pivot = U.abs().argmax(dim=0)
+        signs = torch.sign(U[pivot, cols])
+        signs = torch.where(signs == 0, torch.ones_like(signs), signs)
+        U = U * signs.unsqueeze(0)
+        V = V * signs.unsqueeze(0)
+    return U, s, V
+
+
+def _relative_gaps(s):
+    """Consecutive singular-value gaps, relative to the largest.
+
+    The minimum of these is what says whether the canonical form is well
+    defined: a near-zero gap means the SVD basis is nearly arbitrary in that
+    subspace, and two models that differ by a hair can land on different bases.
+    """
+    if s.numel() < 2:
+        return s.new_tensor([float("inf")])
+    return (s[:-1] - s[1:]) / s[0]
+
+
+@dataclass
+class CanonStep:
+    """One deterministic rewrite. Subclasses set `name` and implement run()."""
+
+    name: str = "unnamed"
+
+    def run(self, model, arch: ArchSpec, report: "CanonReport") -> None:
+        raise NotImplementedError
+
+
+@dataclass
+class AbsorbLayerNormGains(CanonStep):
+    """Force every ln_1 and ln_2 gain to all-ones.
+
+    LN(x) = gamma * xhat + beta feeding a Conv1D weight W. Setting gamma to 1
+    requires W's ROWS to absorb it and beta to be divided by it:
+
+        W'    = diag(gamma) W          (rows are Conv1D's input axis)
+        beta' = beta / gamma
+        gamma'= 1
+
+    ln_f is deliberately NOT absorbed. Its downstream consumer is lm_head,
+    which is the tied embedding -- folding a gain into it would corrupt the
+    input embedding. That is also precisely why residual rotation is not a
+    symmetry of this architecture; see D17.
+    """
+
+    name: str = "absorb_layernorm_gains"
+    #: A gain this close to zero cannot be divided out without destroying
+    #: precision. Real GPT-2's smallest is 2.557e-04, so this floor is three
+    #: orders below anything observed rather than a value tuned to pass.
+    min_gain: float = 1e-7
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        smallest = math.inf
+        with torch.no_grad():
+            for i, block in enumerate(model.transformer.h):
+                for ln_name, proj in (("ln_1", block.attn.c_attn),
+                                      ("ln_2", block.mlp.c_fc)):
+                    ln = getattr(block, ln_name)
+                    gamma = ln.weight.detach().clone()
+                    worst = float(gamma.abs().min())
+                    smallest = min(smallest, worst)
+                    if worst < self.min_gain:
+                        raise CanonicalizeError(
+                            f"block {i} {ln_name}: LayerNorm gain has an entry "
+                            f"of magnitude {worst:.3e}, below the floor "
+                            f"{self.min_gain:.0e}. Absorbing the gain divides "
+                            "by it, and dividing by a value this small would "
+                            "destroy the precision of the canonical form "
+                            "rather than merely compute it badly.")
+                    proj.weight.mul_(gamma.unsqueeze(1))
+                    ln.bias.div_(gamma)
+                    ln.weight.fill_(1.0)
+        report.min_layernorm_gain = smallest
+
+
+@dataclass
+class ZeroKeyBiasGauge(CanonStep):
+    """Set every attention key bias to zero.
+
+    b_K is pure gauge: shifting it shifts every key by the same vector, which
+    adds a per-query constant to that row of the score matrix, and softmax
+    normalises across exactly that row. Zeroing it is the canonical
+    representative of the orbit and costs nothing, because there is nothing
+    there to lose.
+
+    Runs BEFORE the head-internal step so the Q/K invariant that step forms is
+    built on a gauge-fixed model. Measured across 144 heads of real GPT-2,
+    removing this gauge first improves the worst-case singular-value gap from
+    3.570e-05 to 1.068e-04.
+    """
+
+    name: str = "zero_key_bias_gauge"
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        with torch.no_grad():
+            for block in model.transformer.h:
+                bias = block.attn.c_attn.bias
+                for h in range(arch.n_head):
+                    bias[head_columns("k", h, arch)] = 0.0
+
+
+@dataclass
+class ZeroValueBiasGauge(CanonStep):
+    """Set every attention value bias to zero, compensating in c_proj's bias.
+
+    Attention probabilities sum to one across keys, so shifting b_V by c shifts
+    that head's output by exactly c, which reaches the residual as the constant
+    c @ W_O. Removing b_V therefore requires adding b_V @ W_O back into
+    attn.c_proj.bias, which is where that constant belongs.
+
+    Unlike b_K this is not free bookkeeping -- it moves information between two
+    tensors -- but it is still an exact rewrite, and it is what lets the V/O
+    invariant be formed from W_V and W_O alone.
+    """
+
+    name: str = "zero_value_bias_gauge"
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        with torch.no_grad():
+            for block in model.transformer.h:
+                c_attn, c_proj = block.attn.c_attn, block.attn.c_proj
+                for h in range(arch.n_head):
+                    v = head_columns("v", h, arch)
+                    b_v = c_attn.bias[v].detach().clone()
+                    w_o = c_proj.weight[head_rows_of_out_proj(h, arch), :]
+                    c_proj.bias.add_(b_v @ w_o)
+                    c_attn.bias[v] = 0.0
+
+
+@dataclass
+class CanonicalizeHeadInternal(CanonStep):
+    """Fix the GL(head_dim) freedom inside every head, per head, per layer.
+
+    Two independent freedoms, each handled by splitting its invariant
+    symmetrically through an SVD:
+
+      Q/K   the scores depend on Q and K only through the AFFINE invariant.
+            With b_K gauge-fixed to zero that invariant is [W_Q ; b_Q] W_K^T,
+            and the query bias rides in as an extra ROW of the Q factor.
+
+            THE BIAS ROW IS NOT OPTIONAL, AND NOT PRIMARILY A TIE-BREAKER.
+            Without it, b_Q is never transformed at all: the weights get
+            canonicalized and the query bias is left in whatever gauge it
+            arrived in, so the canonical form is INCOMPLETE on any model with a
+            non-zero b_Q, however well conditioned. Measured on a generic
+            model, dropping the row breaks the round trip by 1.114e+00. It also
+            propagates -- the head sort key is this spectrum, so a stranded b_Q
+            reorders the heads too.
+
+            Improving the worst-case singular-value gap (2.6x, and 7.9x with
+            the b_K gauge removed first) is a real second benefit on top of
+            that, not the reason. Framing it as tie-breaking would suggest the
+            row could be skipped on a well-conditioned model. It cannot.
+
+      V/O   the head's output depends on V and its slice of c_proj only through
+            W_V W_O. b_V is gauge and is removed by the previous step, so this
+            invariant is formed from the WEIGHTS ONLY. That is a measured
+            decision, not an argument: augmenting it with b_V was measured to
+            make the worst-case gap 1.9x WORSE, because feeding a gauge
+            quantity into the spectrum breaks ties with an arbitrary number.
+
+    Canonical form: F, G -> U sqrt(Sigma), V sqrt(Sigma). Split symmetrically
+    rather than pushing everything into one side, so neither factor carries all
+    the scale.
+    """
+
+    name: str = "canonicalize_head_internal"
+    #: Below this relative gap the SVD basis is effectively arbitrary and the
+    #: "canonical" form would not be canonical. Raising is the honest response.
+    min_relative_gap: float = 1e-9
+
+    def _query_factor(self, w_q, b_q):
+        """The Q-side factor. Overridden by the bias-dropping mutation fault."""
+        torch = _torch()
+        return torch.cat([w_q, b_q.unsqueeze(0)], dim=0)
+
+    def _svd(self, F, G):
+        """Overridden by the sign-convention mutation fault."""
+        return _paired_svd(F, G, sign_fix=True)
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        d, dh = arch.n_embd, arch.head_dim
+        worst_gap = math.inf
+        worst_cond = 0.0
+        with torch.no_grad():
+            for block in model.transformer.h:
+                c_attn, c_proj = block.attn.c_attn, block.attn.c_proj
+                for h in range(arch.n_head):
+                    q, k, v = (head_columns(w, h, arch) for w in QKV)
+                    rows = head_rows_of_out_proj(h, arch)
+                    w_q = c_attn.weight[:, q].detach().clone()
+                    b_q = c_attn.bias[q].detach().clone()
+                    w_k = c_attn.weight[:, k].detach().clone()
+                    w_v = c_attn.weight[:, v].detach().clone()
+                    w_o = c_proj.weight[rows, :].detach().clone()
+
+                    # ---- Q/K, augmented with the query bias ----------------
+                    F = self._query_factor(w_q, b_q)
+                    U, s, V = self._svd(F, w_k)
+                    self._check_spectrum(s, "Q/K")
+                    worst_gap = min(worst_gap, float(_relative_gaps(s).min()))
+                    worst_cond = max(worst_cond, float(s[0] / s[-1]))
+                    root = s.clamp_min(0).sqrt()
+                    F_new = U * root.unsqueeze(0)
+                    c_attn.weight[:, q] = F_new[:d, :]
+                    if F_new.shape[0] > d:
+                        c_attn.bias[q] = F_new[d, :]
+                    c_attn.weight[:, k] = V * root.unsqueeze(0)
+
+                    # ---- V/O, weights only ---------------------------------
+                    U2, s2, V2 = self._svd(w_v, w_o.transpose(0, 1))
+                    self._check_spectrum(s2, "V/O")
+                    worst_gap = min(worst_gap, float(_relative_gaps(s2).min()))
+                    worst_cond = max(worst_cond, float(s2[0] / s2[-1]))
+                    root2 = s2.clamp_min(0).sqrt()
+                    c_attn.weight[:, v] = U2 * root2.unsqueeze(0)
+                    c_proj.weight[rows, :] = (
+                        V2 * root2.unsqueeze(0)).transpose(0, 1)
+        report.min_singular_gap = worst_gap
+        report.max_head_condition = worst_cond
+
+    def _check_spectrum(self, s, which: str) -> None:
+        torch = _torch()
+        if float(s[-1]) <= 0.0:
+            raise CanonicalizeError(
+                f"{which} invariant is rank deficient (smallest singular value "
+                f"{float(s[-1]):.3e}). The canonical form is defined by a rank "
+                "factorisation and does not exist for a deficient invariant.")
+        gap = float(_relative_gaps(s).min())
+        if gap < self.min_relative_gap:
+            raise CanonicalizeError(
+                f"{which} invariant has two singular values within {gap:.3e} "
+                f"of each other (relative), below the floor "
+                f"{self.min_relative_gap:.0e}. The SVD basis is effectively "
+                "arbitrary in that subspace, so the 'canonical' form would not "
+                "be canonical: two models differing by a hair could land on "
+                "different bases and report a large spurious distance.")
+
+
+@dataclass
+class SortHeads(CanonStep):
+    """Put the attention heads of each layer into a fixed order.
+
+    Sorted ascending on a per-head key that is invariant under everything the
+    head-internal step already fixed: the singular values of that head's two
+    invariants. After canonicalization the Q-side factor has orthonormal
+    columns scaled by sqrt(sigma), so its squared column norms ARE the singular
+    values and no second SVD is needed to recover them.
+
+    Runs AFTER the head-internal step, necessarily: before it, the column norms
+    are whatever gauge the model happened to arrive in and sorting on them
+    would order heads by an accident.
+    """
+
+    name: str = "sort_heads"
+
+    def _apply(self, block, arch, order):
+        """Move the head blocks. Overridden by the axis mutation faults."""
+        torch = _torch()
+        c_attn, c_proj = block.attn.c_attn, block.attn.c_proj
+        new_w = c_attn.weight.detach().clone()
+        new_b = c_attn.bias.detach().clone()
+        new_o = c_proj.weight.detach().clone()
+        for new_head, old_head in enumerate(order):
+            for which in QKV:
+                dst = head_columns(which, new_head, arch)
+                src = head_columns(which, old_head, arch)
+                new_w[:, dst] = c_attn.weight[:, src]
+                new_b[dst] = c_attn.bias[src]
+            new_o[head_rows_of_out_proj(new_head, arch), :] = \
+                c_proj.weight[head_rows_of_out_proj(old_head, arch), :]
+        c_attn.weight.copy_(new_w)
+        c_attn.bias.copy_(new_b)
+        c_proj.weight.copy_(new_o)
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        smallest_margin = math.inf
+        with torch.no_grad():
+            for block in model.transformer.h:
+                keys = [self._key(block, arch, h) for h in range(arch.n_head)]
+                order = sorted(range(arch.n_head), key=lambda h: keys[h])
+                ordered = [keys[h] for h in order]
+                for a, b in zip(ordered, ordered[1:]):
+                    smallest_margin = min(
+                        smallest_margin,
+                        max(abs(x - y) for x, y in zip(a, b)))
+                if order != list(range(arch.n_head)):
+                    self._apply(block, arch, order)
+        report.min_head_sort_margin = smallest_margin
+
+    @staticmethod
+    def _key(block, arch, head) -> tuple:
+        """The head's two singular-value spectra, concatenated.
+
+        THE BIAS ROW MUST BE INCLUDED IN THE Q-SIDE NORM. After the
+        head-internal step the Q factor is U sqrt(Sigma) where U has
+        orthonormal columns and U spans the AUGMENTED (n_embd + 1) space, so
+        the squared norms of the WEIGHT rows alone come to sigma_j minus
+        b_Q[j]^2 -- which is not sigma and is not even monotonic. Measured on
+        the tiny fixture, weight-only gave (0.0010, 0.0099, 0.0082, 0.0057)
+        against a true spectrum of (0.0509, 0.0099, 0.0082, 0.0057): the
+        largest singular value looked like the smallest, because almost all of
+        its mass sits in the bias row.
+
+        The sort still round-trips either way -- any per-head quantity fixed by
+        the canonical form would -- but a key that is not the spectrum cannot
+        be reasoned about, and this one was documented as the spectrum.
+        """
+        c_attn = block.attn.c_attn
+        q = head_columns("q", head, arch)
+        v = head_columns("v", head, arch)
+        qk = ((c_attn.weight[:, q].detach() ** 2).sum(dim=0)
+              + c_attn.bias[q].detach() ** 2)
+        # b_V is zeroed by an earlier step, so the V side needs no such term.
+        vo = (c_attn.weight[:, v].detach() ** 2).sum(dim=0)
+        return tuple(qk.tolist()) + tuple(vo.tolist())
+
+
+@dataclass
+class SortFFNNeurons(CanonStep):
+    """Put each FFN's hidden neurons into a fixed order.
+
+    Key is the neuron's own bias first, then its input-column norm, then its
+    output-row norm. c_fc's bias survives gain absorption untouched -- that
+    step rewrites the weight rows only -- so this key is stable across the
+    recipe.
+
+    c_fc's COLUMNS are the hidden neurons and c_proj's ROWS are the same
+    neurons: opposite axes, because Conv1D is (in, out).
+    """
+
+    name: str = "sort_ffn_neurons"
+
+    def run(self, model, arch, report):
+        torch = _torch()
+        smallest_margin = math.inf
+        with torch.no_grad():
+            for block in model.transformer.h:
+                c_fc, c_proj = block.mlp.c_fc, block.mlp.c_proj
+                bias = c_fc.bias.detach()
+                in_norm = c_fc.weight.detach().norm(dim=0)
+                out_norm = c_proj.weight.detach().norm(dim=1)
+                keys = list(zip(bias.tolist(), in_norm.tolist(),
+                                out_norm.tolist()))
+                order = sorted(range(arch.n_inner), key=lambda j: keys[j])
+                ordered = [keys[j] for j in order]
+                # Margin over the WHOLE key tuple, not just the primary
+                # component. Measuring only the primary reported a margin of
+                # exactly 0 on a fixture whose biases were all zero, which
+                # looked like a catastrophic near-tie when the sort had in fact
+                # fallen through to the secondary key and worked correctly.
+                for a, b in zip(ordered, ordered[1:]):
+                    smallest_margin = min(
+                        smallest_margin,
+                        max(abs(x - y) for x, y in zip(a, b)))
+                idx = torch.tensor(order)
+                c_fc.weight.copy_(c_fc.weight[:, idx])
+                c_fc.bias.copy_(c_fc.bias[idx])
+                c_proj.weight.copy_(c_proj.weight[idx, :])
+        report.min_ffn_sort_margin = smallest_margin
+
+
+#: The recipe. ORDER IS PART OF THE DEFINITION -- see the module comment above.
+DEFAULT_RECIPE: tuple = (
+    AbsorbLayerNormGains(),
+    ZeroKeyBiasGauge(),
+    ZeroValueBiasGauge(),
+    CanonicalizeHeadInternal(),
+    SortHeads(),
+    SortFFNNeurons(),
+)
+
+
+@dataclass
+class CanonReport:
+    """Diagnostics from one canonicalization. Every field is a fragility signal.
+
+    The two sort margins and the singular gap are the quantities that predict
+    whether canonicalization is stable on two nearly-identical models: a near
+    tie in a sort key or a near-degenerate spectrum is what turns a hair's
+    difference into a large apparent distance.
+    """
+
+    steps: tuple = ()
+    min_layernorm_gain: float = math.inf
+    min_singular_gap: float = math.inf
+    max_head_condition: float = 0.0
+    min_head_sort_margin: float = math.inf
+    min_ffn_sort_margin: float = math.inf
+
+
+def canonicalize(model, arch: ArchSpec = GPT2_124M, recipe: tuple = None,
+                 validate: bool = True) -> CanonReport:
+    """Rewrite `model` in place into its canonical form.
+
+    Runs the tripwire first unless explicitly told not to. Returns a report of
+    the fragility diagnostics; the model itself is mutated.
+    """
+    recipe = DEFAULT_RECIPE if recipe is None else recipe
+    if validate:
+        validate_architecture(model, arch)
+    report = CanonReport(steps=tuple(s.name for s in recipe))
+    for step in recipe:
+        step.run(model, arch, report)
+    return report
+
+
+def canonical_state_dict(model) -> dict:
+    """Name-keyed parameters, detached, in a fixed order.
+
+    Name-keyed rather than positional on purpose: this module reasons about
+    tensors by role, and a positional list would silently survive a reordering
+    that a name-keyed dict catches. The ordering contract test proves the two
+    views agree.
+    """
+    return {n: p.detach().clone() for n, p in model.named_parameters()}
+
+
+def state_dict_difference(a: dict, b: dict) -> tuple:
+    """(worst absolute difference, which tensor, per-tensor dict).
+
+    Returns the worst case AND the full breakdown, because "the round trip
+    agrees" is much less useful than knowing which tensor disagrees most and
+    by how much.
+    """
+    if set(a) != set(b):
+        raise CanonicalizeError(
+            f"state dicts have different keys: {set(a) ^ set(b)}")
+    per_tensor = {}
+    for name in a:
+        if a[name].shape != b[name].shape:
+            raise CanonicalizeError(
+                f"{name}: shapes differ, {tuple(a[name].shape)} vs "
+                f"{tuple(b[name].shape)}")
+        per_tensor[name] = float((a[name].double()
+                                  - b[name].double()).abs().max())
+    worst_name = max(per_tensor, key=per_tensor.get)
+    return per_tensor[worst_name], worst_name, per_tensor
+
+
+# ---------------------------------------------------------------------------
+# The frozen-axis contract
+#
+# Stated PER AXIS, not per tensor. The vocabulary axis of wte is the model's
+# output space and may never be reordered; the same holds for wpe's position
+# axis. The residual-channel axis of both is deliberately NOT frozen, so this
+# contract stays correct if residual permutation is ever admitted to the recipe.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FrozenAxis:
+    tensor: str
+    axis: int
+    why: str
+
+
+FROZEN_AXES: tuple = (
+    FrozenAxis("transformer.wte.weight", 0,
+               "the vocabulary axis IS the model's output space; reordering it "
+               "would relabel which token each logit refers to"),
+    FrozenAxis("transformer.wpe.weight", 0,
+               "the position axis is indexed by absolute position; reordering "
+               "it would move which position each embedding applies to"),
+)
+
+
+#: Relative slack in the frozen-axis check. A permutation of the OTHER axis
+#: reorders the terms of each slice's norm, and float addition is not
+#: associative, so the norm moves in its last bits -- measured at 1.9e-16
+#: relative for a residual permutation of wte. A genuine reordering of the
+#: frozen axis moves it by order 1. Twelve orders of separation, so this
+#: tolerance distinguishes the two without being able to hide anything.
+FROZEN_AXIS_RTOL = 1e-12
+
+
+def assert_frozen_axes_unchanged(before: dict, after: dict) -> None:
+    """Every frozen axis must keep its slices in their original order.
+
+    Checked by comparing the sequence of per-slice norms along the frozen axis
+    rather than the raw values. A norm is invariant to a permutation of the
+    OTHER axis, so this passes a residual re-gauging and fails a reordering of
+    the axis itself -- which is exactly the distinction the contract makes.
+
+    Under the current recipe wte and wpe are not touched at all, so they are in
+    fact byte-identical; that stronger property is asserted separately in the
+    tests. This function states the weaker per-axis contract, so it stays
+    correct if residual permutation is ever admitted to the recipe.
+    """
+    for frozen in FROZEN_AXES:
+        if frozen.tensor not in before:
+            raise CanonicalizeError(
+                f"{frozen.tensor} is not in the state dict; the frozen-axis "
+                "contract names a tensor this model does not have")
+        b, a = before[frozen.tensor], after[frozen.tensor]
+        other = [d for d in range(b.dim()) if d != frozen.axis]
+        nb = b.double().pow(2).sum(dim=other).sqrt()
+        na = a.double().pow(2).sum(dim=other).sqrt()
+        scale = nb.clamp_min(1e-300)
+        drift = ((nb - na).abs() / scale)
+        worst = float(drift.max())
+        if worst > FROZEN_AXIS_RTOL:
+            bad = int(drift.argmax())
+            raise CanonicalizeError(
+                f"{frozen.tensor} axis {frozen.axis} changed at index {bad}: "
+                f"slice norm {float(nb[bad]):.6e} became {float(na[bad]):.6e} "
+                f"(relative change {worst:.3e}, tolerance "
+                f"{FROZEN_AXIS_RTOL:.0e}). {frozen.why}.")
+
+
+def assert_embedding_tie_preserved(model) -> None:
+    """lm_head must still BE wte, not merely equal it."""
+    if model.lm_head.weight is not model.transformer.wte.weight:
+        raise CanonicalizeError(
+            "canonicalization broke the embedding tie: lm_head.weight is no "
+            "longer the same tensor object as transformer.wte.weight. The tie "
+            "is what makes the output projection the transpose of the input "
+            "embedding, and every symmetry conclusion in this module assumes "
+            "it holds.")
+
+
+# ---------------------------------------------------------------------------
+# Alignment -- the other way to remove a permutation gauge
+#
+# Canonicalization sorts each model independently. Alignment instead matches
+# one model's heads and neurons to another's, using the FULL weight vector
+# rather than a scalar sort key, which is robust to the near-ties that make
+# sorting fragile.
+#
+# Not a fallback. Every comparison in this study is pairwise -- each burst arm
+# against its own seed-matched twin -- so aligning to the twin is a natural
+# primitive, and the "depends on an external artifact" objection dissolves when
+# the artifact is the twin. Which of the two is preferable is a question for
+# the measured near-tie margins, not for argument.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AlignReport:
+    head_permutations: tuple = ()
+    ffn_permutations: tuple = ()
+    head_cost_margin: float = math.inf
+
+
+def _scipy_lsa():
+    try:
+        from scipy.optimize import linear_sum_assignment
+    except ImportError as exc:
+        raise CanonicalizeError(
+            "scipy is not installed, so alignment cannot solve the assignment "
+            "problem. Install with: pip install -e \".[dev,measure]\"\n"
+            f"(underlying import error: {exc})"
+        ) from exc
+    return linear_sum_assignment
+
+
+def align_permutations_to(model, reference, arch: ArchSpec = GPT2_124M
+                          ) -> AlignReport:
+    """Permute `model`'s heads and FFN neurons to best match `reference`.
+
+    Matching is on the whole feature vector for each head or neuron, solved
+    exactly with the Hungarian algorithm rather than greedily, so a near tie
+    between two heads is resolved by everything else about them instead of by
+    whichever scalar happened to be larger.
+    """
+    torch = _torch()
+    linear_sum_assignment = _scipy_lsa()
+    validate_architecture(model, arch)
+    validate_architecture(reference, arch)
+
+    head_perms, ffn_perms = [], []
+    margin = math.inf
+    with torch.no_grad():
+        for block, ref in zip(model.transformer.h, reference.transformer.h):
+            feats = _head_features(block, arch)
+            ref_feats = _head_features(ref, arch)
+            cost = -(feats @ ref_feats.transpose(0, 1)).cpu().numpy()
+            rows, cols = linear_sum_assignment(cost)
+            # order[j] = which of model's heads becomes head j
+            order = [0] * arch.n_head
+            for r, c in zip(rows.tolist(), cols.tolist()):
+                order[c] = r
+            head_perms.append(tuple(order))
+            chosen = float(sum(cost[r, c] for r, c in zip(rows, cols)))
+            margin = min(margin, abs(chosen))
+            if order != list(range(arch.n_head)):
+                SortHeads()._apply(block, arch, order)
+
+            fc, ref_fc = block.mlp, ref.mlp
+            nf = _ffn_features(fc)
+            ref_nf = _ffn_features(ref_fc)
+            cost = -(nf @ ref_nf.transpose(0, 1)).cpu().numpy()
+            rows, cols = linear_sum_assignment(cost)
+            order = [0] * arch.n_inner
+            for r, c in zip(rows.tolist(), cols.tolist()):
+                order[c] = r
+            ffn_perms.append(tuple(order))
+            idx = torch.tensor(order)
+            fc.c_fc.weight.copy_(fc.c_fc.weight[:, idx])
+            fc.c_fc.bias.copy_(fc.c_fc.bias[idx])
+            fc.c_proj.weight.copy_(fc.c_proj.weight[idx, :])
+
+    return AlignReport(head_permutations=tuple(head_perms),
+                       ffn_permutations=tuple(ffn_perms),
+                       head_cost_margin=margin)
+
+
+def _head_features(block, arch: ArchSpec):
+    """One row per head: everything that head owns, flattened."""
+    torch = _torch()
+    c_attn, c_proj = block.attn.c_attn, block.attn.c_proj
+    rows = []
+    for h in range(arch.n_head):
+        parts = []
+        for which in QKV:
+            sl = head_columns(which, h, arch)
+            parts.append(c_attn.weight[:, sl].detach().reshape(-1))
+            parts.append(c_attn.bias[sl].detach().reshape(-1))
+        parts.append(
+            c_proj.weight[head_rows_of_out_proj(h, arch), :].detach().reshape(-1))
+        rows.append(torch.cat(parts))
+    return torch.stack(rows).double()
+
+
+def _ffn_features(mlp):
+    """One row per hidden neuron: its input column, bias and output row."""
+    torch = _torch()
+    return torch.cat([
+        mlp.c_fc.weight.detach().transpose(0, 1),
+        mlp.c_fc.bias.detach().unsqueeze(1),
+        mlp.c_proj.weight.detach(),
+    ], dim=1).double()

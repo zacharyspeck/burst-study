@@ -1614,6 +1614,17 @@ Both new candidates pass equivalence with collapse factors of `3.90e+08` and
 This is not a curiosity. The head-internal canonical form breaks ties between
 near-degenerate singular values using the invariant's spectrum, and **a gauge
 quantity in that spectrum means breaking ties with an arbitrary number.**
+
+**FRAMING CORRECTED BY MEASUREMENT — see S47.** The affine-invariant amendment
+was argued, by both of us, on tie-breaking between near-degenerate singular
+values. That is real but it is the secondary reason. Mutation fault 6 showed
+the primary one: dropping the bias row means `b_Q` is **never transformed at
+all**, so the canonical form is *incomplete* on any model with a non-zero
+`b_Q`, degenerate or not — `1.114e+00` on a generic, well-conditioned model.
+The tie-breaking framing would have made the bias row look optional whenever
+the spectrum was comfortably separated. It is not optional. Degeneracy is an
+aggravating factor on top of an incompleteness that is always present.
+
 Measured across all 144 heads of real GPT-2, worst-case relative
 singular-value gap:
 
@@ -1665,6 +1676,211 @@ through torch. The `measure` group therefore did not declare everything
 
 Both are installed in `.venv-ml` only. `.venv` remains `pyyaml` + `pytest`, and
 must.
+
+### S46. Recipe order is load-bearing — measured, including where it is not
+
+`DEFAULT_RECIPE` is six steps in a fixed order, and the order is part of the
+definition of canonical form rather than a convenience. Gain absorption
+rewrites `c_attn`'s input rows and the head-internal step reads `c_attn`; the
+two sort steps compute keys from tensors the earlier steps rewrite.
+
+Six permuted orders were run and the round trip measured. Baseline for the
+correct order is `1.511e-15`:
+
+| permuted order | round trip | |
+| --- | --- | --- |
+| head-internal before gain absorption | `2.434e-01` | breaks |
+| sort-heads before head-internal | `3.734e-01` | breaks |
+| zero `b_V` after head-internal | `3.253e-01` | breaks |
+| gain absorption last | `2.530e-01` | breaks |
+| fully reversed | `4.880e-01` | breaks |
+| **zero `b_K` after head-internal** | **`1.511e-15`** | **still passes** |
+
+**Five of six break. One does not, and the reason is specific rather than
+lucky:** the Q/K invariant this module forms is `[W_Q ; b_Q] W_K^T`, which
+never reads `b_K` at all. So zeroing `b_K` before or after the head-internal
+step produces the identical canonical form. The steps genuinely commute; the
+round-trip test is not weaker than it looks, which was the other possible
+explanation and the one worth ruling out.
+
+The step is still **required** — removing it entirely does break the round trip
+under a key-bias shift, and that is tested separately. Only its *position*
+relative to the head-internal step is free. It is kept early because removing
+the gauge first improves the worst-case singular-value gap from `3.570e-05` to
+`1.068e-04` (S44), which is a numerical-quality argument, not a correctness
+one. Both facts are pinned by tests so neither can quietly stop being true.
+
+### S47. What the mutation tests actually proved
+
+Six faults injected into the recipe, each asserted to be caught **and** to be
+caught by the expected kind of check. If every fault were caught by the same
+check, five of the six checks could be deleted.
+
+| fault | function preservation | round trip | caught by |
+| --- | --- | --- | --- |
+| 1. permute `c_attn`'s row axis | `1.913e-02` | `2.793e-01` | both |
+| 2. permute across the QKV boundary | `1.455e-04` | `3.734e-01` | both |
+| 3. swap the V and O factors | `4.078e-02` | `1.511e-15` | **function only** |
+| 4. skip gain absorption | `4.339e-16` | `2.474e+00` | **round trip only** |
+| 5. drop the SVD sign convention | `5.423e-16` | `6.678e-01` | **round trip only** |
+| 6. drop the bias row | `4.339e-16` | `1.114e+00` | **round trip only** |
+
+Baseline for the correct recipe is `5.423e-16` and `1.511e-15`.
+
+**Fault 4 behaves exactly as designed and is the one that earns the round trip
+its "primary" label.** It leaves the model's behaviour untouched at float-noise
+level and is invisible to every function-level check; only the round trip sees
+that canonicity was destroyed. Fault 5 does the same. A suite without a round
+trip would pass on both.
+
+**Fault 6 fails for a more basic reason than the one Amendment 3 was argued
+on.** The amendment's stated purpose was tie-breaking between near-degenerate
+singular values. What the measurement shows is stronger: dropping the bias row
+means `b_Q` is **never transformed at all**, so the query bias is left in
+whatever gauge it arrived in and the canonical form is incomplete on *any*
+model with non-zero `b_Q` — degenerate or not. The disagreement is largest at
+`c_attn.bias`, and it propagates: the head sort key includes the Q-side
+spectrum, which includes `b_Q`'s contribution, so a stranded `b_Q` also gives
+the two models different head orderings and the damage reaches the weights at
+`1.8e-01`.
+
+The degeneracy argument still holds on top of that. On the purpose-built
+near-degenerate fixture the correct recipe round-trips at `7.994e-15` while the
+weights-only fault reaches `2.919e+00`, against `1.114e+00` on a generic model
+— so degeneracy makes it worse, it is just not what makes it detectable.
+
+### S48. The fixture was degenerate a second time, and worse — see also S42
+
+S42 recorded that a freshly constructed GPT-2 has every LayerNorm gain at
+exactly 1.0. The same fixture had a second structured-init problem that S42 did
+not catch: **every Conv1D bias is exactly 0.0** — `c_attn`, `attn.c_proj`,
+`c_fc` and `mlp.c_proj` alike.
+
+This one is worse than the gain problem, because it empties the head-internal
+step of its content without failing anything. With `b_Q == 0` the augmenting
+row of the Q/K affine invariant is a row of zeros, so **the augmented invariant
+and the weights-only invariant are the same matrix**. Mutation fault 6 would
+have been undetectable, and Amendment 3 would have been a no-op that still
+passed every test in the suite.
+
+Real GPT-2's biases reach `1.34` (`c_attn`), `2.68` (`attn.c_proj`), `0.75`
+(`c_fc`) and `1.48` (`mlp.c_proj`). `build_tiny_model()` now draws every bias
+in the model, and the fixture-genericity test covers them.
+
+#### Two instances make it a pattern, and the pattern is a STUDY limitation
+
+This is the **second** independent case, after S42's LayerNorm gains, where a
+freshly constructed model would have let a broken thing pass every test in the
+suite. The two defects are unrelated to each other. What they share is their
+cause: **both are properties of a model at initialization.**
+
+- gains exactly `1.0` -> `diag(gamma)` is the identity -> commutes with any
+  rotation -> residual rotation passes on a technicality
+- biases exactly `0.0` -> the augmenting row is zeros -> the augmented and
+  weights-only invariants are the same matrix -> the bias-row fault is
+  invisible
+
+That is a testing problem only if the study never visits that region. **It
+does.** The burst is injected at step 200, roughly 52M tokens
+(256 x 1024 x 200) into a from-scratch run — a model whose gains started at
+exactly 1.0 and whose biases started at exactly 0.0, and which has moved only a
+little from both. The configuration that hid two independent defects is close
+to the configuration the ruler will actually be applied to.
+
+So this is **a study limitation, not only a testing one**, and it is the same
+limitation S42 already records for gains: every conditioning number measured in
+phases 2 and 3 was taken on fully trained public GPT-2, at a point in weight
+space the study never visits.
+
+**Required phase 5 deliverable, extending the sweep in S42:** sweep **both**
+LayerNorm gain dispersion **and** Conv1D bias dispersion, from their
+initialization values toward public GPT-2's observed spread, and report across
+that sweep:
+
+- worst-case singular-value gap
+- head condition number
+- the head sort margin and the FFN sort margin
+
+with public GPT-2's actual **gain and bias distributions** as the far end of
+each, so both curves have a measured reference point. Report the curves; do not
+conclude from them whether the ruler is usable at step 200.
+
+### S52. The head condition number is a phase 5 input, not a phase 3 line item
+
+Canonicalizing real GPT-2 reports a **maximum head condition number of
+`1.104e+03`** (median across the 144 heads was `6.05`, measured separately in
+S44). The head-internal step inverts through that spectrum, so on the
+worst-conditioned head it amplifies a small weight difference by up to roughly
+1100x.
+
+That is precisely the mechanism that would show up as **inflation** in the
+epsilon sweep — canonicalization turning a hair's difference between two models
+into a large apparent one. It is recorded here as a phase 5 input rather than a
+phase 3 diagnostic so the connection is not lost between the two.
+
+**Required in the epsilon sweep:** report the distance ratio **separately for
+the worst-conditioned heads and for the median-conditioned ones**, not pooled.
+A spike in the pooled curve is uninterpretable; a spike that tracks condition
+number is attributable. If the ratio tracks condition number, that is the
+finding and it should be stated as one.
+
+Other phase 3 diagnostics that carry forward the same way, measured on real
+GPT-2: worst-case singular gap `5.479e-06`, head sort margin `3.606e-01`, FFN
+sort margin `8.792e-04`. The two sort margins are the near-tie fragility
+signal — a margin small enough that a hair's difference flips the sort order
+produces exactly the same inflation by a different route.
+
+### S49. The head sort key was not the quantity it was documented as
+
+`SortHeads` sorts on each head's invariant spectrum. The first implementation
+computed that spectrum as the squared column norms of `c_attn`'s **weight**
+rows for that head. After the head-internal step the Q factor is `U sqrt(Sigma)`
+over the **augmented** space, so the weight rows alone come to
+`sigma_j - b_Q[j]^2`. Measured on the fixture: `(0.0010, 0.0099, 0.0082,
+0.0057)` against a true spectrum of `(0.0509, 0.0099, 0.0082, 0.0057)`. Not
+merely inaccurate — **not even monotonic**, because almost all of the largest
+singular value's mass sits in the bias row.
+
+The round trip passed either way, because any per-head quantity fixed by the
+canonical form sorts consistently. That is why this was caught by a
+postcondition test asserting the spectrum comes out descending, not by the
+round trip. A key that is not the quantity it claims to be cannot be reasoned
+about, even when it happens to work.
+
+### S50. The frozen-axis check needed a relative tolerance, not exact equality
+
+The frozen-axis contract is stated per axis: the vocabulary axis of `wte` and
+the position axis of `wpe` must keep their slices in order. It is checked by
+comparing the sequence of per-slice norms, because a norm is invariant to a
+permutation of the *other* axis — which is what lets the contract tolerate a
+residual re-gauging while still failing a genuine reordering.
+
+Exact equality was too strict for that. Permuting the residual axis reorders
+the terms of each row's norm, and float addition is not associative, so the
+norms move in their last bits: measured at `1.899e-16` relative. A genuine
+reordering of the frozen axis moves them by order 1. `FROZEN_AXIS_RTOL = 1e-12`
+sits twelve orders below the thing it must catch and four above the noise.
+
+The stronger property — that the current recipe leaves both embeddings
+**byte-identical**, because it does not touch them at all — is asserted
+separately. Keeping the two apart means that if residual permutation is ever
+admitted to the recipe, exactly one test changes and the change is visible.
+
+### S51. The singular-gap floor is a backstop no fixture can reach
+
+`CanonicalizeHeadInternal.min_relative_gap = 1e-9` refuses a spectrum whose
+canonical form would be arbitrary. It cannot be exercised through a model:
+asking `build_degenerate_model` for an *exactly* repeated singular value still
+yields a computed relative gap of `4.077e-08` in float64, because building
+`W_Q` from an orthogonal factor and then decomposing it does not preserve an
+exact tie.
+
+Recorded rather than worked around by tuning the floor upward — raising it far
+enough to fire would also reject the near-degenerate fixture that mutation
+fault 6 needs in order to proceed and fail silently, which is the realistic
+hazard. The floor is tested directly against hand-built spectra instead, and
+the model-level near-degenerate case is tested for the silent disagreement it
+actually produces.
 
 ---
 
@@ -2042,7 +2258,7 @@ actually set, so the claim is evidenced rather than assumed.
 
 ## Test coverage
 
-363 tests, counted per file with `--collect-only` rather than from memory:
+420 tests, counted per file with `--collect-only` rather than from memory:
 
 | file | tests |
 | --- | --- |
@@ -2051,18 +2267,21 @@ actually set, so the claim is evidenced rather than assumed.
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
 | `tests/test_canonicalize.py` | 70 |
-| **total** | **363** |
+| `tests/test_canonicalize_recipe.py` | 41 |
+| `tests/test_canonicalize_mutations.py` | 16 |
+| **total** | **420** |
 
-In the base environment (`.venv/`, no torch) the run is **278 passed, 85
-skipped**. In `.venv-ml/` it is **363 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **279 passed, 141
+skipped**. In `.venv-ml/` it is **420 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
-Step 9 phase 0-2 added 70 of these. 11 of the 70 need no ML stack at all — the
+Step 9 added 127 of these across phases 0-4. Only 12 need no ML stack — the
 layout arithmetic for slicing the fused QKV tensor, the parameter-count
-identity, the tolerance registry and the pre-registration pins — so they run in
-the base environment too, which is the same pure/torch split
-`test_burst_match.py` uses and for the same reason.
+identity, the tolerance registry, the pre-registration pins and the
+frozen-axis declaration. The rest genuinely need torch, because they measure
+what a model computes before and after a rewrite, which is not something that
+can be checked without running one.
 
 ### `burst_match` specifically
 
