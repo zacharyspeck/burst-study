@@ -293,3 +293,94 @@ def test_generation_refuses_a_pool_built_for_a_different_span(tmp_path):
         make_bursts.load_pos_pool(bad, span)
     assert "999999" in str(exc.value)
     assert "build_pos_pool" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# the position sweep's pure reporting logic (8b-ii)
+# ---------------------------------------------------------------------------
+
+import position_sweep  # noqa: E402
+
+
+def fake_measurement(label, region_loss, grad_region=1.0):
+    return burst_match.InContextMeasurement(
+        label=label, position=400, n_region_tokens=194,
+        n_sequence_tokens=1024, region_is_burst=True,
+        region_loss=region_loss, full_sequence_loss=region_loss / 2,
+        gradnorm_from_region_loss=grad_region,
+        gradnorm_from_full_sequence_loss=1.0,
+        gradnorm_from_full_sequence_loss_batch_scaled=1.0 / 256,
+        n_params=124_439_808)
+
+
+def test_spread_reports_the_extremes_and_which_arm_held_them():
+    s = position_sweep.spread({"a": 2.0, "b": 8.0, "c": 4.0})
+    assert (s["min"], s["min_arm"]) == (2.0, "a")
+    assert (s["max"], s["max_arm"]) == (8.0, "b")
+    assert s["ratio"] == 4.0
+    assert s["absolute"] == 6.0
+
+
+def test_source_deltas_pair_each_derived_arm_with_its_own_source():
+    per_arm = {s.name: fake_measurement(s.name, 1.0) for s in make_bursts.ARM_SPECS}
+    per_arm["fluent-false"] = fake_measurement("fluent-false", 4.0, 20.0)
+    per_arm["fluent-true"] = fake_measurement("fluent-true", 3.0, 10.0)
+    per_arm["scrambled-false"] = fake_measurement("scrambled-false", 7.0, 25.0)
+    per_arm["scrambled-true"] = fake_measurement("scrambled-true", 6.5, 18.0)
+
+    deltas = position_sweep.source_deltas(per_arm)
+
+    assert set(deltas) == {"scrambled-false", "scrambled-true"}, (
+        "only arms with derives_from should appear")
+    assert deltas["scrambled-false"]["source"] == "fluent-false"
+    assert deltas["scrambled-false"]["delta"] == pytest.approx(3.0)
+    assert deltas["scrambled-true"]["source"] == "fluent-true"
+    assert deltas["scrambled-true"]["delta"] == pytest.approx(3.5)
+    assert deltas["scrambled-true"]["gradnorm_delta"] == pytest.approx(8.0)
+
+
+def test_grid_arithmetic_is_what_it_claims():
+    per_arm = {s.name: fake_measurement(s.name, 1.0) for s in make_bursts.ARM_SPECS}
+    per_arm["fluent-false"] = fake_measurement("fluent-false", 4.0)
+    per_arm["fluent-true"] = fake_measurement("fluent-true", 3.0)
+    per_arm["scrambled-false"] = fake_measurement("scrambled-false", 7.0)
+    per_arm["scrambled-true"] = fake_measurement("scrambled-true", 6.5)
+
+    g = position_sweep.grid_cells(per_arm)
+
+    assert g["truth_gap_fluent"] == pytest.approx(-1.0)      # 3.0 - 4.0
+    assert g["truth_gap_scrambled"] == pytest.approx(-0.5)   # 6.5 - 7.0
+    assert g["structure_gap_false"] == pytest.approx(3.0)    # 7.0 - 4.0
+    assert g["structure_gap_true"] == pytest.approx(3.5)     # 6.5 - 3.0
+    # The headline cell: is the truth gap the same size at both structure
+    # levels? Defined as scrambled minus fluent, so a positive value means
+    # the truth gap SHRANK under scrambling.
+    assert g["truth_gap_difference"] == pytest.approx(0.5)
+    assert g["truth_gap_difference"] == pytest.approx(
+        g["truth_gap_scrambled"] - g["truth_gap_fluent"])
+
+
+def test_the_committed_sweep_report_is_self_consistent():
+    """The results file is the 8b-ii deliverable; guard its shape."""
+    path = REPO_ROOT / "docs" / "measurements" / "8b-ii-position-sweep.json"
+    assert path.is_file(), "the sweep report must be committed"
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert data["task"] == "8b-ii"
+    assert data["arms"] == [s.name for s in make_bursts.ARM_SPECS]
+    assert data["burst_tokens"] == 194
+
+    for position in data["positions"]:
+        cell = data["by_position"][str(position)]
+        # Every quantity carries its own control, so no figure is ever
+        # reported without the floor it should be read against.
+        for key in ("loss_burst_region", "loss_full_sequence",
+                    "gradnorm_from_burst_region_loss",
+                    "gradnorm_from_full_sequence_loss"):
+            q = cell["quantities"][key]
+            assert set(q["per_arm"]) == set(data["arms"])
+            assert isinstance(q["control"], float)
+            assert q["spread_ratio"] >= 1.0
+        grid = cell["grid"]
+        assert grid["truth_gap_difference"] == pytest.approx(
+            grid["truth_gap_scrambled"] - grid["truth_gap_fluent"])

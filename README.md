@@ -66,7 +66,7 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `253 passed, 21 skipped`, then the resolved config printed, exit
+Expected: `257 passed, 21 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
@@ -199,8 +199,9 @@ scripts/generate_overrides.py        regenerates all 40 override files
 scripts/burst_match.py               measurement primitives, in context
 scripts/make_bursts.py               generates the three generated arms
 scripts/build_pos_pool.py            one-time POS pool build (nltk)
-scripts/match_arms.py                THE 8b-i DELIVERABLE: five-arm match
+scripts/match_arms.py                all arms at one burst position
 scripts/match_sweep.py               sweeps the scrambled arm's window size k
+scripts/position_sweep.py            8b-ii: burst position + gradient diagnostic
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
 bursts/scrambled_false.txt           fluent_false, word order broken

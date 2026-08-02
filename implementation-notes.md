@@ -980,9 +980,33 @@ leakage spec v4 was written to escape. Bigram survival by window:
 k=2 37.8%   k=3 26.3%   k=5 17.0%   k=8 11.0%   k=15 6.4%   k=30 3.7%   full 0.6%
 ```
 
-And the difference is large in loss: burst-region loss on fluent-true goes
-from 6.14 at k=2 to 7.41 at k=15, **+1.27 nats**. (It saturates after about
-k=15; full-span at 7.57 is no better than k=30 at 7.64.)
+And the difference is large in loss. Burst-region loss, measured in context at
+position 400 on trained GPT-2, seed 0:
+
+```
+                unshuf    k=2     k=3     k=5     k=8    k=15    k=30    full
+fluent-true      4.023   6.141   6.613   6.939   7.292   7.413   7.642   7.568
+fluent-false     4.407   6.463   6.876   7.200   7.195   7.508   7.733   7.636
+```
+
+k=2 to k=15 is **+1.27 nats** on fluent-true. It saturates after about k=15:
+full-span (7.568) is no better than k=30 (7.642), and on both passages the
+last three columns are within about 0.2 nats of each other. Mean word
+displacement over the same range:
+
+```
+k=2 0.50   k=3 0.87   k=5 1.58   k=8 2.58   k=15 4.77   k=30 9.59   full 52.6
+```
+
+**How to reproduce these.** Acceptance and bigram survival are pure
+tokenizer/permutation statistics — 200 seeds per cell for acceptance, 30 for
+the permutation figures, using `window_shuffle` and `token_count` from
+`scripts/make_bursts.py`. The loss row is `measure_in_context` at position 400
+against `bursts/context.txt`. The bias comparison drew shuffles at k=15 until
+18 accepted and 18 rejected had been collected, and measured each at its
+natural length (the rejected ones are 193 tokens rather than 194, a
+difference of one prediction in a mean over ~194, which is why the comparison
+is fair).
 
 **The bias the loop introduces was measured, not assumed.** Rejecting short
 draws selects mildly for denser tokenization. At k=15, where selection is
@@ -1041,6 +1065,103 @@ The two new arms take no corpus span (`needs_span=False`), which is why
 adding them left `span_arms()`, the span assignment and the committed POS
 pool undisturbed — `pos_substituted.txt` is byte-identical across the change,
 and the pool's drift guard correctly did not fire.
+
+### S35. The gradient diagnostic: which quantities discriminate
+
+8b-i left an unusable matching criterion. Gradient norm taken from the
+full-sequence loss spread only 1.09x across the arms against a filler-only
+floor of 9.59, with one arm falling *below* the floor. A quantity that cannot
+tell a burst from no burst cannot function as a matching criterion.
+
+Two candidate explanations, both tested in `scripts/position_sweep.py`:
+that the gradient was taken from the wrong loss, and that position 400 was an
+unlucky arbitrary choice. Results in
+`docs/measurements/8b-ii-position-sweep.json`.
+
+**Spread across the seven arms (max/min), by quantity and position:**
+
+```
+quantity                                  1      100      200      400      600      830
+burst-region loss                     2.174    2.146    2.156    2.167    2.157    2.143
+full-sequence loss                    1.258    1.258    1.256    1.256    1.256    1.249
+gradnorm from burst-region loss       1.336    1.340    1.312    1.343    1.326    1.374
+gradnorm from full-sequence loss      1.122    1.119    1.111    1.107    1.095    1.085
+```
+
+**Arm range as a percentage of the no-burst control at that position** — the
+control being the SAME 194-token window holding filler instead of a burst:
+
+```
+burst-region loss                    121.3%   127.7%   120.4%   141.9%   160.7%   139.5%
+full-sequence loss                    26.9%    27.2%    27.1%    26.8%    26.8%    25.9%
+gradnorm from burst-region loss       32.2%    34.0%    34.1%    30.7%    34.2%    36.8%
+gradnorm from full-sequence loss      12.2%    11.5%    10.5%    10.2%     9.0%     8.0%
+```
+
+**The hypothesis held.** Taking the gradient from the burst-region loss
+instead of the full-sequence loss raises the spread from about 1.10x to about
+1.34x, and roughly triples the arm range measured against the control. At
+position 400 the burst-region gradient separates arms on both sides of the
+floor — fluent-true 10.3% below it, scrambled-false 20.4% above — where the
+full-sequence gradient keeps every arm inside a band of about +/-5%.
+
+**Position is not the lever.** Every quantity's spread is close to flat across
+the whole valid range. Burst-region loss varies between 2.143 and 2.174 across
+six positions; the two gradients wander by a few percent with no clear trend.
+The only visible drift is that the full-sequence gradient's separation decays
+monotonically from 12.2% at position 1 to 8.0% at 830 — consistent with a
+burst late in the sequence influencing fewer downstream predictions — but it
+is small and it does not change which quantity discriminates.
+
+**Not concluded here.** No tolerance is applied, no position is recommended,
+and no quantity is declared usable. The report states the numbers and stops.
+
+**One precision point that must not be lost.** The burst-region gradient is
+NOT filler-free. The burst's predictions are conditioned on preceding filler,
+so gradients still flow through filler activations. What it excludes is the
+filler's own prediction errors from the differentiated quantity. "Excludes
+filler loss" is the accurate claim; "excludes filler" is not.
+
+### S36. Source-relative deltas and the four-cell grid
+
+Two reports added because the arm set now supports them.
+
+**Scrambling cost, measured against each arm's own source.** The
+`derives_from` pairs are the only place in the study where the same words
+appear at two structure levels, so the within-pair delta isolates what
+scrambling alone costs — topic, vocabulary and length are held constant by
+construction:
+
+```
+  pos  sf-ff loss  st-ft loss  sf-ff grad  st-ft grad
+    1     +2.6649     +2.9308     +4.1561     +3.5976
+  100     +2.7124     +3.0505     +3.6162     +4.4790
+  200     +2.6334     +3.0213     +2.6980     +3.9917
+  400     +2.7875     +3.0579     +3.0795     +4.7678
+  600     +2.7202     +3.0086     +2.6889     +4.3685
+  830     +2.6799     +3.0200     +3.1815     +4.8791
+```
+
+**The four-cell grid**, burst-region loss, structure by truth:
+
+```
+  pos       ff       ft       sf       st  truthGapFl  truthGapSc     diff
+    1    4.193    3.900    6.858    6.830     -0.2935     -0.0276  +0.2659
+  100    4.371    4.013    7.084    7.064     -0.3582     -0.0201  +0.3381
+  200    4.538    4.072    7.171    7.093     -0.4654     -0.0775  +0.3879
+  400    4.407    4.023    7.195    7.081     -0.3843     -0.1139  +0.2704
+  600    4.464    4.046    7.184    7.055     -0.4171     -0.1286  +0.2884
+  830    4.531    4.078    7.211    7.098     -0.4530     -0.1130  +0.3400
+```
+
+`truthGapFl` is fluent-true minus fluent-false; `truthGapSc` is scrambled-true
+minus scrambled-false; `diff` is the second minus the first. The truth gap is
+negative at both structure levels at every position, it is smaller in
+magnitude at the scrambled level than at the fluent level at every position,
+and `diff` is positive at every position, ranging from +0.266 to +0.388.
+
+**Stated, not interpreted.** What those numbers mean for the study is not this
+file's call and not this task's.
 
 ---
 
