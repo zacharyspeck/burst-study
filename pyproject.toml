@@ -41,6 +41,19 @@ measure = [
     # ordinary and noise spans from. Only the first run needs it online; the
     # slice is cached under a gitignored path afterwards.
     "datasets==5.0.1",
+    # scripts/canonicalize.py, for scipy.optimize.linear_sum_assignment: the
+    # permutation that best aligns one model to another. Canonicalization by
+    # sorting needs no solver, but aligning an arm to its seed-matched twin is
+    # a matching problem, and matching on the full weight vector is robust to
+    # the near-ties that make a scalar sort key fragile.
+    "scipy==1.18.0",
+    # NOT a new dependency, but named explicitly because it is imported
+    # directly rather than only through torch: scripts/gradient_direction.py
+    # memmaps spilled gradients with it and scripts/canonicalize.py uses it for
+    # the distance measurements. It arrived transitively before this line
+    # existed, which meant the `measure` group did not actually declare
+    # everything `measure` code imports.
+    "numpy==2.5.1",
 ]
 
 # scripts/build_pos_pool.py ONLY, and only when the POS pool is rebuilt.

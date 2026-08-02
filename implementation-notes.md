@@ -468,6 +468,68 @@ judgment call belonging to whoever runs it, not to this script.
 Changing it costs one flag: `--seed 1` selects different spans, and everything
 downstream regenerates reproducibly. Recorded here so the choice is a choice.
 
+### D17. Residual rotation DROPPED — not a symmetry of GPT-2
+
+Step 9 phase 2 tested seven candidate symmetries in isolation, plus three added
+during planning. Three were dropped. Each drop is recorded with the measured
+failure rather than omitted.
+
+**Measured, real GPT-2, relative logit error:** float32 `9.811e-01`, float64
+`9.811e-01`, collapse factor `1.00`. Across five seeds the float32 error ranged
+`1.032e+00` to `1.193e+00`. The float32 noise floor for this architecture is
+`4.6e-07` to `1.4e-06`, so the failure is six orders of magnitude above noise,
+and the **complete absence of any float64 collapse** is the signature of wrong
+mathematics rather than accumulated rounding.
+
+**Why it fails.** LayerNorm, in two stages. Mean subtraction restricts the
+candidate group to rotations fixing the all-ones direction, and the tested
+rotations were constructed to satisfy that. What kills them is LayerNorm's
+**per-channel gain**: a diagonal does not commute with a general rotation. That
+is curable at `ln_1` and `ln_2` by absorbing the gain into the following weight
+first, and **incurable at `ln_f`**, because absorbing `ln_f`'s gain means
+folding it into `lm_head`, which is the tied embedding.
+
+**What is NOT the reason, recorded because a misfiled reason gets reused where
+it is wrong.** Tying is not hostile to rotation. A rotation is orthogonal, so
+its inverse is its transpose, and a tied output projection supplies exactly
+that pairing for free. The general rule: **tying makes the output projection
+`W^T`, which equals `W^-1` exactly when `W` is orthogonal.** Orthogonal
+re-gaugings survive tying; non-orthogonal ones do not. An earlier draft of the
+plan attributed this drop to tying, which — applied consistently — would also
+have predicted that residual *permutation* fails. It does not; it passes at
+`2.566e-15` in float64. `tests/test_canonicalize.py::
+test_residual_rotation_fails_because_of_layernorm_not_because_of_tying` pins
+that pair so the reasoning cannot silently revert.
+
+### D18. Residual scaling DROPPED — killed by embedding tying
+
+**Measured, real GPT-2:** float32 `1.092e-01`, float64 `1.092e-01`, collapse
+`1.00`. Five seeds: `6.389e-02` to `8.874e-01`.
+
+Here tying really is the killer, and it is the case the rule in D17 was written
+for. LayerNorm is scale-invariant, so the block interiors are unaffected and
+everything inside works out. But scaling the residual stream requires
+multiplying `wte`, and `wte` **is** the output projection. Scaling needs `c`
+going in and `1/c` coming out; tying forces `c` both times, so the logits
+emerge multiplied by `c`. A scalar is not orthogonal — `c^T = c != 1/c` — so it
+is precisely the case tying cannot supply the inverse for.
+
+### D19. FFN scaling DROPPED — GELU is not positively homogeneous
+
+**Measured, real GPT-2:** float32 `6.473e-01`, float64 `6.473e-01`, collapse
+`1.00`. Five seeds: `2.130e-01` to `3.082e-01`.
+
+Scaling an FFN's hidden units up on the way in and down on the way out is a
+symmetry for **positively homogeneous** activations. ReLU satisfies
+`ReLU(s*z) = s*ReLU(z)`, so the scale passes through the nonlinearity and
+cancels. GELU does not: `GELU(z) = z*Phi(z)`, so `GELU(s*z) = s*z*Phi(s*z)`,
+and `Phi(s*z) != Phi(z)` for any `s != 1`. The gate itself moves, and no
+downstream rescaling can undo that.
+
+This is why `validate_architecture()` rejects a non-GELU activation with a
+message naming positive homogeneity: swap in ReLU and this drop stops being
+correct.
+
 ---
 
 ## Smaller decisions, logged as instructed
@@ -1409,6 +1471,201 @@ Controlling it in 124 million dimensions would require the texts to be nearly
 identical, which would remove the mechanism by which content could act at all.
 It is recorded so the confound can be stated rather than assumed away.
 
+### S42. The step 9 test fixture was degenerate, and it inverted a verdict
+
+Caught during phase 2, before any conclusion was reported, but only just — and
+it is the exact failure mode step 9 exists to prevent, so it is on the record.
+
+`scripts/canonicalize.py` builds a small GPT-2 in process for its tests rather
+than committing a fixture. The first version used `GPT2LMHeadModel(cfg)`
+straight out of the box. **A freshly constructed GPT-2 has every LayerNorm gain
+at exactly 1.0 and every LayerNorm bias at exactly 0.0**, because that is
+`nn.LayerNorm`'s default init and GPT-2's init routine does not touch it.
+
+On such a model `diag(gamma)` is the identity, so it commutes with everything,
+and residual rotation passes its equivalence test **on a technicality**. The
+measured numbers, before and after:
+
+| fixture | residual rotation, float32 rel. error | verdict |
+| --- | --- | --- |
+| default init (all gains 1.0) | `1.763e-07` | SYMMETRY — **wrong** |
+| gains randomised | `5.456e-01` | NOT A SYMMETRY — correct |
+
+Real GPT-2's gains span `2.557e-04` to `17.42`, with **0.02%** of them within
+1% of 1.0. The default fixture was not slightly unrepresentative; it sat at the
+one value that hides the answer. `build_tiny_model()` now draws gains
+log-normal and biases normal, and
+`test_the_tiny_fixture_sits_at_a_generic_point_not_a_degenerate_one` fails if
+anyone reverts it.
+
+The general lesson, which applies to every remaining phase: **a randomly
+initialised model is not a generic point in weight space.** Init routines set
+many tensors to structured values, and structure is exactly what a symmetry
+test can hide behind.
+
+#### The consequence is a study problem, not just a fixture problem
+
+The fix above makes the *tests* correct. It does not address what the same fact
+implies about the ruler itself, and that matters more.
+
+This study injects its burst at **step 200**, roughly 52M tokens
+(256 x 1024 x 200) into a from-scratch run. A model at that point started with
+every LayerNorm gain at exactly 1.0 and has barely moved. **The step-200 model
+this ruler will actually be applied to is far closer to the degenerate fixture
+than to public GPT-2.**
+
+Every conditioning number in the phase 2 report — the singular-value gaps, the
+condition numbers, the 3-of-144 heads below `1e-04` — was measured on fully
+trained public GPT-2, at a point in weight space **the study never visits**.
+Near identity-gains the invariant spectra have every reason to be flatter, and
+a flatter spectrum is exactly what makes the head-internal canonical form
+ill-conditioned.
+
+**Required phase 5 deliverable, carried here so it cannot be dropped:**
+
+1. Sweep LayerNorm gain dispersion from near-identity toward public GPT-2's
+   observed spread, on synthetic models, and report how the worst-case
+   singular-value gap and the head-internal condition number vary across it.
+   The question is whether the ruler degrades as the model approaches
+   initialization, and how fast.
+2. Report public GPT-2's actual gain distribution — min, median, max, and the
+   fraction within 1% of 1.0 — as the far end of that sweep, so the curve has a
+   reference point.
+3. Carry a LIMITATION field on **every** phase 5 measurement stating that all
+   of it was taken on public GPT-2, that the study's injection point is much
+   nearer initialization, and that the gain-dispersion sweep is the
+   quantification of that gap.
+
+Report the sweep; do not conclude from it whether the ruler is usable at step
+200. That question may not be answerable until a real step-200 checkpoint
+exists, and it belongs to whoever runs the study.
+
+### S43. The float32 bound was DEMOTED, not moved — it never discriminated
+
+The approved plan pre-registered a float32 relative-error tolerance of `1e-06`
+for permutation-class symmetries, fixed before any measurement and explicitly
+frozen. Phase 2 then measured the float32 noise floor of GPT-2's forward pass
+directly, using transformations proven exact in float64:
+
+- **Null control** (deepcopy, nothing applied): `0.000e+00` exactly. The
+  harness contributes nothing.
+- **Inverse-permutation control** (apply `P`, then `P^-1`): 0 of 148 tensors
+  differ. Pure indexing is bitwise exact, so all observed error is
+  reassociation inside the forward pass.
+- **Confirmed symmetries, five seeds each:** `4.592e-07` to `1.410e-06`.
+
+So `1e-06` lies **inside** the measured noise band and discriminates random
+seeds rather than symmetries: `head_permutation` exceeds it on 1 seed of 5,
+`residual_permutation` and `value_bias_shift` on 3 of 5, and
+`layernorm_gain_rescale` peaks at 85% of the bound. The headline single-seed
+run reported two candidates as NUMERICAL purely on the draw.
+
+**The pre-registered float32 bound of `1e-06` was found to sit inside the
+architecture's own noise floor and was therefore never a valid discriminator.
+It was DEMOTED rather than moved.**
+
+Moving it to a value the candidates pass would have been indistinguishable from
+tuning it to the result. That distinction cannot be recovered afterwards by
+anyone reading the repo, so the number stays where it was registered and stops
+being a criterion instead.
+
+Concretely, in `scripts/canonicalize.py`:
+
+- `COLLAPSE_FACTOR` and every float64 tolerance are **exactly as
+  pre-registered** and are pinned by
+  `test_the_float64_tolerances_and_collapse_factor_are_as_pre_registered`.
+- The float32 numbers moved from `TOLERANCES` into `F32_DIAGNOSTIC`. Nothing
+  branches on them. `EquivalenceResult.passes` is now the collapse factor and
+  the float64 bound only.
+- `MEASURED_F32_NOISE_FLOOR = (4.592e-07, 1.410e-06)` records the floor as an
+  **empirical property of this architecture**, not a threshold anything must
+  clear. Tests assert float32 error against that measured floor as a sanity
+  signal — an error far above it means something structural — never as a
+  pass/fail bound.
+
+None of this affects any verdict, because the float32 bound never decided one.
+The **collapse factor** separates the two groups with no overlap whatsoever:
+`3.90e+08` to `8.30e+08` for the seven confirmed symmetries, exactly `1.00` for
+all three drops. Eight orders of magnitude. It did all the work from the start,
+and it is now stated as the sole criterion in the module docstring rather than
+being true only in practice.
+
+### S44. Two attention biases are pure gauge — found while doing S45's amendment
+
+Working out the full affine invariant for the head-internal step surfaced two
+symmetries that were not on the original candidate list:
+
+- **`b_K` is entirely gauge.** Shifting the key bias shifts every key by the
+  same vector, which adds a **per-query** constant to that row of the score
+  matrix — and softmax is invariant to a constant added across the row it
+  normalises over. Measured gradient cosine along this direction: `4.010e-21`.
+  That is 9,216 parameters in GPT-2 (64 x 12 heads x 12 layers) carrying no
+  function at all.
+- **`b_V` is gauge up to a compensation.** Attention probabilities sum to one
+  across keys, so shifting the value bias by `c` shifts that head's output by
+  exactly `c`, which lands in the residual as the constant `c @ W_O` and is
+  absorbable into `attn.c_proj.bias`. Measured cosine: `-8.592e-19`.
+- **`b_Q` is genuinely real.** Shifting it adds a per-*key* constant, which
+  softmax does not absorb. It is the bias that carries information.
+
+Both new candidates pass equivalence with collapse factors of `3.90e+08` and
+`5.70e+08`.
+
+This is not a curiosity. The head-internal canonical form breaks ties between
+near-degenerate singular values using the invariant's spectrum, and **a gauge
+quantity in that spectrum means breaking ties with an arbitrary number.**
+Measured across all 144 heads of real GPT-2, worst-case relative
+singular-value gap:
+
+| Q/K invariant | worst min-gap |
+| --- | --- |
+| weights only | `1.359e-05` |
+| augmented with both biases | `3.570e-05` |
+| augmented, `b_K` gauge removed first | `1.068e-04` |
+
+| V/O invariant | worst min-gap |
+| --- | --- |
+| weights only | `2.621e-05` |
+| augmented with `b_V` | `1.365e-05` |
+
+Including `b_Q` helps (2.6x on the worst case); removing the `b_K` gauge first
+helps a further 3x, for 7.9x overall. Including `b_V` — which is pure gauge —
+makes the V/O worst case **worse**, by 1.9x. The gauge argument is not
+theoretical tidiness; it is measurable in the conditioning of the canonical
+form, in both directions.
+
+**Decided by the measured gap, not by argument.** Both bias shifts enter the
+recipe, and the two sides are treated differently because the numbers came out
+differently:
+
+- **Q/K:** `b_K` is zeroed first (it is gauge), then the invariant is built
+  from the augmented factors `[W_Q ; b_Q]` and `[W_K ; 0]`. `b_Q` is real
+  information and earns its place in the spectrum.
+- **V/O:** `b_V` is removed by absorption into `attn.c_proj.bias`, and the
+  **V/O invariant is built from `W_V` and `W_O` only** — no augmenting row.
+  Augmenting with `b_V` was measured to degrade the worst-case gap by 1.9x, so
+  it is excluded on that measurement rather than on the gauge argument alone.
+
+The justification for including the shifts in the recipe is the 7.9x reduction
+in worst-case Q/K ill-conditioning, which is a direct reduction in the ruler's
+own numerical error. It stands independently of the zero-gradient argument,
+which says these coordinates cancel between twins anyway.
+
+### S45. `scipy` and `numpy` added to the `measure` group
+
+`scipy==1.18.0` is new, for `scipy.optimize.linear_sum_assignment`. Pinned
+exactly, matching the repo's policy; the version is whatever resolved on
+install rather than a number chosen in advance.
+
+`numpy==2.5.1` is **not** a new dependency but was previously undeclared. It is
+imported directly by `scripts/gradient_direction.py` (memmapping spilled
+gradients) and now by `scripts/canonicalize.py`, and arrived only transitively
+through torch. The `measure` group therefore did not declare everything
+`measure` code imports. Named explicitly now.
+
+Both are installed in `.venv-ml` only. `.venv` remains `pyyaml` + `pytest`, and
+must.
+
 ---
 
 ## Known limitations
@@ -1785,13 +2042,27 @@ actually set, so the claim is evidenced rather than assumed.
 
 ## Test coverage
 
-227 tests: 156 for the config system, 43 for `burst_match`, 28 for
-`make_bursts` and the committed burst files.
+363 tests, counted per file with `--collect-only` rather than from memory:
 
-In the base environment (`.venv/`, no torch) the run is **212 passed, 15
-skipped** — the 156 config tests are untouched and unaffected, and only the 15
-that genuinely need torch or `transformers` skip. That is the evidence for
-requirement 5.
+| file | tests |
+| --- | --- |
+| `tests/test_config.py` | 172 |
+| `tests/test_burst_match.py` | 43 |
+| `tests/test_make_bursts.py` | 45 |
+| `tests/test_sequence_assembly.py` | 33 |
+| `tests/test_canonicalize.py` | 70 |
+| **total** | **363** |
+
+In the base environment (`.venv/`, no torch) the run is **278 passed, 85
+skipped**. In `.venv-ml/` it is **363 passed, 0 skipped**. The 172 config tests
+are untouched and unaffected in both, and only the tests that genuinely need
+torch or `transformers` skip. That is the evidence for requirement 5.
+
+Step 9 phase 0-2 added 70 of these. 11 of the 70 need no ML stack at all — the
+layout arithmetic for slicing the fused QKV tensor, the parameter-count
+identity, the tolerance registry and the pre-registration pins — so they run in
+the base environment too, which is the same pure/torch split
+`test_burst_match.py` uses and for the same reason.
 
 ### `burst_match` specifically
 

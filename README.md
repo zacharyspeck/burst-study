@@ -66,13 +66,13 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `267 passed, 26 skipped`, then the resolved config printed, exit
+Expected: `278 passed, 85 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
 
-The 26 skips are the tests that need torch or `transformers`, which the install
+The 85 skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -204,6 +204,7 @@ scripts/match_sweep.py               sweeps the scrambled arm's window size k
 scripts/position_sweep.py            8b-ii: burst position + gradient diagnostic
 scripts/tune_arms.py                 8b-iii: tunes arms toward the median
 scripts/gradient_direction.py        8b-iv: pairwise gradient cosine + profiles
+scripts/canonicalize.py              step 9: symmetry canonicalization (phases 0-2)
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
 bursts/scrambled_false.txt           fluent_false, word order broken
@@ -215,10 +216,11 @@ bursts/context.txt                   the shared 1024-token sequence
 bursts/pos_pool.json                 committed POS vocabulary + tag template
 bursts/ordinary.txt                  v3 arm, retained as substrate only
 bursts/provenance.json               schema v2: per-arm seeds, params, hashes
-tests/test_config.py                 156 tests (still v3, deliberately)
+tests/test_config.py                 172 tests (still v3, deliberately)
 tests/test_burst_match.py            43 tests
-tests/test_make_bursts.py            35 tests
-tests/test_sequence_assembly.py      21 tests (splice, seeds, regeneration)
+tests/test_make_bursts.py            45 tests
+tests/test_sequence_assembly.py      33 tests (splice, seeds, regeneration)
+tests/test_canonicalize.py           70 tests (step 9: tripwire, symmetries)
 implementation-notes.md              decisions, assumptions, open questions
 ```
 
@@ -294,7 +296,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 156 tests
+pip install -e ".[dev]"            # config work — no ML stack, 278 tests run
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 

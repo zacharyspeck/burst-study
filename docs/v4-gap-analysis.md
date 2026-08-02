@@ -28,9 +28,13 @@ code, config, arm definition, or test was changed in writing it.
 ## 1. Where the repo stands
 
 The tree is clean and matches `origin/main`. 60 tracked files. Both suites
-pass: **212 passed / 15 skipped** in `.venv` (no torch), **227 passed** in
+pass: **278 passed / 85 skipped** in `.venv` (no torch), **363 passed** in
 `.venv-ml`. The skips are the optional-dependency tests and are the deliberate
 evidence that `burst/` needs no ML stack.
+
+(Counts refreshed at step 9 phase 2, which added `tests/test_canonicalize.py`.
+The 60-tracked-files figure and everything below it are as of the original
+writing on 2026-08-01 and have not been re-verified.)
 
 Everything in `burst/`, `configs/`, `scripts/`, and `tests/` implements v3.
 
