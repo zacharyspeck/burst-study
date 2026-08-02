@@ -733,7 +733,7 @@ def per_token_losses(logits, input_ids):
     return F.cross_entropy(shift_logits, shift_labels, reduction="none")
 
 
-def gradient_norm(loss, model) -> float:
+def gradient_norm(loss, model, retain_graph: bool = False) -> float:
     """Global L2 norm over every parameter gradient, from one backward pass.
 
     Uses torch.autograd.grad rather than loss.backward() on purpose. backward()
@@ -749,7 +749,8 @@ def gradient_norm(loss, model) -> float:
     import torch
 
     params = [p for p in model.parameters() if p.requires_grad]
-    grads = torch.autograd.grad(loss, params, allow_unused=True)
+    grads = torch.autograd.grad(loss, params, allow_unused=True,
+                                retain_graph=retain_graph)
     total = torch.zeros((), dtype=torch.float64)
     for g in grads:
         if g is None:
@@ -853,24 +854,39 @@ def measure_text(text: str, source, tokenizer, model) -> Measurement:
 
 @dataclass(frozen=True)
 class InContextMeasurement:
-    """One arm's burst, measured inside the shared context sequence."""
+    """One 194-token region measured inside the shared 1024-token sequence.
+
+    Field names say WHICH TOKENS were averaged and WHAT was differentiated,
+    because there are four numbers per row now and they are easy to confuse.
+
+    `region_*` covers the 194-token window at `position`. For an arm that
+    window holds the burst; for the no-burst control it holds filler, which is
+    why the field is called `region` and not `burst` -- the control is the
+    same measurement on the same window with a different thing in it, and
+    that is exactly what makes it a fair floor.
+    """
 
     label: str
-    #: 0-indexed token offset where the burst region starts.
     position: int
-    n_burst_tokens: int
+    n_region_tokens: int
     n_sequence_tokens: int
+    #: True for an arm, False for the filler-region control.
+    region_is_burst: bool
 
-    #: THE MATCHED LOSS. Mean over the burst's own token predictions.
-    burst_region_loss: float
-    #: Context only, NOT matched. Mean over every prediction in the sequence.
+    #: Mean NLL over the region's own token predictions. THE MATCHED LOSS.
+    region_loss: float
+    #: Mean NLL over all predictions in the sequence. Context only, NOT
+    #: matched: 830 of 1024 tokens are filler shared across every arm.
     full_sequence_loss: float
 
-    #: THE MATCHED GRADIENT. Global L2 norm of the gradient of the
-    #: full-sequence loss, over every parameter.
-    full_sequence_grad_norm: float
-    #: The same, divided by the batch divisor. Derived, context only.
-    full_sequence_grad_norm_batch_scaled: float
+    #: L2 norm of the gradient of region_loss. Added in 8b-ii so that the
+    #: matched loss and the matched gradient describe the SAME tokens.
+    gradnorm_from_region_loss: float
+    #: L2 norm of the gradient of full_sequence_loss. The 8b-i quantity, and
+    #: what a training step actually applies.
+    gradnorm_from_full_sequence_loss: float
+    #: The above divided by the batch divisor. Derived, context only.
+    gradnorm_from_full_sequence_loss_batch_scaled: float
 
     n_params: int
 
@@ -917,86 +933,95 @@ def assemble_sequence(filler_ids, burst_ids, position: int) -> list[int]:
     return sequence
 
 
-def measure_in_context(burst_ids, filler_ids, position: int, tokenizer, model,
-                       label: str, *, batch_size: int, train_seq_len: int
-                       ) -> InContextMeasurement:
-    """Measure one burst inside the shared sequence. Requirements H1, H3, H4."""
+def measure_region_in_sequence(sequence_ids, position: int, region_len: int,
+                               tokenizer, model, label: str, *,
+                               batch_size: int, train_seq_len: int,
+                               region_is_burst: bool) -> InContextMeasurement:
+    """Measure one 1024-token sequence: region and whole-sequence, both scopes.
+
+    TWO gradients come out of ONE forward pass. The first backward retains the
+    graph so the second can run against it. Without that the second fails with
+    a freed-buffers error, and the only alternative would be a second forward
+    pass -- which costs time and would then have to be proved identical to the
+    first.
+    """
     import torch
 
-    sequence = assemble_sequence(filler_ids, burst_ids, position)
-    n_seq = len(sequence)
-    n_burst = len(burst_ids)
+    n_seq = len(sequence_ids)
+    if not 1 <= position <= n_seq - region_len:
+        raise BurstMatchError(
+            f"{label}: a region of {region_len} tokens at position {position} "
+            f"does not fit inside {n_seq} tokens with a prediction for its "
+            "first token."
+        )
 
     torch.manual_seed(SEED)
-    input_ids = torch.tensor([sequence], dtype=torch.long)
+    input_ids = torch.tensor([list(sequence_ids)], dtype=torch.long)
 
     logits = model(input_ids=input_ids).logits
     losses = per_token_losses(logits, input_ids)
 
-    # losses[j] is the loss on predicting token j+1. The burst occupies token
-    # indices position .. position+n_burst-1, so its predictions are
-    # losses[position-1 .. position+n_burst-2] -- exactly n_burst of them.
-    burst_losses = losses[position - 1:position - 1 + n_burst]
-    if burst_losses.shape[0] != n_burst:
+    # losses[j] is the loss on predicting token j+1, so the region's own
+    # predictions are losses[position-1 : position-1+region_len] -- exactly
+    # region_len of them.
+    region_losses = losses[position - 1:position - 1 + region_len]
+    if region_losses.shape[0] != region_len:
         raise BurstMatchError(
-            f"{label}: burst region yielded {burst_losses.shape[0]} "
-            f"predictions, expected {n_burst}"
-        )
+            f"{label}: region yielded {region_losses.shape[0]} predictions, "
+            f"expected {region_len}")
 
     full_loss = losses.mean()
-    burst_loss = float(burst_losses.mean())
+    region_loss = region_losses.mean()
 
-    # Gradient of the FULL-SEQUENCE loss: that is what training applies.
-    norm = gradient_norm(full_loss, model)
+    norm_full = gradient_norm(full_loss, model, retain_graph=True)
+    norm_region = gradient_norm(region_loss, model)
     divisor = batch_divisor(batch_size, train_seq_len, n_seq)
 
     return InContextMeasurement(
         label=label,
         position=position,
-        n_burst_tokens=n_burst,
+        n_region_tokens=region_len,
         n_sequence_tokens=n_seq,
-        burst_region_loss=burst_loss,
-        full_sequence_loss=float(full_loss),
-        full_sequence_grad_norm=norm,
-        full_sequence_grad_norm_batch_scaled=batch_scaled(norm, divisor),
+        region_is_burst=region_is_burst,
+        # .detach() before float(): these tensors still carry grad_fn after
+        # the backward passes above, and converting one to a scalar
+        # otherwise warns about unexpected behaviour.
+        region_loss=float(region_loss.detach()),
+        full_sequence_loss=float(full_loss.detach()),
+        gradnorm_from_region_loss=norm_region,
+        gradnorm_from_full_sequence_loss=norm_full,
+        gradnorm_from_full_sequence_loss_batch_scaled=batch_scaled(norm_full,
+                                                                  divisor),
         n_params=sum(p.numel() for p in model.parameters()),
     )
 
 
-def measure_sequence_only(sequence_ids, tokenizer, model, label: str, *,
-                          batch_size: int, train_seq_len: int
-                          ) -> InContextMeasurement:
-    """The no-burst diagnostic row: filler with no burst spliced into it.
+def measure_in_context(burst_ids, filler_ids, position: int, tokenizer, model,
+                       label: str, *, batch_size: int, train_seq_len: int
+                       ) -> InContextMeasurement:
+    """Splice a burst into the filler and measure it. Requirements H1, H3, H4."""
+    sequence = assemble_sequence(filler_ids, burst_ids, position)
+    return measure_region_in_sequence(
+        sequence, position, len(burst_ids), tokenizer, model, label,
+        batch_size=batch_size, train_seq_len=train_seq_len,
+        region_is_burst=True)
 
-    Not a sixth arm. It exists to show how much of each arm's full-sequence
-    number is filler rather than burst -- the floor that every arm's gradient
-    norm is being pulled toward, given 830 of 1024 tokens are shared.
 
-    Its burst_region_loss is reported as the full-sequence loss, because there
-    is no burst region; the report labels it so.
+def measure_filler_region(sequence_ids, position: int, region_len: int,
+                          tokenizer, model, *, batch_size: int,
+                          train_seq_len: int) -> InContextMeasurement:
+    """The no-burst control: the same window, holding ordinary filler.
+
+    Not an arm. This is the floor. Comparing a burst region against a
+    whole-sequence baseline is not like for like -- the control has to be the
+    SAME 194-token window at the SAME position holding filler instead of a
+    burst, or "does this burst differ from ordinary text here" has nothing to
+    be measured against.
     """
-    import torch
-
-    torch.manual_seed(SEED)
-    input_ids = torch.tensor([list(sequence_ids)], dtype=torch.long)
-    logits = model(input_ids=input_ids).logits
-    losses = per_token_losses(logits, input_ids)
-    full_loss = losses.mean()
-    norm = gradient_norm(full_loss, model)
-    n_seq = len(sequence_ids)
-    divisor = batch_divisor(batch_size, train_seq_len, n_seq)
-
-    return InContextMeasurement(
-        label=label,
-        position=-1,
-        n_burst_tokens=0,
-        n_sequence_tokens=n_seq,
-        burst_region_loss=float("nan"),
-        full_sequence_loss=float(full_loss),
-        full_sequence_grad_norm=norm,
-        full_sequence_grad_norm_batch_scaled=batch_scaled(norm, divisor),
-        n_params=sum(p.numel() for p in model.parameters()),
-    )
+    return measure_region_in_sequence(
+        sequence_ids, position, region_len, tokenizer, model,
+        "no-burst (filler region)", batch_size=batch_size,
+        train_seq_len=train_seq_len, region_is_burst=False)
 
 
 # ---------------------------------------------------------------------------

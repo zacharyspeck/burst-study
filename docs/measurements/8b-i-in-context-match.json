@@ -2,8 +2,8 @@
   "spec": "v4",
   "task": "8b-i",
   "matched_on": [
-    "burst_region_loss",
-    "full_sequence_grad_norm"
+    "region_loss",
+    "gradnorm_from_full_sequence_loss"
   ],
   "not_matched_context_only": [
     "full_sequence_loss"
@@ -19,50 +19,78 @@
     "name": "context.txt",
     "sha256": "b55dbe00537f0e448574e089333d8aaf9d6b7e2dcf5f8bf0a5549a4b196f2119"
   },
-  "provenance_sha256": "78625f3fb8fd2b26963722175bf930653265d66a5e352ac13016e287d4012301",
+  "provenance_sha256": "219bb61896ba96d31c66c6918fe55457314fa4f063f2f1c844b73e61cbd3b0b1",
   "environment": {
     "python": "3.13.14",
     "platform": "Windows-11-10.0.26200-SP0"
   },
   "arms": {
     "fluent-false": {
-      "burst_region_loss_MATCHED": 3.7523717880249023,
-      "full_sequence_loss_context_only": 3.514749050140381,
-      "full_sequence_grad_norm_MATCHED": 9.04847770938988,
-      "full_sequence_grad_norm_batch_scaled": 0.03534561605230422,
+      "burst_region_loss_MATCHED": 4.407465934753418,
+      "full_sequence_loss_context_only": 3.6370558738708496,
+      "gradnorm_from_burst_region_loss": 20.58343889976253,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.232156739656512,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.03606311226428325,
       "burst_tokens": 194,
       "sequence_tokens": 1024,
       "position": 400,
-      "file_sha256": "1487f2d232b0f6bed128f4ecc696917357813a591a7156be3eeeefad0c83db7c",
+      "file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "derived_seed": null
     },
     "fluent-true": {
       "burst_region_loss_MATCHED": 4.023196697235107,
       "full_sequence_loss_context_only": 3.563337802886963,
-      "full_sequence_grad_norm_MATCHED": 9.145304720295401,
-      "full_sequence_grad_norm_batch_scaled": 0.03572384656365391,
+      "gradnorm_from_burst_region_loss": 17.622815791650112,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.145304720295401,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.03572384656365391,
       "burst_tokens": 194,
       "sequence_tokens": 1024,
       "position": 400,
       "file_sha256": "cdceb499fa0267563d6a8d8478e542a9fda44f79d0041a03a6b5e1934c8d5beb",
       "derived_seed": null
     },
-    "scrambled": {
-      "burst_region_loss_MATCHED": 7.242153644561768,
-      "full_sequence_loss_context_only": 4.203299045562744,
-      "full_sequence_grad_norm_MATCHED": 9.904914685614557,
-      "full_sequence_grad_norm_batch_scaled": 0.03869107299068186,
+    "scrambled-false": {
+      "burst_region_loss_MATCHED": 7.194918632507324,
+      "full_sequence_loss_context_only": 4.177343368530273,
+      "gradnorm_from_burst_region_loss": 23.6629518150688,
+      "gradnorm_from_full_sequence_loss_MATCHED": 10.125777099127697,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.03955381679346757,
       "burst_tokens": 194,
       "sequence_tokens": 1024,
       "position": 400,
-      "file_sha256": "8a48768f0dc955a03a58e08626d726660c2361d3e74f53a374c8af771690a310",
-      "derived_seed": 17067235650348785619
+      "file_sha256": "bbf5b32231fcaec850e6b766e44cfce35936799b6036de78528fa46bd7970273",
+      "derived_seed": 8470883067845077477
+    },
+    "scrambled-true": {
+      "burst_region_loss_MATCHED": 7.081060409545898,
+      "full_sequence_loss_context_only": 4.151941299438477,
+      "gradnorm_from_burst_region_loss": 22.390566564404804,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.890794444093796,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.03863591579724139,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "6d321bdfe8574b45020bdb5e2b1d86e97be9c6c6ddf670dbb8562bd8f757e4a8",
+      "derived_seed": 8289190376081883655
+    },
+    "scrambled-corpus": {
+      "burst_region_loss_MATCHED": 7.430102348327637,
+      "full_sequence_loss_context_only": 4.2397661209106445,
+      "gradnorm_from_burst_region_loss": 20.230019848920332,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.782963974685627,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.03821470302611573,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "c4ef828115fec45c975aa4c1b514f96dd086848a7a01e5e634bad68069914fd5",
+      "derived_seed": 6742629957794606771
     },
     "pos-substituted": {
       "burst_region_loss_MATCHED": 8.717175483703613,
       "full_sequence_loss_context_only": 4.477305889129639,
-      "full_sequence_grad_norm_MATCHED": 9.801533709296342,
-      "full_sequence_grad_norm_batch_scaled": 0.038287241051938835,
+      "gradnorm_from_burst_region_loss": 21.478314438539346,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.801533709296342,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.038287241051938835,
       "burst_tokens": 194,
       "sequence_tokens": 1024,
       "position": 400,
@@ -72,8 +100,9 @@
     "random-chars": {
       "burst_region_loss_MATCHED": 5.843217849731445,
       "full_sequence_loss_context_only": 3.915433883666992,
-      "full_sequence_grad_norm_MATCHED": 9.657492919340537,
-      "full_sequence_grad_norm_batch_scaled": 0.037724581716173974,
+      "gradnorm_from_burst_region_loss": 23.1193698233715,
+      "gradnorm_from_full_sequence_loss_MATCHED": 9.657492919340537,
+      "gradnorm_from_full_sequence_loss_batch_scaled": 0.037724581716173974,
       "burst_tokens": 194,
       "sequence_tokens": 1024,
       "position": 400,
@@ -82,28 +111,39 @@
     }
   },
   "diagnostic_no_burst": {
-    "note": "filler only, no burst spliced in. NOT a sixth arm.",
+    "note": "the SAME window at the SAME position, holding filler instead of a burst. NOT an arm.",
+    "filler_region_loss": 3.3090832233428955,
     "full_sequence_loss": 3.40851092338562,
-    "full_sequence_grad_norm": 9.591551464838737
+    "gradnorm_from_filler_region_loss": 19.64659005327829,
+    "gradnorm_from_full_sequence_loss": 9.591551464838737
   },
   "spread": {
-    "burst_region_loss": {
-      "min": 3.7523717880249023,
-      "min_arm": "fluent-false",
+    "region_loss": {
+      "min": 4.023196697235107,
+      "min_arm": "fluent-true",
       "max": 8.717175483703613,
       "max_arm": "pos-substituted",
-      "absolute": 4.964803695678711,
-      "ratio": 2.323110815277711,
-      "percent_of_min": 132.3110815277711
+      "absolute": 4.693978786468506,
+      "ratio": 2.1667286338981104,
+      "percent_of_min": 116.67286338981103
     },
-    "full_sequence_grad_norm": {
-      "min": 9.04847770938988,
-      "min_arm": "fluent-false",
-      "max": 9.904914685614557,
-      "max_arm": "scrambled",
-      "absolute": 0.8564369762246766,
-      "ratio": 1.094649840971142,
-      "percent_of_min": 9.464984097114213
+    "gradnorm_from_region_loss": {
+      "min": 17.622815791650112,
+      "min_arm": "fluent-true",
+      "max": 23.6629518150688,
+      "max_arm": "scrambled-false",
+      "absolute": 6.04013602341869,
+      "ratio": 1.3427452283919676,
+      "percent_of_min": 34.274522839196756
+    },
+    "gradnorm_from_full_sequence_loss": {
+      "min": 9.145304720295401,
+      "min_arm": "fluent-true",
+      "max": 10.125777099127697,
+      "max_arm": "scrambled-false",
+      "absolute": 0.980472378832296,
+      "ratio": 1.1072104657875879,
+      "percent_of_min": 10.721046578758788
     }
   }
 }

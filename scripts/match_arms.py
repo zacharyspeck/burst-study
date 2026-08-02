@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Measure all five spec-v4 arms in context and report the spread. 8b-i.
+"""Measure every spec-v4 arm in context and report the spread. 8b-i/8b-ii.
 
     python scripts/match_arms.py --position 400
 
@@ -15,9 +15,9 @@ TWO LOSS FIGURES, AND THEY ARE NOT INTERCHANGEABLE
                          Reported as context. NOT matched.
 
 830 of the 1024 tokens are filler shared byte-identically by every arm, so
-full-sequence loss is ~81% the same text in all five. Matching on it would let
-arms with wildly different burst-level surprise appear matched, which defeats
-the purpose of matching at all.
+full-sequence loss is ~81% the same text in every arm. Matching on it would
+let arms with wildly different burst-level surprise appear matched, which
+defeats the purpose of matching at all.
 
 The GRADIENT is taken from the full-sequence loss, because that is what a
 training step applies. So the two matched quantities are measured over
@@ -26,10 +26,13 @@ is accepted deliberately and recorded in implementation-notes.md: the quantity
 matched on is not the quantity that moves the weights, and both are recorded
 rather than pretending they are the same.
 
-THE DIAGNOSTIC ROW. A no-burst row measures the filler alone. It is NOT a
-sixth arm. It exists so you can see how much of each arm's full-sequence
-number is filler rather than burst -- the floor every arm's gradient norm is
-being pulled toward.
+THE DIAGNOSTIC ROW. A no-burst row measures the SAME 194-token window at the
+SAME position, holding filler instead of a burst. It is NOT an arm. It is the
+floor: without it there is no way to tell a genuinely matched gradient norm
+from one that is merely filler-dominated.
+
+8b-ii adds a second gradient, taken from the burst-region loss, so that the
+matched loss and a matched gradient can describe the same 194 tokens.
 
 This script reports the spread. It does not decide whether the spread passes.
 The tolerance is not set here and applying it is not this script's job.
@@ -55,7 +58,7 @@ from burst_match import (  # noqa: E402
     batch_divisor,
     load_model,
     measure_in_context,
-    measure_sequence_only,
+    measure_filler_region,
     resolve_batch_size,
     resolve_seq_len,
 )
@@ -94,7 +97,7 @@ def spread(values: dict) -> dict:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python scripts/match_arms.py",
-        description="Measure the five spec-v4 arms in a shared 1024-token "
+        description="Measure every spec-v4 arm in a shared 1024-token "
                     "sequence and report the spread. Applies no tolerance.")
     parser.add_argument(
         "--position", type=int, required=True, metavar="N",
@@ -115,7 +118,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     print(RULE)
-    print("match_arms -- five arms measured in a shared 1024-token sequence")
+    print("match_arms -- every arm measured in a shared 1024-token sequence")
     print(RULE)
     try:
         return _run(args)
@@ -182,18 +185,23 @@ def _run(args) -> int:
             arm_ids[spec.name], filler_ids, position, tokenizer, model,
             spec.name, batch_size=batch.value, train_seq_len=seq.value)
 
-    # Diagnostic row: filler only, no burst. Not an arm.
+    # Diagnostic row: the SAME window at the SAME position, holding filler
+    # instead of a burst. Not an arm. A whole-sequence baseline would not be
+    # like for like against a burst-region number.
     print("[no-burst]", end=" ", flush=True)
-    baseline = measure_sequence_only(
-        context_ids, tokenizer, model, "no-burst (diagnostic)",
+    baseline = measure_filler_region(
+        context_ids, position, n_burst, tokenizer, model,
         batch_size=batch.value, train_seq_len=seq.value)
     print()
 
-    burst_losses = {n: m.burst_region_loss for n, m in measurements.items()}
-    grad_norms = {n: m.full_sequence_grad_norm for n, m in measurements.items()}
     spreads = {
-        "burst_region_loss": spread(burst_losses),
-        "full_sequence_grad_norm": spread(grad_norms),
+        "region_loss": spread(
+            {n: m.region_loss for n, m in measurements.items()}),
+        "gradnorm_from_region_loss": spread(
+            {n: m.gradnorm_from_region_loss for n, m in measurements.items()}),
+        "gradnorm_from_full_sequence_loss": spread(
+            {n: m.gradnorm_from_full_sequence_loss
+             for n, m in measurements.items()}),
     }
 
     text = format_report(measurements, baseline, spreads, batch, seq, position,
@@ -208,7 +216,7 @@ def _run(args) -> int:
     payload = {
         "spec": "v4",
         "task": "8b-i",
-        "matched_on": ["burst_region_loss", "full_sequence_grad_norm"],
+        "matched_on": ["region_loss", "gradnorm_from_full_sequence_loss"],
         "not_matched_context_only": ["full_sequence_loss"],
         "burst_position": position,
         "burst_tokens": n_burst,
@@ -226,12 +234,14 @@ def _run(args) -> int:
         },
         "arms": {
             name: {
-                "burst_region_loss_MATCHED": m.burst_region_loss,
+                "burst_region_loss_MATCHED": m.region_loss,
                 "full_sequence_loss_context_only": m.full_sequence_loss,
-                "full_sequence_grad_norm_MATCHED": m.full_sequence_grad_norm,
-                "full_sequence_grad_norm_batch_scaled":
-                    m.full_sequence_grad_norm_batch_scaled,
-                "burst_tokens": m.n_burst_tokens,
+                "gradnorm_from_burst_region_loss": m.gradnorm_from_region_loss,
+                "gradnorm_from_full_sequence_loss_MATCHED":
+                    m.gradnorm_from_full_sequence_loss,
+                "gradnorm_from_full_sequence_loss_batch_scaled":
+                    m.gradnorm_from_full_sequence_loss_batch_scaled,
+                "burst_tokens": m.n_region_tokens,
                 "sequence_tokens": m.n_sequence_tokens,
                 "position": m.position,
                 "file_sha256": sha256_file(burstdir / spec.filename),
@@ -240,9 +250,13 @@ def _run(args) -> int:
             for spec, (name, m) in zip(ARM_SPECS, measurements.items())
         },
         "diagnostic_no_burst": {
-            "note": "filler only, no burst spliced in. NOT a sixth arm.",
+            "note": ("the SAME window at the SAME position, holding filler "
+                     "instead of a burst. NOT an arm."),
+            "filler_region_loss": baseline.region_loss,
             "full_sequence_loss": baseline.full_sequence_loss,
-            "full_sequence_grad_norm": baseline.full_sequence_grad_norm,
+            "gradnorm_from_filler_region_loss": baseline.gradnorm_from_region_loss,
+            "gradnorm_from_full_sequence_loss":
+                baseline.gradnorm_from_full_sequence_loss,
         },
         "spread": spreads,
     }
@@ -267,7 +281,7 @@ def format_report(measurements, baseline, spreads, batch, seq, position,
     lines = [
         "",
         RULE,
-        "8b-i IN-CONTEXT MATCH REPORT",
+        "8b-i/ii IN-CONTEXT MATCH REPORT",
         RULE,
         f"burst position {position} | sequence {seq.value} tokens | "
         f"batch {batch.value}",
@@ -276,39 +290,52 @@ def format_report(measurements, baseline, spreads, batch, seq, position,
         "MATCHED: burst-region loss (194 burst tokens) and gradient norm.",
         "CONTEXT ONLY, NOT MATCHED: full-sequence loss -- 81% shared filler.",
         "",
-        f"{'arm':<18}{'burst loss':>12}{'full-seq loss':>15}"
-        f"{'grad norm':>13}{'grad/batch':>13}",
-        f"{'':<18}{'[MATCHED]':>12}{'[context]':>15}{'[MATCHED]':>13}{'':>13}",
+        f"{'arm':<18}{'loss':>11}{'loss':>12}{'gradnorm':>12}{'gradnorm':>12}",
+        f"{'':<18}{'[burst194]':>11}{'[seq1024]':>12}{'[from b194]':>12}"
+        f"{'[from s1024]':>12}",
         THIN,
     ]
     for name, m in measurements.items():
         lines.append(
-            f"{name:<18}{m.burst_region_loss:>12.6f}"
-            f"{m.full_sequence_loss:>15.6f}"
-            f"{m.full_sequence_grad_norm:>13.6f}"
-            f"{m.full_sequence_grad_norm_batch_scaled:>13.6f}")
+            f"{name:<18}{m.region_loss:>11.4f}{m.full_sequence_loss:>12.4f}"
+            f"{m.gradnorm_from_region_loss:>12.4f}"
+            f"{m.gradnorm_from_full_sequence_loss:>12.4f}")
     lines += [
         THIN,
-        f"{'no-burst [diag]':<18}{'--':>12}{baseline.full_sequence_loss:>15.6f}"
-        f"{baseline.full_sequence_grad_norm:>13.6f}"
-        f"{baseline.full_sequence_grad_norm_batch_scaled:>13.6f}",
-        "  ^ filler alone, no burst. NOT an arm. Shows how much of each",
-        "    full-sequence figure is filler rather than burst.",
+        f"{'no-burst [diag]':<18}{baseline.region_loss:>11.4f}"
+        f"{baseline.full_sequence_loss:>12.4f}"
+        f"{baseline.gradnorm_from_region_loss:>12.4f}"
+        f"{baseline.gradnorm_from_full_sequence_loss:>12.4f}",
+        "  ^ the SAME window at the SAME position, holding filler instead of a",
+        "    burst. NOT an arm. This is the floor each column is measured from.",
         "",
         RULE,
-        "SPREAD ACROSS THE FIVE ARMS",
+        "SPREAD ACROSS THE ARMS",
         RULE,
     ]
-    for key, label in (("burst_region_loss", "burst-region loss  [MATCHED]"),
-                       ("full_sequence_grad_norm", "gradient norm      [MATCHED]")):
-        s = spreads[key]
+    labels = {
+        "region_loss": "burst-region loss   [MATCHED]",
+        "gradnorm_from_region_loss": "gradnorm from burst-region loss",
+        "gradnorm_from_full_sequence_loss": "gradnorm from full-seq loss [MATCHED]",
+    }
+    floors = {
+        "region_loss": baseline.region_loss,
+        "gradnorm_from_region_loss": baseline.gradnorm_from_region_loss,
+        "gradnorm_from_full_sequence_loss":
+            baseline.gradnorm_from_full_sequence_loss,
+    }
+    for key, label in labels.items():
+        sp = spreads[key]
+        floor = floors[key]
         lines += [
             f"{label}",
-            f"   min {s['min']:.6f}  ({s['min_arm']})",
-            f"   max {s['max']:.6f}  ({s['max_arm']})",
-            f"   max - min = {s['absolute']:.6f}",
-            f"   max / min = {s['ratio']:.4f}   "
-            f"({s['percent_of_min']:+.1f}% of min)",
+            f"   min {sp['min']:.6f}  ({sp['min_arm']})",
+            f"   max {sp['max']:.6f}  ({sp['max_arm']})",
+            f"   max / min = {sp['ratio']:.4f}   "
+            f"({sp['percent_of_min']:+.1f}% of min)",
+            f"   no-burst floor = {floor:.6f}   "
+            f"min is {(sp['min'] / floor - 1) * 100:+.1f}% of it, "
+            f"max is {(sp['max'] / floor - 1) * 100:+.1f}%",
             "",
         ]
     lines += [
@@ -323,8 +350,7 @@ def format_report(measurements, baseline, spreads, batch, seq, position,
         "   here are NOT guaranteed to be matched on that model, and that",
         "   model is the one whose weights actually move. This is a proxy",
         "   until it can be re-verified against a real step-200 checkpoint.",
-        "3. The matched loss covers 194 tokens; the matched gradient covers",
-        "   all 1024. They are deliberately different scopes.",
+        "3. This is one position. scripts/position_sweep.py sweeps the range.",
     ]
     return "\n".join(lines)
 

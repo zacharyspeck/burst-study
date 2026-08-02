@@ -1,6 +1,6 @@
 
 ==============================================================================
-8b-i IN-CONTEXT MATCH REPORT
+8b-i/ii IN-CONTEXT MATCH REPORT
 ==============================================================================
 burst position 400 | sequence 1024 tokens | batch 256
 filler identical in every arm (context.txt)
@@ -8,33 +8,41 @@ filler identical in every arm (context.txt)
 MATCHED: burst-region loss (194 burst tokens) and gradient norm.
 CONTEXT ONLY, NOT MATCHED: full-sequence loss -- 81% shared filler.
 
-arm                 burst loss  full-seq loss    grad norm   grad/batch
-                     [MATCHED]      [context]    [MATCHED]             
+arm                      loss        loss    gradnorm    gradnorm
+                   [burst194]   [seq1024] [from b194][from s1024]
 ------------------------------------------------------------------------------
-fluent-false          3.752372       3.514749     9.048478     0.035346
-fluent-true           4.023197       3.563338     9.145305     0.035724
-scrambled             7.242154       4.203299     9.904915     0.038691
-pos-substituted       8.717175       4.477306     9.801534     0.038287
-random-chars          5.843218       3.915434     9.657493     0.037725
+fluent-false           4.4075      3.6371     20.5834      9.2322
+fluent-true            4.0232      3.5633     17.6228      9.1453
+scrambled-false        7.1949      4.1773     23.6630     10.1258
+scrambled-true         7.0811      4.1519     22.3906      9.8908
+scrambled-corpus       7.4301      4.2398     20.2300      9.7830
+pos-substituted        8.7172      4.4773     21.4783      9.8015
+random-chars           5.8432      3.9154     23.1194      9.6575
 ------------------------------------------------------------------------------
-no-burst [diag]             --       3.408511     9.591551     0.037467
-  ^ filler alone, no burst. NOT an arm. Shows how much of each
-    full-sequence figure is filler rather than burst.
+no-burst [diag]        3.3091      3.4085     19.6466      9.5916
+  ^ the SAME window at the SAME position, holding filler instead of a
+    burst. NOT an arm. This is the floor each column is measured from.
 
 ==============================================================================
-SPREAD ACROSS THE FIVE ARMS
+SPREAD ACROSS THE ARMS
 ==============================================================================
-burst-region loss  [MATCHED]
-   min 3.752372  (fluent-false)
+burst-region loss   [MATCHED]
+   min 4.023197  (fluent-true)
    max 8.717175  (pos-substituted)
-   max - min = 4.964804
-   max / min = 2.3231   (+132.3% of min)
+   max / min = 2.1667   (+116.7% of min)
+   no-burst floor = 3.309083   min is +21.6% of it, max is +163.4%
 
-gradient norm      [MATCHED]
-   min 9.048478  (fluent-false)
-   max 9.904915  (scrambled)
-   max - min = 0.856437
-   max / min = 1.0946   (+9.5% of min)
+gradnorm from burst-region loss
+   min 17.622816  (fluent-true)
+   max 23.662952  (scrambled-false)
+   max / min = 1.3427   (+34.3% of min)
+   no-burst floor = 19.646590   min is -10.3% of it, max is +20.4%
+
+gradnorm from full-seq loss [MATCHED]
+   min 9.145305  (fluent-true)
+   max 10.125777  (scrambled-false)
+   max / min = 1.1072   (+10.7% of min)
+   no-burst floor = 9.591551   min is -4.7% of it, max is +5.6%
 
 ==============================================================================
 WHAT THIS DOES NOT SAY
@@ -47,5 +55,4 @@ WHAT THIS DOES NOT SAY
    here are NOT guaranteed to be matched on that model, and that
    model is the one whose weights actually move. This is a proxy
    until it can be re-verified against a real step-200 checkpoint.
-3. The matched loss covers 194 tokens; the matched gradient covers
-   all 1024. They are deliberately different scopes.
+3. This is one position. scripts/position_sweep.py sweeps the range.

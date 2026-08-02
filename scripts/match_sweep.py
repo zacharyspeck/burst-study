@@ -4,11 +4,11 @@
     python scripts/match_sweep.py --position 400
     python scripts/match_sweep.py --position 400 --k 2 3 5 8 15 30
 
-Under spec v4 the scrambled arm is one of five, and k is its own private
-parameter. This sweeps it so you can see how the dial behaves; every other
-arm is fixed and is not swept here. To measure all five arms against each
-other, use scripts/match_arms.py -- that is the 8b-i deliverable, this is a
-tuning tool for one arm.
+Under spec v4 the scrambled-corpus arm is one of seven, and k is its own
+private parameter -- shared with scrambled-true and scrambled-false, which
+are not swept here. To measure all seven arms against each other use
+scripts/match_arms.py; to sweep burst position use scripts/position_sweep.py.
+This is a tuning tool for one arm's window size.
 
 Measured IN CONTEXT, like everything else in v4: each candidate scrambling is
 spliced into the same 1024-token sequence at the same offset. Numbers taken
@@ -58,7 +58,7 @@ from make_bursts import (  # noqa: E402
 
 DEFAULT_KS: tuple[int, ...] = (2, 3, 5, 8, 15, 30)
 FULL_SPAN = "full"
-SCRAMBLED = "scrambled"
+SCRAMBLED = "scrambled-corpus"
 REFERENCE = "fluent-false"
 
 
@@ -154,8 +154,8 @@ def _run(args) -> int:
         RULE,
         "scrambled k sweep, in context",
         RULE,
-        f"reference: {REFERENCE}, burst-region loss {ref.burst_region_loss:.6f}, "
-        f"grad norm {ref.full_sequence_grad_norm:.6f}",
+        f"reference: {REFERENCE}, burst-region loss {ref.region_loss:.6f}, "
+        f"grad norm {ref.gradnorm_from_full_sequence_loss:.6f}",
         "",
         f"{'arm':<12}{'k':>6}{'burst loss':>13}{'d':>11}{'d %':>9}"
         f"{'grad norm':>12}{'d':>11}{'d %':>9}",
@@ -164,17 +164,17 @@ def _run(args) -> int:
     ]
     for label, k, m, is_ref in rows:
         if is_ref:
-            cells = f"{'-':>11}{'-':>9}" + f"{m.full_sequence_grad_norm:>12.6f}" \
+            cells = f"{'-':>11}{'-':>9}" + f"{m.gradnorm_from_full_sequence_loss:>12.6f}" \
                     + f"{'-':>11}{'-':>9}"
-            lines.append(f"{label:<12}{k:>6}{m.burst_region_loss:>13.6f}{cells}")
+            lines.append(f"{label:<12}{k:>6}{m.region_loss:>13.6f}{cells}")
             continue
-        dl = m.burst_region_loss - ref.burst_region_loss
-        dg = m.full_sequence_grad_norm - ref.full_sequence_grad_norm
-        pl = percent_change(ref.burst_region_loss, m.burst_region_loss)
-        pg = percent_change(ref.full_sequence_grad_norm, m.full_sequence_grad_norm)
+        dl = m.region_loss - ref.region_loss
+        dg = m.gradnorm_from_full_sequence_loss - ref.gradnorm_from_full_sequence_loss
+        pl = percent_change(ref.region_loss, m.region_loss)
+        pg = percent_change(ref.gradnorm_from_full_sequence_loss, m.gradnorm_from_full_sequence_loss)
         lines.append(
-            f"{label:<12}{k:>6}{m.burst_region_loss:>13.6f}{dl:>+11.6f}"
-            f"{pl:>+8.1f}%{m.full_sequence_grad_norm:>12.6f}{dg:>+11.6f}"
+            f"{label:<12}{k:>6}{m.region_loss:>13.6f}{dl:>+11.6f}"
+            f"{pl:>+8.1f}%{m.gradnorm_from_full_sequence_loss:>12.6f}{dg:>+11.6f}"
             f"{pg:>+8.1f}%")
     lines += [
         THIN,
