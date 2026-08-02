@@ -873,6 +873,48 @@ Not done in this build, by instruction. `fluent_false.txt`'s content was not
 touched — the file was renamed with `git mv` and is byte-identical to the
 `coherent.txt` that preceded it (sha256 `1487f2d2…`).
 
+### S31. AdamW parameters decided; `grad_clip` deliberately left undecided
+
+`optimizer` gains four fields. Three are **decided and fixed across every
+arm**, so they cannot bias a between-arm comparison — they are recorded so
+that "what produced this checkpoint" has one answer:
+
+```
+beta1: 0.9
+beta2: 0.95
+eps:   0.00000001
+```
+
+`eps` is written in **plain decimal, not `1e-8`**. PyYAML's float rule
+requires a decimal point, so `1e-8` parses as the *string* `'1e-8'` — the
+exact trap documented at the top of `base.yaml`. A test now strips comments
+from the file and asserts no value is in scientific notation.
+
+The betas also matter to this study specifically rather than generically:
+they set the momentum timescales, `1/(1-beta1) = 10` steps and
+`1/(1-beta2) = 20` steps, which bound how long a single burst's gradient
+keeps influencing updates after the injection step. Until now that could not
+be reasoned about at all, because the betas were not written down anywhere
+(flagged as an open question since the first checkpoint discussion).
+
+**`grad_clip` is `null`, and null is rejected at launch.**
+
+Clipping caps the largest updates. **The burst is precisely an oversized
+update** — that is the thing the study measures. So clipping would cap the
+arms unequally, in proportion to how large each arm's gradient happens to be,
+and undo exactly the matching that 8b-i exists to establish. It must be a
+stated choice, never an inherited default.
+
+**Stated plainly, because it is intended and will look like a bug otherwise:
+with `grad_clip` null, NO run of ANY arm is launch-ready — including `twin`.**
+Clipping applies to the whole run, not just to the step the burst lands on, so
+twin is no more exempt from the decision than the injecting arms are. Every
+`--launch` attempt fails until someone decides. That is the point.
+
+Four existing tests that built launch-ready configs now set `grad_clip`
+explicitly. They assert the new truth rather than being weakened: a config is
+launch-ready only once clipping has been decided.
+
 ---
 
 ## Known limitations

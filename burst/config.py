@@ -350,6 +350,19 @@ class TrainingConfig:
 class OptimizerConfig:
     name: str
     weight_decay: float
+    #: AdamW momentum coefficients. Fixed across all arms.
+    beta1: float
+    beta2: float
+    #: Denominator stabiliser. Fixed across all arms.
+    eps: float
+    #: Gradient-norm clipping threshold, or None while undecided.
+    #:
+    #: Deliberately has no default. Clipping caps the largest updates, and the
+    #: burst IS an oversized update -- so clipping would cap the arms
+    #: unequally and undo the matching the study depends on. `None` is
+    #: rejected at launch, exactly like the injection fields, so no run can
+    #: start without someone having decided.
+    grad_clip: float | None
 
 
 @dataclass(frozen=True)
@@ -770,6 +783,11 @@ def _build_config(merged: dict, source: str | Path) -> Config:
         optimizer=OptimizerConfig(
             name=_str(merged, "optimizer", "name", source),
             weight_decay=_float(merged, "optimizer", "weight_decay", source),
+            beta1=_float(merged, "optimizer", "beta1", source),
+            beta2=_float(merged, "optimizer", "beta2", source),
+            eps=_float(merged, "optimizer", "eps", source),
+            grad_clip=_float(merged, "optimizer", "grad_clip", source,
+                             allow_null=True),
         ),
         learning_rate=LearningRateConfig(
             schedule=_str(merged, "learning_rate", "schedule", source),
@@ -885,6 +903,29 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             f"({cfg.learning_rate.warmup_steps}) must be less than "
             f"training.total_steps ({cfg.training.total_steps})."
         )
+    # AdamW coefficients. Both are exponential decay rates, so they are only
+    # meaningful strictly inside (0, 1): at 0 the moment has no memory, at 1
+    # it never updates.
+    for name, value in (("beta1", cfg.optimizer.beta1),
+                        ("beta2", cfg.optimizer.beta2)):
+        if not 0.0 < value < 1.0:
+            raise ConfigError(
+                f"{source}: optimizer.{name} ({value}) must be strictly "
+                "between 0 and 1. It is an exponential decay rate: 0 gives "
+                "the moment no memory at all, and 1 stops it ever updating."
+            )
+    if cfg.optimizer.eps <= 0:
+        raise ConfigError(
+            f"{source}: optimizer.eps ({cfg.optimizer.eps}) must be positive; "
+            "it exists to keep the update's denominator away from zero."
+        )
+    if cfg.optimizer.grad_clip is not None and cfg.optimizer.grad_clip <= 0:
+        raise ConfigError(
+            f"{source}: optimizer.grad_clip ({cfg.optimizer.grad_clip}) must "
+            "be positive when set. To decide against clipping, that decision "
+            "still has to be written down -- see the note in configs/base.yaml."
+        )
+
     if cfg.learning_rate.final > cfg.learning_rate.peak:
         raise ConfigError(
             f"{source}: learning_rate.final ({cfg.learning_rate.final}) is "
@@ -1023,6 +1064,11 @@ def _missing_for_launch(cfg: Config) -> list[str]:
         missing.append("checkpointing.full_interval")
     if cfg.model.tie_embeddings is None:
         missing.append("model.tie_embeddings")
+    # Every arm, including twin. Clipping applies to the whole run, not just
+    # to the step the burst lands on, so twin is no more exempt from the
+    # decision than the injecting arms are.
+    if cfg.optimizer.grad_clip is None:
+        missing.append("optimizer.grad_clip")
     if cfg.arm in INJECTING_ARMS:
         if cfg.injection.injection_step is None:
             missing.append("injection.injection_step")

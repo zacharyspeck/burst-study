@@ -79,6 +79,34 @@ optimizer:
   name: adamw
   weight_decay: 0.1
 
+  # Standard GPT-2 reproduction values. Identical across all arms, so they
+  # cannot bias a between-arm comparison -- they are here so that "what
+  # produced this checkpoint" has one answer, not because they are a variable.
+  #
+  # beta1/beta2 set the momentum timescales: 1/(1-beta1) = 10 steps for the
+  # first moment, 1/(1-beta2) = 20 steps for the second. That matters for this
+  # study specifically, because it bounds how long a single burst's gradient
+  # keeps influencing updates after the injection step.
+  beta1: 0.9
+  beta2: 0.95
+
+  # NOT 1e-8. PyYAML's float rule requires a decimal point, so `1e-8` parses
+  # as the STRING '1e-8' -- see the formatting rule at the top of this file.
+  # Written in plain decimal like every other rate here.
+  eps: 0.00000001
+
+  # UNDECIDED ON PURPOSE, and rejected at launch until it is decided.
+  #
+  # Clipping caps the largest updates. The burst is precisely an oversized
+  # update -- that is what the study measures. Clipping would therefore cap
+  # the arms unequally, in proportion to how large each arm's gradient is,
+  # and undo the matching that 8b-i exists to establish.
+  #
+  # So this must be a stated choice, never an inherited default. Set it to a
+  # positive number to clip, or decide explicitly not to clip. Either way it
+  # gets written down here and recorded in resolved_config.yaml.
+  grad_clip: null
+
 # ---------------------------------------------------------------------------
 # Learning rate schedule
 # ---------------------------------------------------------------------------

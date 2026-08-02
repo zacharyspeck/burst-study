@@ -123,8 +123,14 @@ def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
 
 
 def test_null_injection_fields_are_fine_for_twin(tmp_path):
-    """twin receives no injection, so it launches with those fields null."""
-    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
+    """twin receives no injection, so it launches with those fields null.
+
+    It is NOT exempt from optimizer.grad_clip: clipping applies to the whole
+    run, not just to the injection step, so twin needs that decision too.
+    """
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      optimizer__grad_clip=1.0)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.arm == "twin"
@@ -562,6 +568,9 @@ def valid_burst_base(tmp_path, path_value):
     return write_base(
         tmp_path,
         checkpointing__weights_only_interval=50, checkpointing__full_interval=1000,
+        # grad_clip is null in the shipped config and is rejected at launch,
+        # so a config that is meant to BE launch-ready has to decide it.
+        optimizer__grad_clip=1.0,
         injection__injection_step=4768,
         injection__burst_length_tokens=64,
         injection__burst_text_paths__coherent=path_value,
@@ -641,7 +650,9 @@ def test_launch_succeeds_when_the_burst_text_file_exists(tmp_path):
 
 def test_twin_needs_no_burst_text(tmp_path):
     """twin launches with every burst text path still null."""
-    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      optimizer__grad_clip=1.0)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.missing_for_launch == ()
@@ -925,3 +936,110 @@ def test_cli_reports_config_errors_without_a_traceback(tmp_path):
     assert result.returncode == 1
     assert "CONFIG ERROR" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# optimizer parameters (8b-ii)
+# ---------------------------------------------------------------------------
+
+
+def test_the_real_base_config_decides_the_adamw_parameters():
+    """These are fixed across all arms, so they cannot bias a comparison."""
+    optimizer = base_dict()["optimizer"]
+    assert optimizer["beta1"] == 0.9
+    assert optimizer["beta2"] == 0.95
+    assert optimizer["eps"] == 0.00000001
+    # ...and this one is deliberately NOT decided.
+    assert optimizer["grad_clip"] is None
+
+
+def test_eps_is_written_in_plain_decimal_not_scientific_notation():
+    """`1e-8` parses as a STRING under PyYAML. Guard the house rule.
+
+    Comments are stripped before checking -- the comment above the value
+    quotes `1e-8` precisely to explain why it must not be written that way.
+    """
+    value_lines = [
+        line.split("#")[0]
+        for line in REAL_BASE.read_text(encoding="utf-8").splitlines()
+    ]
+    assert not any("e-" in line or "e+" in line for line in value_lines), (
+        "a value in base.yaml is written in scientific notation")
+    assert isinstance(base_dict()["optimizer"]["eps"], float)
+
+
+def test_scientific_notation_eps_is_rejected_with_a_hint(tmp_path):
+    base = write_base(tmp_path, optimizer__eps="1e-8")
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError) as exc:
+        load(tmp_path, base, run)
+    message = str(exc.value)
+    assert "optimizer.eps" in message
+    assert "scientific notation" in message
+
+
+def test_null_grad_clip_blocks_launch_for_every_arm(tmp_path):
+    """Requirement: no run starts without an explicit clipping decision."""
+    for arm in ARMS:
+        # A directory per arm: the loader refuses to overwrite a
+        # resolved_config.yaml describing a DIFFERENT config, and the arm
+        # changes on every pass.
+        cell = tmp_path / arm
+        cell.mkdir()
+        base = write_base(cell, checkpointing__weights_only_interval=50,
+                          checkpointing__full_interval=1000,
+                          injection__injection_step=4768,
+                          injection__burst_length_tokens=64,
+                          injection__burst_text_paths__coherent="README.md",
+                          injection__burst_text_paths__noise="README.md",
+                          injection__burst_text_paths__ordinary="README.md")
+        run = write_run(cell, f"seed: 3\narm: {arm}\n")
+        cfg = load(cell, base, run)
+        assert "optimizer.grad_clip" in cfg.missing_for_launch, (
+            f"{arm} should not be launch-ready with grad_clip null")
+        with pytest.raises(ConfigError, match="optimizer.grad_clip"):
+            load(cell, base, run, require_complete=True)
+
+
+def test_a_decided_grad_clip_is_accepted(tmp_path):
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      optimizer__grad_clip=1.0)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    cfg = load(tmp_path, base, run, require_complete=True)
+    assert cfg.optimizer.grad_clip == 1.0
+    assert cfg.missing_for_launch == ()
+
+
+def test_a_nonpositive_grad_clip_is_rejected(tmp_path):
+    for bad in (0, -1.0):
+        base = write_base(tmp_path, optimizer__grad_clip=bad)
+        run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+        with pytest.raises(ConfigError, match="grad_clip"):
+            load(tmp_path, base, run)
+
+
+@pytest.mark.parametrize("field", ["beta1", "beta2"])
+@pytest.mark.parametrize("bad", [0.0, 1.0, -0.5, 1.5])
+def test_betas_outside_the_open_unit_interval_are_rejected(tmp_path, field, bad):
+    base = write_base(tmp_path, **{f"optimizer__{field}": bad})
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match=f"optimizer.{field}"):
+        load(tmp_path, base, run)
+
+
+def test_a_nonpositive_eps_is_rejected(tmp_path):
+    base = write_base(tmp_path, optimizer__eps=0.0)
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    with pytest.raises(ConfigError, match="optimizer.eps"):
+        load(tmp_path, base, run)
+
+
+def test_optimizer_values_survive_into_the_frozen_config(tmp_path):
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    cfg = load(tmp_path, base, run)
+    assert cfg.optimizer.beta1 == 0.9
+    assert cfg.optimizer.beta2 == 0.95
+    assert cfg.optimizer.eps == 0.00000001
+    assert cfg.optimizer.grad_clip is None
