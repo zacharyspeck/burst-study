@@ -57,6 +57,13 @@ __pycache__/
 /results/
 /checkpoints/
 
+# probes/determinism writes here: one resolved_config.yaml, run_provenance.yaml,
+# environment_asserted.yaml and digest.json per process, two processes per check.
+# Generated output, so untracked -- the finding goes in docs/measurements/, not
+# the digests. Anchored, per the rule at the top: "probe-runs" is an ordinary
+# enough name that it should only match at the repo root.
+/probe-runs/
+
 # Corpus and tokenized data. The corpus is NAMED in the config, never located
 # in it, and never stored in the repo.
 /data/

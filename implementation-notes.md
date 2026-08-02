@@ -530,6 +530,55 @@ This is why `validate_architecture()` rejects a non-GELU activation with a
 message naming positive homogeneity: swap in ReLU and this drop stops being
 correct.
 
+### D20. `probes/` contains a training loop, which the README excludes on purpose
+
+**Structural, and authorised rather than assumed.** The README's "Not in this
+repo, on purpose" list names the training loop, the model definition and the
+data pipeline. `probes/determinism/` now contains all three. This was asked for
+explicitly, after the alternative — keeping it outside the repo — was offered
+and declined.
+
+The reason it is a probe and not the beginning of `burst/train.py`: it exists
+to answer one question and be readable afterwards, not to be built on. It does
+not implement the injection hook, checkpointing, `checkpoint_kind_at()`, the
+held-out reservation, or any of the other cross-module obligations below. Do
+not mistake it for a head start on them; the obligations are unchanged and
+still unmet.
+
+What keeps it honest about the boundary it crosses:
+
+- Every model, optimizer and schedule value is read from `configs/base.yaml`
+  through `burst.config`, so the probe cannot quietly disagree with the study's
+  config. It is the first consumer of the loader that behaves like a training
+  loop, and the loader needed no changes to serve it.
+- It discharges the `expected_param_count` check that "Not yet enforced" says
+  nothing discharges: `build_model()` refuses to run if the model it built is
+  not 124,439,808 parameters.
+- Nothing in `burst/` imports it, and `probes/` is not on `testpaths`, so the
+  torch-free guarantee is untouched — `.venv/` still runs 279 tests with no ML
+  stack present.
+
+### D21. The probe supplies three values the config does not have
+
+`configs/base.yaml` declares `batch_size: 256` and `seq_len: 1024` but says
+nothing about **micro-batch size, dtype, or which AdamW implementation**. All
+three change reduction order, and reduction order is what bitwise
+reproducibility is made of. The probe cannot run without picking them.
+
+It picks micro-batch 8 (× 32 accumulation = 256), float32, and `foreach` AdamW,
+takes all three as command-line arguments rather than config values, prints
+them in the header marked `PROBE ASSUMPTION`, and records them in
+`environment_asserted.yaml`. They are **assumptions, not decisions** — nothing
+was added to `configs/base.yaml`.
+
+The forcing constraint on the first one is arithmetic, not preference:
+`256 × 1024 × 50257 × 4 bytes` of logits is **52.7 GB**, against 49 GB on the
+A6000 this ran on. A full batch in one forward pass does not fit on this
+hardware at all, so the real study must use gradient accumulation or more than
+one device, and neither appears anywhere in the config. This belongs on the
+same list as the undeclared clipping policy in `docs/spec-v4.md` — see the
+Cross-module obligations section.
+
 ---
 
 ## Smaller decisions, logged as instructed
