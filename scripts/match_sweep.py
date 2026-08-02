@@ -1,24 +1,21 @@
 #!/usr/bin/env python
-"""Sweep the noise window size k and report the gap from coherent.
+"""Sweep the scrambled arm's window size k, measured in context.
 
-The noise arm is meant to be structurally destroyed but otherwise comparable
-to the coherent arm. How destroyed is a dial: shuffling word order inside
-windows of k=2 barely disturbs the text, and shuffling the whole span at once
-destroys every phrase in it. Somewhere along that dial the noise passage may
-deliver the same size shove to the weights as the coherent one. This script
-measures the dial. It does not read anything off it.
+    python scripts/match_sweep.py --position 400
+    python scripts/match_sweep.py --position 400 --k 2 3 5 8 15 30
 
-    python scripts/match_sweep.py
-    python scripts/match_sweep.py --k 2 3 5 8 15 30 --seed 0
+Under spec v4 the scrambled arm is one of five, and k is its own private
+parameter. This sweeps it so you can see how the dial behaves; every other
+arm is fixed and is not swept here. To measure all five arms against each
+other, use scripts/match_arms.py -- that is the 8b-i deliverable, this is a
+tuning tool for one arm.
 
-Each row is one measurement from scripts/burst_match.py -- imported, not
-reimplemented, so the sweep cannot drift from the single-passage numbers.
+Measured IN CONTEXT, like everything else in v4: each candidate scrambling is
+spliced into the same 1024-token sequence at the same offset. Numbers taken
+standing alone are void and are not comparable to these.
 
-WHAT THIS SCRIPT WILL NOT DO
-It will not pick a winner, rank the rows, or say that any k matches. The
-tolerance is not set yet, and applying it is not this script's job. It prints
-the table and stops. Anything that looked like a recommendation here would
-become the decision by default.
+Reports burst-region loss (the matched quantity) and gradient norm. Picks no
+winner: the tolerance is not set here.
 """
 
 from __future__ import annotations
@@ -32,144 +29,63 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-# Imported, never copied. If the measurement changes, this table changes with
-# it, and the brief was explicit that it must not be reimplemented here.
 from burst_match import (  # noqa: E402
+    DEFAULT_BASE_CONFIG,
     RULE,
     THIN,
     BurstMatchError,
-    batch_scaled,
     load_model,
-    measure_text,
+    measure_in_context,
     percent_change,
     resolve_batch_size,
+    resolve_seq_len,
 )
 from make_bursts import (  # noqa: E402
-    COHERENT_NAME,
+    CONTEXT_NAME,
     DEFAULT_CACHE,
     DEFAULT_DOCS,
     DEFAULT_OUTDIR,
-    ORDINARY_NAME,
-    SPAN_WORD_MULTIPLIER,
     MakeBurstsError,
+    arm_by_name,
+    arm_spans,
+    derived_seed,
     load_corpus_slice,
-    select_spans,
+    span_words_for,
     token_count,
     trim_to_tokens,
     window_shuffle,
 )
 
-#: The window sizes swept by default. The brief's list, plus a full-span
-#: shuffle appended separately as the k = every-word end of the dial.
 DEFAULT_KS: tuple[int, ...] = (2, 3, 5, 8, 15, 30)
-
-#: Label for the full-span shuffle, which is not a number.
 FULL_SPAN = "full"
-
-
-def _fmt_gap(value: float | None, width: int, spec: str) -> str:
-    """A gap column, or a dash for the row that is the reference."""
-    if value is None:
-        return "-".rjust(width)
-    return format(value, spec).rjust(width)
-
-
-def format_table(rows, batch) -> str:
-    """One table: k, tokens, loss, gradient norm, and the gaps from coherent.
-
-    `rows` is a list of (label, k_display, Measurement, is_reference).
-    """
-    reference = next((m for _, _, m, is_ref in rows if is_ref), None)
-    if reference is None:
-        raise BurstMatchError("no coherent row to compare against")
-
-    lines = [
-        "",
-        RULE,
-        "match sweep -- gap from coherent",
-        RULE,
-        f"reference: coherent, {reference.n_tokens} tokens, "
-        f"mean loss {reference.mean_loss:.6f}, "
-        f"grad norm {reference.grad_norm:.6f}",
-        f"batch:     {batch.value} sequences  ({batch.source})",
-        "",
-        f"{'passage':<12}{'k':>6}{'tokens':>8}{'loss':>11}{'d loss':>11}"
-        f"{'d loss %':>10}{'grad norm':>12}{'d grad':>11}{'d grad %':>10}"
-        f"{'grad/batch':>12}",
-        THIN,
-    ]
-
-    for label, k_display, m, is_ref in rows:
-        if is_ref:
-            d_loss = d_loss_pct = d_grad = d_grad_pct = None
-        else:
-            d_loss = m.mean_loss - reference.mean_loss
-            d_grad = m.grad_norm - reference.grad_norm
-            d_loss_pct = percent_change(reference.mean_loss, m.mean_loss)
-            d_grad_pct = percent_change(reference.grad_norm, m.grad_norm)
-
-        lines.append(
-            f"{label:<12}{k_display:>6}{m.n_tokens:>8}"
-            f"{m.mean_loss:>11.6f}"
-            f"{_fmt_gap(d_loss, 11, '+.6f')}"
-            f"{_fmt_gap(d_loss_pct, 10, '+.1f')}"
-            f"{m.grad_norm:>12.6f}"
-            f"{_fmt_gap(d_grad, 11, '+.6f')}"
-            f"{_fmt_gap(d_grad_pct, 10, '+.1f')}"
-            f"{batch_scaled(m.grad_norm, batch.value):>12.6f}"
-        )
-
-    lines += [
-        THIN,
-        "d columns are (row - coherent). Percentages are of the coherent "
-        "value.",
-        "grad/batch is the standalone norm divided by the batch size: what one",
-        "sequence in a batch actually contributes.",
-        "",
-        "Every row is the same token length, so the gradient norms are "
-        "directly",
-        "comparable. No row is recommended here -- the tolerance is not set "
-        "and",
-        "applying it is not this script's job.",
-    ]
-    return "\n".join(lines)
+SCRAMBLED = "scrambled"
+REFERENCE = "fluent-false"
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python scripts/match_sweep.py",
-        description=(
-            "Measure coherent, ordinary, and noise at a range of shuffle "
-            "window sizes, and print the gap from coherent. Picks no winner."
-        ),
-    )
+        description="Sweep the scrambled arm's window size k in context, "
+                    "against fluent-false. Picks no winner.")
+    parser.add_argument("--position", type=int, required=True, metavar="N",
+                        help="REQUIRED: token offset where the burst starts")
     parser.add_argument("--k", type=int, nargs="+", default=list(DEFAULT_KS),
-                        metavar="N", help=f"window sizes (default: "
-                                          f"{' '.join(map(str, DEFAULT_KS))})")
-    parser.add_argument("--seed", type=int, default=0, metavar="N",
-                        help="seed for span selection and shuffling (default: 0)")
-    parser.add_argument("--burstdir", type=Path, default=DEFAULT_OUTDIR,
-                        metavar="PATH",
-                        help=f"where the burst files live (default: {DEFAULT_OUTDIR})")
-    parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE,
-                        metavar="PATH", help="cached corpus slice")
-    parser.add_argument("--docs", type=int, default=DEFAULT_DOCS, metavar="N",
-                        help=f"documents to read from the cache (default: "
-                             f"{DEFAULT_DOCS})")
-    parser.add_argument("--batch-size", type=int, default=None, metavar="N",
-                        help="override the batch size read from the config")
-    parser.add_argument("--base-config", type=Path, default=None, metavar="PATH",
-                        help="config to read training.batch_size from")
+                        metavar="N")
+    parser.add_argument("--seed", type=int, default=0, metavar="N")
+    parser.add_argument("--burstdir", type=Path, default=DEFAULT_OUTDIR)
+    parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
+    parser.add_argument("--docs", type=int, default=DEFAULT_DOCS)
+    parser.add_argument("--base-config", type=Path, default=DEFAULT_BASE_CONFIG)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--seq-len", type=int, default=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-
     print(RULE)
-    print("match_sweep -- can noise be matched to coherent, and at what k?")
+    print("match_sweep -- scrambled window size k, measured in context")
     print(RULE)
-
     try:
         return _run(args)
     except (BurstMatchError, MakeBurstsError) as exc:
@@ -178,77 +94,95 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args) -> int:
-    from burst_match import DEFAULT_BASE_CONFIG
-
-    base_config = args.base_config or DEFAULT_BASE_CONFIG
-    batch = resolve_batch_size(args.batch_size, base_config)
-    print(f"batch:   {batch.value} sequences  ({batch.source})")
-
     burstdir = Path(args.burstdir)
-    coherent_path = burstdir / COHERENT_NAME
-    ordinary_path = burstdir / ORDINARY_NAME
-    for path in (coherent_path, ordinary_path):
+    batch = resolve_batch_size(args.batch_size, args.base_config)
+    seq = resolve_seq_len(args.seq_len, args.base_config)
+    print(f"batch:   {batch.value} | seq_len: {seq.value}")
+
+    reference_spec = arm_by_name(REFERENCE)
+    ref_path = burstdir / reference_spec.filename
+    context_path = burstdir / CONTEXT_NAME
+    for path in (ref_path, context_path):
         if not path.is_file():
             raise MakeBurstsError(
-                f"{path} does not exist. Run scripts/make_bursts.py first."
-            )
+                f"{path} does not exist. Run scripts/make_bursts.py first.")
 
     tokenizer, model = load_model()
     print()
 
-    coherent_text = coherent_path.read_text(encoding="utf-8")
-    n_target = token_count(tokenizer, coherent_text)
-    print(f"target:  N = {n_target} tokens")
+    context_ids = tokenizer(context_path.read_text(encoding="utf-8"),
+                            add_special_tokens=False)["input_ids"]
+    ref_ids = tokenizer(ref_path.read_text(encoding="utf-8"),
+                        add_special_tokens=False)["input_ids"]
+    n_target = len(ref_ids)
+    filler_ids = context_ids[:seq.value - n_target]
+    print(f"target:  N = {n_target} tokens at position {args.position}")
 
-    # The noise span is selected exactly as make_bursts.py selects it -- same
-    # cached documents, same seed, same filters, same call -- so the k values
-    # swept here describe the passage that script would produce, not a
-    # different one that happens to look similar.
-    span_words = int(n_target * SPAN_WORD_MULTIPLIER)
     docs = load_corpus_slice(Path(args.cache), args.docs)
-    selection_rng = random.Random(args.seed)
-    _, noise_span = select_spans(docs, 2, span_words, selection_rng)
-    print(f"noise span: document {noise_span.doc_index}, "
-          f"{noise_span.word_count} words")
+    spec = arm_by_name(SCRAMBLED)
+    span = arm_spans(docs, args.seed, n_target)[SCRAMBLED]
+    raw = span_words_for(spec, span, n_target)
+    n_words = len(raw.split())
+    print(f"span:    document {span.doc_index}, {n_words} words")
 
-    ks: list[int | str] = sorted(set(args.k))
-    n_words = len(noise_span.text.split())
-    ks.append(FULL_SPAN)
+    def measure(ids, label):
+        return measure_in_context(ids, filler_ids, args.position, tokenizer,
+                                  model, label, batch_size=batch.value,
+                                  train_seq_len=seq.value)
 
-    rows = []
     print()
     print("measuring:", end=" ", flush=True)
+    print(REFERENCE, end=" ", flush=True)
+    rows = [(REFERENCE, "-", measure(ref_ids, REFERENCE), True)]
 
-    print("coherent", end=" ", flush=True)
-    rows.append(("coherent", "-", measure_text(
-        coherent_text, "coherent", tokenizer, model), True))
-
-    print("ordinary", end=" ", flush=True)
-    rows.append(("ordinary", "-", measure_text(
-        ordinary_path.read_text(encoding="utf-8"), "ordinary", tokenizer,
-        model), False))
-
-    for k in ks:
+    for k in sorted(set(args.k)) + [FULL_SPAN]:
         window = n_words if k == FULL_SPAN else k
-        print(f"noise/{k}", end=" ", flush=True)
-        # A fresh rng per k, seeded identically. Without this, the shuffle at
-        # k=5 would depend on how many draws k=3 happened to consume, and the
-        # rows would not be independent measurements of the same dial.
-        shuffled = window_shuffle(noise_span.text, window,
-                                  random.Random(args.seed))
-        text, _ = trim_to_tokens(tokenizer, shuffled, n_target)
-        rows.append(("noise", str(k), measure_text(
-            text, f"noise k={k}", tokenizer, model), False))
+        print(f"k={k}", end=" ", flush=True)
+        # A fresh rng per k, seeded the same way make_bursts seeds this arm,
+        # so the rows are independent measurements of one dial rather than a
+        # chain where each depends on the draws the previous one consumed.
+        rng = random.Random(derived_seed(args.seed, SCRAMBLED))
+        text, _ = trim_to_tokens(tokenizer, window_shuffle(raw, window, rng),
+                                 n_target, label=f"scrambled k={k}")
+        ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+        rows.append((SCRAMBLED, str(k), measure(ids, f"scrambled k={k}"), False))
     print()
 
-    counts = {m.n_tokens for _, _, m, _ in rows}
-    if len(counts) != 1:
-        raise BurstMatchError(
-            f"rows are not all the same token length: {sorted(counts)}. "
-            "Gradient norms across different lengths are not comparable."
-        )
-
-    print(format_table(rows, batch))
+    ref = next(m for _, _, m, is_ref in rows if is_ref)
+    lines = [
+        "",
+        RULE,
+        "scrambled k sweep, in context",
+        RULE,
+        f"reference: {REFERENCE}, burst-region loss {ref.burst_region_loss:.6f}, "
+        f"grad norm {ref.full_sequence_grad_norm:.6f}",
+        "",
+        f"{'arm':<12}{'k':>6}{'burst loss':>13}{'d':>11}{'d %':>9}"
+        f"{'grad norm':>12}{'d':>11}{'d %':>9}",
+        f"{'':<12}{'':>6}{'[MATCHED]':>13}{'':>11}{'':>9}{'[MATCHED]':>12}",
+        THIN,
+    ]
+    for label, k, m, is_ref in rows:
+        if is_ref:
+            cells = f"{'-':>11}{'-':>9}" + f"{m.full_sequence_grad_norm:>12.6f}" \
+                    + f"{'-':>11}{'-':>9}"
+            lines.append(f"{label:<12}{k:>6}{m.burst_region_loss:>13.6f}{cells}")
+            continue
+        dl = m.burst_region_loss - ref.burst_region_loss
+        dg = m.full_sequence_grad_norm - ref.full_sequence_grad_norm
+        pl = percent_change(ref.burst_region_loss, m.burst_region_loss)
+        pg = percent_change(ref.full_sequence_grad_norm, m.full_sequence_grad_norm)
+        lines.append(
+            f"{label:<12}{k:>6}{m.burst_region_loss:>13.6f}{dl:>+11.6f}"
+            f"{pl:>+8.1f}%{m.full_sequence_grad_norm:>12.6f}{dg:>+11.6f}"
+            f"{pg:>+8.1f}%")
+    lines += [
+        THIN,
+        "Every row is the same token length and the same filler, so these are",
+        "directly comparable. No k is recommended -- the tolerance is not set",
+        "and applying it is not this script's job.",
+    ]
+    print("\n".join(lines))
     return 0
 
 

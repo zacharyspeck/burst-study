@@ -337,6 +337,75 @@ that `run_provenance.yaml` records.
 .venv-ml/    pip install -e ".[dev,measure]"    everything
 ```
 
+### D12. The context passage is pinned, not drawn blind
+
+Every other corpus-derived artifact in this repo is selected by a seeded blind
+draw. `bursts/context.txt` is not: it is pinned to document 73, words 0–760,
+in `make_bursts.py` as `CONTEXT_DOC_INDEX` / `CONTEXT_WORD_START` /
+`CONTEXT_WORD_COUNT`.
+
+Two reasons. The context is **fixed scaffolding, not an experimental
+variable** — all five arms are spliced into byte-identical filler, so it
+cannot differentiate them and there is nothing to be gained by randomising it.
+And a blind draw previously surfaced a passage on race-and-IQ research (D11),
+which is a live risk for text that will be injected into a model and then
+measured. Pinning lets a human read the passage and approve it, which is what
+happened: the Kansas-flatness piece was reviewed in full before it was
+committed.
+
+The pinned document is excluded from the arm span candidate pool, so no arm
+can be cut from the same document as the filler surrounding it.
+
+### D13. The scrambled arm's source span is about Somali piracy
+
+Seed 0 selected, for the scrambled arm, a Reuters report on piracy off Somalia
+— insurgents, hijackings, civilian deaths. It passes every quality filter (95%
+alphabetic, 28 sentence ends, ordinary news prose) and the selection was the
+blind seeded procedure working as designed.
+
+**Flagged, not silently reseeded**, on exactly the D11 precedent. Rerolling
+until the topic looked innocuous would defeat the point of a blind procedure
+and would leave no record that it had happened.
+
+Mitigating: the scrambled arm destroys word order, so what is injected is word
+salad rather than readable reporting. Not mitigating: the *lexical* content
+survives shuffling, so tokens like "hijacked", "killed" and "al Qaeda" are
+still in the burst.
+
+The pos-substituted arm drew a technical document about a Clojure web
+framework, which is inert. `--seed` changes both.
+
+### D14. `nltk` model download cannot be pinned, and does not need to be
+
+`averaged_perceptron_tagger_eng` is downloaded at build time by
+`scripts/build_pos_pool.py` into `.corpus-cache/nltk_data/` (gitignored). Pip
+can pin `nltk==3.9.2`; it cannot pin the model data.
+
+This does not compromise reproducibility, because of how H7 is structured: the
+tagger runs **once**, and what is committed is its output —
+`bursts/pos_pool.json`, whose SHA-256 is recorded in `bursts/provenance.json`
+and checked by a test. Generation reads that file and never imports nltk. If
+the tagger changed tomorrow, the committed pool would not move.
+
+**What this does NOT guarantee:** that rebuilding the pool from scratch on
+another machine reproduces the same bytes. It is not required to, and this was
+confirmed as the intended reading before it was built.
+
+### D15. `DEFAULT_POOL_DOCS` raised from 60 to 200 during the build
+
+The first pool build refused, correctly: the template needs a foreign-word
+(`FW`) tag and no `FW` word cleared the frequency threshold across 60
+documents. Rather than lower `MIN_WORD_FREQUENCY` or fall back to leaving the
+original word in place — which would leak real lexical content into an arm
+whose entire purpose is destroying it — the tagged slice was widened to the
+whole 200-document cache.
+
+Worth recording because it looks like a defect and is not: several pools are
+tiny, and that is correct. `TO` has exactly one member because English has one
+infinitival "to". `CC` and `MD` are closed classes with about a dozen members
+each. Only an *open* class (`NN`, `VB`, `JJ`) with a small pool would indicate
+too thin a corpus slice; those have thousands.
+
 ### D10. `burst_match.py` refactored twice so the new scripts could reuse it
 
 The brief for step 8 said to import and reuse the measurement rather than
@@ -718,6 +787,114 @@ that script would actually produce rather than a similar-looking one.
 > matters more than it did here, because with five arms generated in one run,
 > convention A makes each arm's text depend on how many draws the arms before
 > it consumed.
+
+### S27. Matching is on burst-region loss, and the asymmetry is deliberate
+
+The arms are matched on **burst-region loss** — the mean over the burst's own
+194 token predictions — together with gradient norm. **Full-sequence loss is
+reported alongside as context and is explicitly not the matching quantity.**
+
+The reason, in the terms it was decided in: 830 of 1024 tokens are identical
+across arms, so full-sequence loss is **81% shared text by construction**.
+Matching on it would let arms with wildly different burst-level surprise
+appear matched, which defeats the purpose of matching.
+
+We therefore accept an explicit asymmetry — **the quantity we match on is not
+the quantity that moves the weights** — and record both rather than pretending
+they are the same. The gradient continues to come from the full-sequence loss,
+because that is what training applies.
+
+There is a second asymmetry *inside* the matched pair: the matched loss covers
+194 tokens, the matched gradient covers all 1024. Both matched quantities are
+labelled `[MATCHED]` in the terminal report, and carry `_MATCHED` /
+`_context_only` suffixes in the JSON, so the two can never be read as each
+other.
+
+The first measurement shows exactly why this mattered. Burst-region loss
+spreads **2.32×** across the five arms; gradient norm spreads **1.09×**. The
+no-burst diagnostic row explains the difference: filler alone has a gradient
+norm of 9.59, and every arm sits within about 5% of it.
+
+### S28. The no-burst diagnostic row
+
+`match_arms.py` measures one extra sequence: the filler with no burst spliced
+in. It is **not a sixth arm** and is labelled as a diagnostic everywhere it
+appears.
+
+It exists because of the compression above. Without it there is no way to tell
+a genuinely matched gradient norm from one that is merely filler-dominated.
+This is also why `bursts/context.txt` holds a **whole** 1024-token sequence
+rather than just the 830 tokens of filler: the diagnostic row has to be the
+same length as the arms, or its gradient norm is not comparable to theirs.
+Arms splice into the leading 830 tokens; the diagnostic uses all 1024.
+
+### S29. Config and `bursts/` are now further apart, deliberately
+
+**This change does not make the config system and `bursts/` consistent, and
+nobody should read them as agreeing.**
+
+`configs/base.yaml` still enumerates the v3 arms — `coherent`, `noise`,
+`ordinary`, `twin` — and `injection.burst_text_paths` is still three nulls.
+`burst/config.py` still defines `ARMS` and `INJECTING_ARMS` at v3.
+`bursts/` now contains five arms under different names, none of which the
+config knows about.
+
+That was the instruction for 8b-i and it is the right call for one build, but
+the gap is now wider than it was: before, the two were merely disconnected;
+now they actively disagree about what the arms are called and how many there
+are. Anything that later wires `injection.burst_text_paths` to `bursts/` has
+to change `ARMS`, `INJECTING_ARMS`, `BurstTextPaths`, `experiment.arms`, and
+the test that asserts the paths start null — in one change, or the loader will
+reject everything.
+
+### S30. `fluent_false.txt` register revision is PENDING, not done
+
+`fluent_true.txt` was written to match `fluent_false.txt` in register,
+structure and length, and then **fact-checked against sources**. Verification
+removed four wrong claims and cut two unverifiable sentences, including the
+two strongest structural echoes of the fabricated passage ("He rarely gave
+interviews", and the "accounts mention him once" beat). What is left is denser
+with verifiable specifics and reads slightly more encyclopedic.
+
+So the two passages now differ in register as well as in truth value.
+
+**The fix is to revise `fluent_false.txt` toward `fluent_true.txt`, not the
+other way around.** fluent-false is fabricated and therefore unconstrained: it
+can be edited freely to match register, specificity and sentence shape with no
+verification risk. Editing fluent-true to match it would mean loosening
+verified prose, which is exactly backwards.
+
+This matters because **fluent-false vs fluent-true is the study's nominated
+primary contrast**. The two passages must differ in truth value and nothing
+else. They currently also differ in register, and until that is closed the
+primary contrast is confounded.
+
+Not done in this build, by instruction. `fluent_false.txt`'s content was not
+touched — the file was renamed with `git mv` and is byte-identical to the
+`coherent.txt` that preceded it (sha256 `1487f2d2…`).
+
+---
+
+## Known limitations
+
+### The match is measured on the wrong model, and has to be re-verified
+
+**All loss and gradient matching in 8b-i is measured against fully-trained
+public GPT-2.** The burst is injected into a **from-scratch model at step
+200**, which has seen roughly 52M tokens (256 × 1024 × 200) and has only crude
+statistical structure — nothing like the trained model's.
+
+Arms matched on trained GPT-2 are **not guaranteed to be matched on the
+step-200 model**, and the step-200 model is the one whose weights actually
+move. There is no reason to expect the ordering to be stable either: an arm
+that a trained model finds surprising is not necessarily one a barely-trained
+model finds surprising, and the two disagree most on exactly the kind of
+structure these arms are built to vary.
+
+**The match must be re-verified against a real step-200 checkpoint once
+training infrastructure exists.** Until then the 8b-i numbers are a proxy, and
+should be described that way in anything downstream. The measurement report
+carries this warning in its own output so it travels with the numbers.
 
 ---
 

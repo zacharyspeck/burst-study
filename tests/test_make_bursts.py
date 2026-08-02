@@ -13,6 +13,7 @@ for this step, turned into something that keeps being checked.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import random
 import sys
@@ -196,22 +197,13 @@ def test_cut_at_the_very_end_is_not_mid_word():
 
 
 # ---------------------------------------------------------------------------
-# the guard on coherent.txt
+# the guard on the hand-written arms
 # ---------------------------------------------------------------------------
 
 
-def test_refuses_to_write_over_the_coherent_passage(tmp_path, capsys):
-    """The guard runs before anything is loaded, so this needs no tokenizer."""
-    exit_code = make_bursts.main(
-        ["--k", "5", "--outdir", str(tmp_path),
-         "--coherent", str(tmp_path / "ordinary.txt")])
-
-    assert exit_code == 1
-    assert "must never write" in capsys.readouterr().err
-
-
-def test_a_missing_coherent_passage_is_an_error_not_a_regeneration(tmp_path,
-                                                                   capsys):
+def test_a_missing_handwritten_arm_is_an_error_not_a_regeneration(tmp_path,
+                                                                  capsys):
+    """An empty outdir must fail, not helpfully invent fluent_false.txt."""
     exit_code = make_bursts.main(["--k", "5", "--outdir", str(tmp_path)])
 
     assert exit_code == 1
@@ -225,47 +217,127 @@ def test_a_nonpositive_k_is_rejected(tmp_path, capsys):
     assert "--k must be at least 1" in capsys.readouterr().err
 
 
+def test_the_registry_marks_exactly_two_arms_hand_written():
+    """The two fluent arms are authored; the other three are generated."""
+    handwritten = {s.name for s in make_bursts.ARM_SPECS if not s.is_generated}
+    assert handwritten == {"fluent-false", "fluent-true"}
+    assert len(make_bursts.ARM_SPECS) == 5
+
+
+def test_span_count_comes_from_the_registry_not_a_literal():
+    """Requirement H8: adding a corpus-derived arm changes this by itself."""
+    assert len(make_bursts.span_arms()) == sum(
+        1 for s in make_bursts.ARM_SPECS if s.needs_span)
+    assert {s.name for s in make_bursts.span_arms()} == {
+        "scrambled", "pos-substituted"}
+
+
+def test_select_spans_says_how_many_it_needed_and_found():
+    """Requirement H8: a short pool raises with both numbers, not silently."""
+    docs = ["word " * 50] * 2
+    with pytest.raises(MakeBurstsError) as exc:
+        make_bursts.select_spans(docs, 5, 10, random.Random(0),
+                                 stream=io.StringIO())
+    message = str(exc.value)
+    assert "needed 5" in message
+    assert "found only" in message
+
+
 # ---------------------------------------------------------------------------
 # the committed burst files -- the acceptance criteria, kept under test
 # ---------------------------------------------------------------------------
 
 
-def test_all_three_burst_files_exist():
-    for name in ("coherent.txt", "ordinary.txt", "noise.txt"):
+def arm_filenames() -> list[str]:
+    return [spec.filename for spec in make_bursts.ARM_SPECS]
+
+
+def test_all_five_arm_files_exist():
+    for name in arm_filenames():
         assert (BURSTS / name).is_file(), f"bursts/{name} is missing"
     assert (BURSTS / "provenance.json").is_file()
+    assert (BURSTS / "context.txt").is_file()
+    assert (BURSTS / "pos_pool.json").is_file()
 
 
 def test_burst_files_have_no_carriage_returns_and_no_trailing_newline():
     """Both would change the token count, and the counts have to match.
 
     A trailing newline is a token under the GPT-2 tokenizer, so it is not a
-    harmless convention here -- it would make coherent.txt one token longer
-    than the passages built to match it.
+    harmless convention here -- it would make one arm a token longer than the
+    four built to match it.
     """
-    for name in ("coherent.txt", "ordinary.txt", "noise.txt"):
+    for name in arm_filenames() + ["context.txt"]:
         raw = (BURSTS / name).read_bytes()
         assert b"\r" not in raw, f"bursts/{name} has CRLF endings"
         assert not raw.endswith(b"\n"), f"bursts/{name} has a trailing newline"
 
 
-def test_provenance_records_the_committed_files():
+def test_provenance_records_every_arm_and_the_context():
     import hashlib
 
     provenance = json.loads(
         (BURSTS / "provenance.json").read_text(encoding="utf-8"))
 
-    for name, record in provenance["files"].items():
-        actual = hashlib.sha256((BURSTS / name).read_bytes()).hexdigest()
-        assert actual == record["sha256"], (
-            f"bursts/{name} has changed since provenance.json was written")
+    assert provenance["schema_version"] == 2
+    assert provenance["spec"] == "v4"
+    # window_size_k used to sit at the top level. It belongs to one arm.
+    assert "window_size_k" not in provenance
+    assert provenance["arms"]["scrambled"]["params"]["k"] >= 1
 
-    assert provenance["seed"] is not None
-    assert provenance["window_size_k"] >= 1
+    for spec in make_bursts.ARM_SPECS:
+        record = provenance["arms"][spec.name]
+        actual = hashlib.sha256(
+            (BURSTS / spec.filename).read_bytes()).hexdigest()
+        assert actual == record["sha256"], (
+            f"bursts/{spec.filename} has changed since provenance was written")
+        assert record["generator"] == spec.generator
+
+    context = provenance["context"]
+    assert hashlib.sha256(
+        (BURSTS / "context.txt").read_bytes()).hexdigest() == context["sha256"]
+    assert context["tokens"] == provenance["sequence_tokens"]
+
+    # ordinary.txt is retained as substrate, not as an arm.
+    assert "ordinary" not in provenance["arms"]
+    assert provenance["substrate"]["file"] == "ordinary.txt"
+
+
+def test_every_generated_arm_records_its_own_derived_seed():
+    provenance = json.loads(
+        (BURSTS / "provenance.json").read_text(encoding="utf-8"))
+    seeds = {}
+    for spec in make_bursts.ARM_SPECS:
+        record = provenance["arms"][spec.name]
+        if spec.is_generated:
+            assert isinstance(record["derived_seed"], int)
+            seeds[spec.name] = record["derived_seed"]
+        else:
+            assert record["derived_seed"] is None
+    assert len(set(seeds.values())) == len(seeds), (
+        "two arms share a derived seed; their draws would be correlated")
+
+
+def test_random_chars_records_its_alphabet_and_space_frequency():
+    provenance = json.loads(
+        (BURSTS / "provenance.json").read_text(encoding="utf-8"))
+    params = provenance["arms"]["random-chars"]["params"]
+    assert params["alphabet"] == make_bursts.RANDOM_CHARS_ALPHABET_NAME
+    assert params["space_frequency"] == 0.0
+
+
+def test_random_chars_file_contains_no_whitespace():
+    """The arm is defined as having no word structure at all."""
+    text = (BURSTS / "random_chars.txt").read_text(encoding="utf-8")
+    assert text
+    assert not any(c.isspace() for c in text), (
+        "random-chars contains whitespace; it is supposed to be one "
+        "unbroken run")
+    assert all(33 <= ord(c) <= 126 for c in text)
 
 
 @requires_transformers
-def test_all_three_passages_are_the_same_token_length():
+def test_all_five_passages_are_the_same_token_length():
     """The acceptance criterion for this step, as a test.
 
     If this fails, every gradient-norm comparison between the arms is
@@ -276,9 +348,10 @@ def test_all_three_passages_are_the_same_token_length():
 
     tokenizer = load_tokenizer(stream=io.StringIO())
     counts = {
-        name: len(tokenizer((BURSTS / name).read_text(encoding="utf-8"),
-                            add_special_tokens=False)["input_ids"])
-        for name in ("coherent.txt", "ordinary.txt", "noise.txt")
+        spec.filename: len(tokenizer(
+            (BURSTS / spec.filename).read_text(encoding="utf-8"),
+            add_special_tokens=False)["input_ids"])
+        for spec in make_bursts.ARM_SPECS
     }
 
     assert len(set(counts.values())) == 1, f"token counts differ: {counts}"

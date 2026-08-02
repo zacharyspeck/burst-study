@@ -43,6 +43,21 @@ measure = [
     "datasets==5.0.1",
 ]
 
+# scripts/build_pos_pool.py ONLY, and only when the POS pool is rebuilt.
+# Deliberately its own group rather than part of `measure`: the tagger is a
+# BUILD-TIME dependency. It runs once, its output (bursts/pos_pool.json) is
+# committed with a SHA-256, and scripts/make_bursts.py reads that file and
+# never imports nltk. Generating bursts therefore does not need this group.
+#
+# The tagger's model data (averaged_perceptron_tagger_eng) is a one-time
+# runtime download to .corpus-cache/nltk_data/, which is gitignored. It cannot
+# be pinned the way a pip package can, and does not need to be: reproducibility
+# rests on the committed pool and its hash, not on rebuilding the pool. A
+# from-scratch rebuild on another machine is not guaranteed byte-identical.
+pos = [
+    "nltk==3.9.2",
+]
+
 [tool.setuptools]
 packages = ["burst"]
 

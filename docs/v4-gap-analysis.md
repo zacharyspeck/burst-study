@@ -2,6 +2,23 @@
 
 Recorded 2026-08-01, against HEAD `2f3466a`. Companion to `docs/spec-v4.md`.
 
+> ## ⚠ DATED SNAPSHOT — RE-VERIFY BEFORE RELYING ON IT
+>
+> **This file describes the tree at HEAD `2f3466a` and nothing since.** It is a
+> point-in-time reconnaissance record, not a live document. Check any claim in
+> it against the current tree before acting on it.
+>
+> Known to be stale already: it says the step-8 measurement numbers exist only
+> in terminal scrollback and are in no committed file. That was true when
+> written and stopped being true about forty minutes later, when commit
+> `12d9dfb` added `docs/measurements/2026-07-31-match-sweep.md`. Task 8b-i
+> (commit after this one) then superseded those numbers entirely — see below.
+>
+> Also superseded by 8b-i: the arm registry, provenance schema, per-arm
+> multipliers, `select_spans` literal `2`, and the batch-divisor discussion
+> are all now implemented. The "matching target" section is resolved: burst
+> region for loss, full sequence for gradient.
+
 **Nothing described here has been implemented.** This is a survey of what the
 repository currently does, what v4 requires, and what stands between them. No
 code, config, arm definition, or test was changed in writing it.

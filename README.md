@@ -10,9 +10,14 @@
 > **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)** for what stands
 > between the code and that design.
 >
-> Everything below is accurate about *what the repository currently does*. The
-> config system, checkpoint logic, provenance machinery and measurement tooling
-> all carry over; the arm list and the run arithmetic do not.
+> **Task 8b-i is built** (see `docs/measurements/8b-i-in-context-match.md`):
+> `bursts/` now holds all five v4 arms at 194 tokens each, measured in context.
+> **`burst/` and `configs/` were deliberately NOT updated** and still describe
+> the v3 arms — see S29 in `implementation-notes.md`. Do not read the config
+> and `bursts/` as agreeing with each other; they now actively disagree.
+>
+> Everything below about the config system is accurate. The arm list and the
+> run arithmetic in it are v3.
 
 The config system for a study that trains 40 GPT-2 Base models from scratch.
 The 40 runs must be identical except for two things: a random **seed** and
@@ -61,13 +66,13 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `212 passed, 15 skipped`, then the resolved config printed, exit
+Expected: `232 passed, 18 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
 
-The 15 skips are the tests that need torch or `transformers`, which the install
+The 18 skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -191,16 +196,24 @@ configs/base.yaml                    every value shared by all 40 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
 scripts/generate_overrides.py        regenerates all 40 override files
-scripts/burst_match.py               measures candidate burst passages
-scripts/make_bursts.py               generates ordinary.txt and noise.txt
-scripts/match_sweep.py               sweeps the noise window size k
-bursts/coherent.txt                  hand-written, fixed, never regenerated
-bursts/ordinary.txt                  OpenWebText span, trimmed to N tokens
-bursts/noise.txt                     shuffled span, trimmed to N tokens
-bursts/provenance.json               seed, k, source offsets, hashes
-tests/test_config.py                 156 tests
-tests/test_burst_match.py            43 tests (12 need torch and skip without it)
-tests/test_make_bursts.py            28 tests (3 need the GPT-2 tokenizer)
+scripts/burst_match.py               measurement primitives, in context
+scripts/make_bursts.py               generates the three generated arms
+scripts/build_pos_pool.py            one-time POS pool build (nltk)
+scripts/match_arms.py                THE 8b-i DELIVERABLE: five-arm match
+scripts/match_sweep.py               sweeps the scrambled arm's window size k
+bursts/fluent_false.txt              hand-written, fixed, never regenerated
+bursts/fluent_true.txt               hand-written, fixed, fact-checked
+bursts/scrambled.txt                 word order broken in windows of k
+bursts/pos_substituted.txt           grammar kept, lexical content destroyed
+bursts/random_chars.txt              printable ASCII, no word structure
+bursts/context.txt                   the shared 1024-token sequence
+bursts/pos_pool.json                 committed POS vocabulary + tag template
+bursts/ordinary.txt                  v3 arm, retained as substrate only
+bursts/provenance.json               schema v2: per-arm seeds, params, hashes
+tests/test_config.py                 156 tests (still v3, deliberately)
+tests/test_burst_match.py            43 tests
+tests/test_make_bursts.py            35 tests
+tests/test_sequence_assembly.py      21 tests (splice, seeds, regeneration)
 implementation-notes.md              decisions, assumptions, open questions
 ```
 

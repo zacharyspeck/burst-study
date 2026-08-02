@@ -1,4 +1,25 @@
-# Match sweep, 2026-07-31
+# Match sweep, 2026-07-31 — SUPERSEDED, NUMBERS VOID
+
+> ## ⚠ EVERY NUMBER IN THIS FILE IS VOID
+>
+> Superseded 2026-08-01 by task 8b-i. These measurements were taken with each
+> burst **standing alone** — a bare 194-token sequence with no surrounding
+> text. Under spec v4 bursts are measured **in context**, spliced into a fixed
+> 1024-token sequence, because that is the condition under which a burst is
+> actually injected.
+>
+> A bare burst is not a quantity that occurs in training. These are not
+> "slightly off"; they measure something else. **Do not carry any of them
+> forward as a reference, and do not compare them to anything in**
+> `8b-i-in-context-match.json`.
+>
+> The arm names here are v3's: `coherent` is now **fluent-false**, `noise` is
+> now **scrambled**, and `ordinary` is no longer an arm at all.
+>
+> Retained because the file records what was measured and how, which is worth
+> keeping even once the numbers are not.
+
+## Original record follows
 
 The only measurement run this repository has ever performed. Recorded here
 because **neither `scripts/burst_match.py` nor `scripts/match_sweep.py` writes

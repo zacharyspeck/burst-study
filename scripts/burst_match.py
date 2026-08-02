@@ -84,6 +84,11 @@ DEFAULT_BASE_CONFIG = REPO_ROOT / "configs" / "base.yaml"
 #: key from the one actually looked for.
 BATCH_SIZE_KEY = ("training", "batch_size")
 
+#: Where the training sequence length lives. Read for the same reason
+#: batch_size is: the in-context measurement builds sequences of exactly this
+#: length, and a constant here would drift from the config silently.
+SEQ_LEN_KEY = ("training", "seq_len")
+
 #: Seed fixed for every run so the numbers are reproducible. In eval mode with
 #: no sampling there is nothing stochastic left for it to control, which is
 #: the point: if a future change introduces randomness, the seed is already
@@ -216,23 +221,57 @@ def top_surprising(
     return tuple(ordered[:k])
 
 
-def batch_scaled(grad_norm: float, batch_size: int) -> float:
-    """What one sequence in a batch of `batch_size` actually contributes.
+def batch_scaled(grad_norm: float, divisor: float) -> float:
+    """Scale a gradient norm down by a batch divisor.
 
-    Training averages the loss over the batch, and the gradient of a mean is
-    the mean of the gradients, so the burst sequence's term in the batch
-    gradient is exactly 1/batch_size of the gradient computed from that
-    sequence alone. Norms scale the same way because scaling a vector scales
-    its norm.
+    The divisor is NOT automatically the batch size -- compute it with
+    batch_divisor() below, which derives it from actual token counts. This
+    function is just the division, kept separate so the arithmetic and the
+    reasoning about the arithmetic live in different places.
+    """
+    if divisor <= 0:
+        raise BurstMatchError(f"batch size must be positive, got {divisor}")
+    return grad_norm / divisor
 
-    This is an upper bound on how much of the update the burst is responsible
-    for, not an estimate of the update itself: the other 255 sequences
-    contribute too, and their gradients may point anywhere relative to this
-    one.
+
+def batch_divisor(batch_size: int, train_seq_len: int,
+                  measured_seq_tokens: int) -> float:
+    """How much of the batch gradient one measured sequence accounts for.
+
+    Requirement H4. The previous version of this script divided by batch_size
+    unconditionally, on the reasoning that a burst was one sequence among
+    `batch_size` of them. That reasoning assumed the burst WAS an entire
+    sequence. It is not -- it is a 194-token region inside a 1024-token
+    sequence -- so the old figure scaled a gradient taken from a bare burst,
+    which is not a term in the batch gradient at all. Those numbers are void.
+
+    Derived from token counts instead. Training's loss is a mean over every
+    next-token prediction in the batch:
+
+        predictions_in_batch    = batch_size * (train_seq_len - 1)
+        predictions_in_sequence = measured_seq_tokens - 1
+        divisor                 = predictions_in_batch / predictions_in_sequence
+
+    When the measured sequence is the same length as a training sequence --
+    which is the case here, and is asserted -- every sequence contributes an
+    equal share and the divisor comes out exactly equal to batch_size. That is
+    not a coincidence to rely on: it holds only because the lengths match, and
+    it would stop holding the moment sequences became ragged, so the general
+    form is what is computed.
+
+    The result still is not "the burst's share of the update". It is this
+    SEQUENCE's share, and 830 of its 1024 tokens are filler shared with every
+    other arm.
     """
     if batch_size <= 0:
         raise BurstMatchError(f"batch size must be positive, got {batch_size}")
-    return grad_norm / batch_size
+    if train_seq_len < 2 or measured_seq_tokens < 2:
+        raise BurstMatchError(
+            f"sequence lengths must be at least 2 tokens; got "
+            f"train_seq_len={train_seq_len}, "
+            f"measured_seq_tokens={measured_seq_tokens}"
+        )
+    return (batch_size * (train_seq_len - 1)) / (measured_seq_tokens - 1)
 
 
 def length_mismatch(measurements) -> tuple[int, int, float] | None:
@@ -423,6 +462,89 @@ def resolve_batch_size(override: int | None, base_path: Path) -> BatchSize:
             "--batch-size on the command line, overriding the config",
         )
     return batch_size_from_config(base_path)
+
+
+def _seq_len_via_loader(base_path: Path) -> int:
+    """training.seq_len through burst.config, with its full validation."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from burst.config import ConfigError, load_config
+
+    runs = sorted((REPO_ROOT / "configs" / "runs").glob("seed*.yaml"))
+    if not runs:
+        raise ConfigError(
+            f"no run override files in {REPO_ROOT / 'configs' / 'runs'}; "
+            "regenerate them with scripts/generate_overrides.py"
+        )
+    cfg = load_config(base_path, runs[0], REPO_ROOT,
+                      write_provenance=False, require_complete=False)
+    return cfg.training.seq_len
+
+
+def _seq_len_via_yaml(base_path: Path) -> int:
+    """The one key directly, for when the loader has refused."""
+    import yaml
+
+    if not base_path.is_file():
+        raise BurstMatchError(f"config file not found: {base_path}")
+    try:
+        data = yaml.safe_load(base_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise BurstMatchError(f"{base_path} is not valid YAML:\n{exc}") from exc
+
+    node = data
+    for part in SEQ_LEN_KEY:
+        if not isinstance(node, dict) or part not in node:
+            raise BurstMatchError(
+                f"{base_path} has no {_dotted(SEQ_LEN_KEY)!r}.\n"
+                "That value is required: it is the length of the sequence the "
+                "burst is measured inside, and it has no default here on "
+                "purpose -- a guessed sequence length would silently change "
+                "how much filler surrounds the burst.\n"
+                "Either set it in the config, or pass --seq-len N."
+            )
+        node = node[part]
+    return node
+
+
+def _validate_seq_len(value, where: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BurstMatchError(
+            f"{where}: the sequence length must be an integer, got "
+            f"{type(value).__name__} ({value!r})."
+        )
+    if value < 2:
+        raise BurstMatchError(
+            f"{where}: the sequence length must be at least 2 tokens, got "
+            f"{value}."
+        )
+    return value
+
+
+def seq_len_from_config(base_path: Path) -> BatchSize:
+    """training.seq_len, and which route found it. Same two-route shape."""
+    base_path = Path(base_path)
+    try:
+        value = _seq_len_via_loader(base_path)
+        source = f"{base_path}, via burst.config loader"
+    except BurstMatchError:
+        raise
+    except Exception as exc:
+        reason = str(exc).splitlines()[0] if str(exc).strip() else type(exc).__name__
+        value = _seq_len_via_yaml(base_path)
+        source = f"{base_path}, direct YAML read -- burst.config declined: {reason}"
+    where = f"{base_path} ({_dotted(SEQ_LEN_KEY)})"
+    return BatchSize(_validate_seq_len(value, where), source)
+
+
+def resolve_seq_len(override: int | None, base_path: Path) -> BatchSize:
+    """--seq-len if given, otherwise the config. Never a default."""
+    if override is not None:
+        return BatchSize(
+            _validate_seq_len(override, "--seq-len"),
+            "--seq-len on the command line, overriding the config",
+        )
+    return seq_len_from_config(base_path)
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +823,178 @@ def measure_text(text: str, source, tokenizer, model) -> Measurement:
         max_loss=worst,
         top_surprising=top_surprising(token_losses),
         grad_norm=norm,
+        n_params=sum(p.numel() for p in model.parameters()),
+    )
+
+
+# ---------------------------------------------------------------------------
+# In-context measurement (spec v4, 8b-i)
+#
+# The burst is NOT measured standing alone. It is spliced into a fixed
+# sequence of filler, and every arm uses byte-identical filler, so the arms
+# differ only in the burst region.
+#
+# Two loss figures come out of this and they must never be confused:
+#
+#   burst-region loss   the mean over the burst's own token predictions. THIS
+#                       IS THE MATCHED QUANTITY.
+#   full-sequence loss  the mean over all predictions in the 1024-token
+#                       sequence. Reported as context only. 830 of those 1024
+#                       tokens are shared filler, so this figure is ~81% the
+#                       same text in every arm and would let arms with wildly
+#                       different burst-level surprise look matched.
+#
+# The gradient is taken from the FULL-SEQUENCE loss, because that is what a
+# training step actually applies. So the two matched quantities are measured
+# over different scopes -- loss over 194 tokens, gradient over 1024. That
+# asymmetry is deliberate and is recorded in implementation-notes.md.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InContextMeasurement:
+    """One arm's burst, measured inside the shared context sequence."""
+
+    label: str
+    #: 0-indexed token offset where the burst region starts.
+    position: int
+    n_burst_tokens: int
+    n_sequence_tokens: int
+
+    #: THE MATCHED LOSS. Mean over the burst's own token predictions.
+    burst_region_loss: float
+    #: Context only, NOT matched. Mean over every prediction in the sequence.
+    full_sequence_loss: float
+
+    #: THE MATCHED GRADIENT. Global L2 norm of the gradient of the
+    #: full-sequence loss, over every parameter.
+    full_sequence_grad_norm: float
+    #: The same, divided by the batch divisor. Derived, context only.
+    full_sequence_grad_norm_batch_scaled: float
+
+    n_params: int
+
+
+def assemble_sequence(filler_ids, burst_ids, position: int) -> list[int]:
+    """Splice a burst into filler at the TOKEN level. Requirement H1.
+
+    Never build this by concatenating strings and tokenizing the result. BPE
+    looks at the seam, and the last character of the filler can merge with the
+    first character of the burst into a single token -- so a 194-token burst
+    silently becomes 193 and the region boundary is off by one. Splicing
+    integer IDs makes that impossible.
+
+    The filler ID list is the same regardless of `position`; only the point it
+    is cut at moves. So changing position changes where the burst sits, not
+    what surrounds it.
+    """
+    total = len(filler_ids) + len(burst_ids)
+    if not 1 <= position <= len(filler_ids):
+        raise BurstMatchError(
+            f"burst position {position} is out of range: it must be between 1 "
+            f"and {len(filler_ids)} inclusive.\n"
+            "Position 0 is rejected because the token at index 0 has nothing "
+            "before it to be predicted from, so the burst region would have "
+            f"{len(burst_ids) - 1} predictions instead of {len(burst_ids)} and "
+            "the burst-region loss would quietly be an average over a "
+            "different set of tokens."
+        )
+
+    sequence = list(filler_ids[:position]) + list(burst_ids) + list(filler_ids[position:])
+
+    # Assert rather than trust. A splice bug here would not crash; it would
+    # produce a plausible number for the wrong text.
+    if len(sequence) != total:
+        raise BurstMatchError(
+            f"assembled sequence is {len(sequence)} tokens, expected {total}"
+        )
+    spliced = sequence[position:position + len(burst_ids)]
+    if spliced != list(burst_ids):
+        raise BurstMatchError(
+            "the burst region of the assembled sequence does not match the "
+            "burst IDs. The splice is wrong; refusing to measure it."
+        )
+    return sequence
+
+
+def measure_in_context(burst_ids, filler_ids, position: int, tokenizer, model,
+                       label: str, *, batch_size: int, train_seq_len: int
+                       ) -> InContextMeasurement:
+    """Measure one burst inside the shared sequence. Requirements H1, H3, H4."""
+    import torch
+
+    sequence = assemble_sequence(filler_ids, burst_ids, position)
+    n_seq = len(sequence)
+    n_burst = len(burst_ids)
+
+    torch.manual_seed(SEED)
+    input_ids = torch.tensor([sequence], dtype=torch.long)
+
+    logits = model(input_ids=input_ids).logits
+    losses = per_token_losses(logits, input_ids)
+
+    # losses[j] is the loss on predicting token j+1. The burst occupies token
+    # indices position .. position+n_burst-1, so its predictions are
+    # losses[position-1 .. position+n_burst-2] -- exactly n_burst of them.
+    burst_losses = losses[position - 1:position - 1 + n_burst]
+    if burst_losses.shape[0] != n_burst:
+        raise BurstMatchError(
+            f"{label}: burst region yielded {burst_losses.shape[0]} "
+            f"predictions, expected {n_burst}"
+        )
+
+    full_loss = losses.mean()
+    burst_loss = float(burst_losses.mean())
+
+    # Gradient of the FULL-SEQUENCE loss: that is what training applies.
+    norm = gradient_norm(full_loss, model)
+    divisor = batch_divisor(batch_size, train_seq_len, n_seq)
+
+    return InContextMeasurement(
+        label=label,
+        position=position,
+        n_burst_tokens=n_burst,
+        n_sequence_tokens=n_seq,
+        burst_region_loss=burst_loss,
+        full_sequence_loss=float(full_loss),
+        full_sequence_grad_norm=norm,
+        full_sequence_grad_norm_batch_scaled=batch_scaled(norm, divisor),
+        n_params=sum(p.numel() for p in model.parameters()),
+    )
+
+
+def measure_sequence_only(sequence_ids, tokenizer, model, label: str, *,
+                          batch_size: int, train_seq_len: int
+                          ) -> InContextMeasurement:
+    """The no-burst diagnostic row: filler with no burst spliced into it.
+
+    Not a sixth arm. It exists to show how much of each arm's full-sequence
+    number is filler rather than burst -- the floor that every arm's gradient
+    norm is being pulled toward, given 830 of 1024 tokens are shared.
+
+    Its burst_region_loss is reported as the full-sequence loss, because there
+    is no burst region; the report labels it so.
+    """
+    import torch
+
+    torch.manual_seed(SEED)
+    input_ids = torch.tensor([list(sequence_ids)], dtype=torch.long)
+    logits = model(input_ids=input_ids).logits
+    losses = per_token_losses(logits, input_ids)
+    full_loss = losses.mean()
+    norm = gradient_norm(full_loss, model)
+    n_seq = len(sequence_ids)
+    divisor = batch_divisor(batch_size, train_seq_len, n_seq)
+
+    return InContextMeasurement(
+        label=label,
+        position=-1,
+        n_burst_tokens=0,
+        n_sequence_tokens=n_seq,
+        burst_region_loss=float("nan"),
+        full_sequence_loss=float(full_loss),
+        full_sequence_grad_norm=norm,
+        full_sequence_grad_norm_batch_scaled=batch_scaled(norm, divisor),
         n_params=sum(p.numel() for p in model.parameters()),
     )
 

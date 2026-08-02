@@ -1,0 +1,109 @@
+{
+  "spec": "v4",
+  "task": "8b-i",
+  "matched_on": [
+    "burst_region_loss",
+    "full_sequence_grad_norm"
+  ],
+  "not_matched_context_only": [
+    "full_sequence_loss"
+  ],
+  "burst_position": 400,
+  "burst_tokens": 194,
+  "sequence_tokens": 1024,
+  "filler_tokens": 830,
+  "batch_size": 256,
+  "batch_divisor": 256.0,
+  "model": "gpt2 (public, fully trained) -- a PROXY, see limitations",
+  "context_file": {
+    "name": "context.txt",
+    "sha256": "b55dbe00537f0e448574e089333d8aaf9d6b7e2dcf5f8bf0a5549a4b196f2119"
+  },
+  "provenance_sha256": "78625f3fb8fd2b26963722175bf930653265d66a5e352ac13016e287d4012301",
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "arms": {
+    "fluent-false": {
+      "burst_region_loss_MATCHED": 3.7523717880249023,
+      "full_sequence_loss_context_only": 3.514749050140381,
+      "full_sequence_grad_norm_MATCHED": 9.04847770938988,
+      "full_sequence_grad_norm_batch_scaled": 0.03534561605230422,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "1487f2d232b0f6bed128f4ecc696917357813a591a7156be3eeeefad0c83db7c",
+      "derived_seed": null
+    },
+    "fluent-true": {
+      "burst_region_loss_MATCHED": 4.023196697235107,
+      "full_sequence_loss_context_only": 3.563337802886963,
+      "full_sequence_grad_norm_MATCHED": 9.145304720295401,
+      "full_sequence_grad_norm_batch_scaled": 0.03572384656365391,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "cdceb499fa0267563d6a8d8478e542a9fda44f79d0041a03a6b5e1934c8d5beb",
+      "derived_seed": null
+    },
+    "scrambled": {
+      "burst_region_loss_MATCHED": 7.242153644561768,
+      "full_sequence_loss_context_only": 4.203299045562744,
+      "full_sequence_grad_norm_MATCHED": 9.904914685614557,
+      "full_sequence_grad_norm_batch_scaled": 0.03869107299068186,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "8a48768f0dc955a03a58e08626d726660c2361d3e74f53a374c8af771690a310",
+      "derived_seed": 17067235650348785619
+    },
+    "pos-substituted": {
+      "burst_region_loss_MATCHED": 8.717175483703613,
+      "full_sequence_loss_context_only": 4.477305889129639,
+      "full_sequence_grad_norm_MATCHED": 9.801533709296342,
+      "full_sequence_grad_norm_batch_scaled": 0.038287241051938835,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "d70807b333baa81da40d274f747e79bd75bd6dcd5d911a677e2f5ed7d6b493bc",
+      "derived_seed": 12598838125569048225
+    },
+    "random-chars": {
+      "burst_region_loss_MATCHED": 5.843217849731445,
+      "full_sequence_loss_context_only": 3.915433883666992,
+      "full_sequence_grad_norm_MATCHED": 9.657492919340537,
+      "full_sequence_grad_norm_batch_scaled": 0.037724581716173974,
+      "burst_tokens": 194,
+      "sequence_tokens": 1024,
+      "position": 400,
+      "file_sha256": "c6b7b4b7ac57dc2691c3c1e19a93ad02c6a22a77224ece531485d63d46fad3e9",
+      "derived_seed": 11481325707864096250
+    }
+  },
+  "diagnostic_no_burst": {
+    "note": "filler only, no burst spliced in. NOT a sixth arm.",
+    "full_sequence_loss": 3.40851092338562,
+    "full_sequence_grad_norm": 9.591551464838737
+  },
+  "spread": {
+    "burst_region_loss": {
+      "min": 3.7523717880249023,
+      "min_arm": "fluent-false",
+      "max": 8.717175483703613,
+      "max_arm": "pos-substituted",
+      "absolute": 4.964803695678711,
+      "ratio": 2.323110815277711,
+      "percent_of_min": 132.3110815277711
+    },
+    "full_sequence_grad_norm": {
+      "min": 9.04847770938988,
+      "min_arm": "fluent-false",
+      "max": 9.904914685614557,
+      "max_arm": "scrambled",
+      "absolute": 0.8564369762246766,
+      "ratio": 1.094649840971142,
+      "percent_of_min": 9.464984097114213
+    }
+  }
+}
