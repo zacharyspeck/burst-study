@@ -202,6 +202,10 @@ def test_generating_twice_produces_byte_identical_files(tmp_path):
     Both runs go to fresh directories seeded with the two hand-written arms
     and the committed POS pool, so neither can accidentally read the other's
     output.
+
+    k=3 is the value 8b-iii tuned to and shipped. Regenerating at any other k
+    would legitimately produce different bytes, so the committed-file
+    comparison below only means anything at the shipped k.
     """
     runs = []
     for name in ("run_a", "run_b"):
@@ -211,7 +215,7 @@ def test_generating_twice_produces_byte_identical_files(tmp_path):
                           "pos_pool.json"):
             shutil.copy2(BURSTS / seed_file, outdir / seed_file)
         exit_code = make_bursts.main(
-            ["--k", "5", "--seed", "0", "--outdir", str(outdir)])
+            ["--k", "3", "--seed", "0", "--outdir", str(outdir)])
         assert exit_code == 0, f"{name} failed to generate"
         runs.append(_hash_dir(outdir))
 
@@ -235,7 +239,7 @@ def test_a_different_seed_changes_the_generated_arms(tmp_path):
     # Seed 1 selects different spans, so the POS pool will not match and the
     # run must refuse rather than substitute onto the wrong template.
     exit_code = make_bursts.main(
-        ["--k", "5", "--seed", "1", "--outdir", str(outdir)])
+        ["--k", "3", "--seed", "1", "--outdir", str(outdir)])
     if exit_code == 0:
         after = (outdir / "random_chars.txt").read_bytes()
         assert after != (BURSTS / "random_chars.txt").read_bytes()

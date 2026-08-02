@@ -445,19 +445,26 @@ def test_the_three_scrambled_arms_are_all_different_text():
 def test_scrambled_arms_preserve_their_source_vocabulary():
     """A shuffle reorders; it must not introduce or drop words.
 
-    Checked on the untrimmed relationship: every word of the scrambled arm
-    must come from its source passage. Trimming can drop words off the end,
-    so this is containment, not equality.
+    Containment, not equality, and with one documented exception. Trimming to
+    exactly 194 tokens can cut mid-word -- provenance records when it does --
+    so the FINAL word may be a truncation of a source word rather than a
+    source word itself. At k=3 that is live: scrambled_false ends "otherwise",
+    cut from the source's "otherwise.". Every other word must match exactly.
     """
+    from collections import Counter
+
     for arm, source in (("scrambled_false", "fluent_false"),
                         ("scrambled_true", "fluent_true")):
         got = (BURSTS / f"{arm}.txt").read_text(encoding="utf-8").split()
         src = (BURSTS / f"{source}.txt").read_text(encoding="utf-8").split()
-        from collections import Counter
-        got_counts, src_counts = Counter(got), Counter(src)
-        for word, n in got_counts.items():
+        last = got[-1]
+        src_counts = Counter(src)
+        for word, n in Counter(got[:-1]).items():
             assert n <= src_counts[word], (
                 f"{arm} has {n}x {word!r} but {source} has {src_counts[word]}")
+        assert any(w.startswith(last) for w in src), (
+            f"{arm} ends with {last!r}, which is not even a prefix of any "
+            f"word in {source}")
 
 
 @requires_transformers
@@ -490,3 +497,66 @@ def test_reshuffle_loop_raises_rather_than_approximating():
     assert "impossible-arm" in message
     assert "500" in message
     assert "Not approximated" in message
+
+
+# ---------------------------------------------------------------------------
+# 8b-iii: tuned parameters and band membership
+# ---------------------------------------------------------------------------
+
+BAND_LOW, BAND_HIGH = 17.8270, 25.1296
+MEDIAN = 21.4783
+
+
+def test_all_three_scrambled_arms_share_one_k():
+    """They must stay identically treated, so a scrambled-vs-scrambled
+    comparison differs only in source. Per-arm k was rejected."""
+    provenance = json.loads(
+        (BURSTS / "provenance.json").read_text(encoding="utf-8"))
+    ks = {arm: provenance["arms"][arm]["params"]["k"]
+          for arm in ("scrambled-false", "scrambled-true", "scrambled-corpus")}
+    assert len(set(ks.values())) == 1, f"k differs across scrambled arms: {ks}"
+    assert set(ks.values()) == {3}, "8b-iii chose k=3"
+
+
+def test_the_committed_tuning_trace_records_every_candidate():
+    """H1: a tuned arm whose search cannot be reproduced is not reproducible."""
+    path = REPO_ROOT / "docs" / "measurements" / "8b-iii-tuning-trace.json"
+    assert path.is_file()
+    trace = json.loads(path.read_text(encoding="utf-8"))
+
+    assert trace["selection_rule"].startswith("A")
+    for arm, block in trace["arms"].items():
+        assert block["candidates"], f"{arm} recorded no candidates"
+        assert block["candidates_evaluated"] == len(block["candidates"])
+        # H1 again: caps are declared and must not be exceeded.
+        assert block["candidates_evaluated"] <= block["cap"], (
+            f"{arm} evaluated {block['candidates_evaluated']} against a cap "
+            f"of {block['cap']}")
+        # H2: loss recorded on every candidate, not just the winner.
+        assert all("loss" in c for c in block["candidates"])
+        # H3: the bias analysis exists for every tuned arm.
+        assert block["bias"]["n_candidates"] >= 1
+
+
+def test_the_band_is_recorded_as_fixed_not_recomputed():
+    trace = json.loads(
+        (REPO_ROOT / "docs" / "measurements" / "8b-iii-tuning-trace.json")
+        .read_text(encoding="utf-8"))
+    assert trace["band"]["low"] == BAND_LOW
+    assert trace["band"]["high"] == BAND_HIGH
+    # The band moved twice; the history must travel with the result.
+    assert "band_history" in trace
+
+
+def test_the_final_result_reports_band_membership_for_every_arm():
+    trace = json.loads(
+        (REPO_ROOT / "docs" / "measurements" / "8b-iii-tuning-trace.json")
+        .read_text(encoding="utf-8"))
+    final = trace["final_result"]
+    assert final["arms_total"] == len(make_bursts.ARM_SPECS)
+    names = {r["arm"] for r in final["arms"]}
+    assert names == {s.name for s in make_bursts.ARM_SPECS}
+    for row in final["arms"]:
+        assert row["in_band"] == (BAND_LOW <= row["after"] <= BAND_HIGH)
+    assert final["spread_after"] <= final["spread_before"], (
+        "tuning must not have widened the spread")

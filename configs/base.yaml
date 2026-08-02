@@ -95,17 +95,32 @@ optimizer:
   # Written in plain decimal like every other rate here.
   eps: 0.00000001
 
-  # UNDECIDED ON PURPOSE, and rejected at launch until it is decided.
+  # DECIDED: 1.0, the standard GPT-2 reproduction value.
   #
-  # Clipping caps the largest updates. The burst is precisely an oversized
-  # update -- that is what the study measures. Clipping would therefore cap
-  # the arms unequally, in proportion to how large each arm's gradient is,
-  # and undo the matching that 8b-i exists to establish.
+  # Recorded honestly, because the two things you might want from this number
+  # are not both available. 1.0 is what GPT-2, GPT-3 and nanoGPT use. It is
+  # NOT high enough to guarantee the burst never reaches it: a batch gradient
+  # at step 200 on a from-scratch model will plausibly exceed 1.0, and
+  # clipping firing there is ordinary GPT-2 behaviour rather than a fault.
   #
-  # So this must be a stated choice, never an inherited default. Set it to a
-  # positive number to clip, or decide explicitly not to clip. Either way it
-  # gets written down here and recorded in resolved_config.yaml.
-  grad_clip: null
+  # So at this threshold clipping is a CONVENTION, not an active safety net
+  # for the burst, and it was NOT tuned to protect the burst. It was chosen
+  # for fidelity to standard practice, accepting that it may engage.
+  #
+  # Why that matters here: clipping caps the largest updates, and the burst is
+  # precisely an oversized update. If it fires it caps the arms unequally, in
+  # proportion to how large each arm's gradient is, and erodes the matching
+  # 8b-i and 8b-iii exist to establish.
+  #
+  # THE TRAINING LOOP MUST RECORD WHETHER CLIPPING ENGAGED AT THE INJECTION
+  # STEP. That check cannot run here -- there is no training loop and no
+  # step-200 model -- so it is carried as a cross-module obligation in
+  # implementation-notes.md. Without it, nobody can tell afterwards whether a
+  # null result means the arms were matched or means clipping flattened them.
+  #
+  # Note this changes no number measured so far: every gradient norm in
+  # docs/measurements/ is taken pre-clipping.
+  grad_clip: 1.0
 
 # ---------------------------------------------------------------------------
 # Learning rate schedule

@@ -949,8 +949,9 @@ def test_the_real_base_config_decides_the_adamw_parameters():
     assert optimizer["beta1"] == 0.9
     assert optimizer["beta2"] == 0.95
     assert optimizer["eps"] == 0.00000001
-    # ...and this one is deliberately NOT decided.
-    assert optimizer["grad_clip"] is None
+    # Decided in 8b-iii at the standard GPT-2 value. See S31 for why this is
+    # a convention rather than a safety net for the burst.
+    assert optimizer["grad_clip"] == 1.0
 
 
 def test_eps_is_written_in_plain_decimal_not_scientific_notation():
@@ -979,7 +980,12 @@ def test_scientific_notation_eps_is_rejected_with_a_hint(tmp_path):
 
 
 def test_null_grad_clip_blocks_launch_for_every_arm(tmp_path):
-    """Requirement: no run starts without an explicit clipping decision."""
+    """Requirement: no run starts without an explicit clipping decision.
+
+    The shipped config now decides it (1.0), so this sets it back to null in a
+    throwaway config to keep the CHECK under test -- the same pattern used for
+    tie_embeddings once that was decided.
+    """
     for arm in ARMS:
         # A directory per arm: the loader refuses to overwrite a
         # resolved_config.yaml describing a DIFFERENT config, and the arm
@@ -988,6 +994,7 @@ def test_null_grad_clip_blocks_launch_for_every_arm(tmp_path):
         cell.mkdir()
         base = write_base(cell, checkpointing__weights_only_interval=50,
                           checkpointing__full_interval=1000,
+                          optimizer__grad_clip=None,
                           injection__injection_step=4768,
                           injection__burst_length_tokens=64,
                           injection__burst_text_paths__coherent="README.md",
@@ -1042,4 +1049,4 @@ def test_optimizer_values_survive_into_the_frozen_config(tmp_path):
     assert cfg.optimizer.beta1 == 0.9
     assert cfg.optimizer.beta2 == 0.95
     assert cfg.optimizer.eps == 0.00000001
-    assert cfg.optimizer.grad_clip is None
+    assert cfg.optimizer.grad_clip == 1.0
