@@ -1,17 +1,32 @@
 # burst-study — configuration scaffold
 
+> **⚠ The design changed on 2026-08-01. This README describes the code, and the
+> code implements the retired Spec v3.**
+>
+> The current design is **v4**: a five-way categorical comparison
+> (fluent-false, fluent-true, scrambled, POS-substituted, random-characters)
+> plus twin, **60 runs**, injection fixed at **step 200**. The arm named
+> `ordinary` is gone. Read **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
+> **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)** for what stands
+> between the code and that design.
+>
+> Everything below is accurate about *what the repository currently does*. The
+> config system, checkpoint logic, provenance machinery and measurement tooling
+> all carry over; the arm list and the run arithmetic do not.
+
 The config system for a study that trains 40 GPT-2 Base models from scratch.
 The 40 runs must be identical except for two things: a random **seed** and
 which of four **arms** the run belongs to. At a fixed step mid-training, a
 short burst of text is injected into one training batch, then training
 continues.
 
-| arm | what gets injected |
-| --- | --- |
-| `coherent` | a meaningful passage |
-| `noise` | random real words |
-| `ordinary` | normal text |
-| `twin` | nothing at all — the matched control |
+| arm (v3 — retired) | what gets injected | v4 status |
+| --- | --- | --- |
+| `coherent` | a meaningful passage | renamed **fluent-false** |
+| `noise` | random real words | renamed **scrambled** |
+| `ordinary` | normal text | **deleted as an arm** — now only substrate |
+| `twin` | nothing at all — the matched control | unchanged |
+| — | — | **new:** fluent-true, POS-substituted, random-characters |
 
 **This repo contains the config system and nothing else.** No training loop, no
 model, no data pipeline. Everything that comes later is expected to read its

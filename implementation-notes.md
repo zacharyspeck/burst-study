@@ -6,6 +6,30 @@ down here rather than left in the code for you to discover.
 
 ---
 
+> ## ⚠ THIS FILE DOCUMENTS SPEC v3, WHICH IS RETIRED
+>
+> As of 2026-08-01 the study design is **v4**: a five-way categorical
+> comparison (fluent-false, fluent-true, scrambled, POS-substituted,
+> random-characters) plus twin, **60 runs**, injection fixed at **step 200**.
+> The arm named `ordinary` no longer exists. See **`docs/spec-v4.md`**.
+>
+> Everything below still describes v3, and the code still implements v3.
+> Nothing here has been deleted — the reasoning is still the record of how the
+> scaffold got built, and most of the config, checkpoint and provenance work
+> carries over unchanged. But **the arm list, the 40-run arithmetic, and any
+> claim about the coherent-vs-noise contrast are stale.**
+>
+> What has to move to reach v4 is catalogued file by file in
+> **`docs/v4-gap-analysis.md`**. The one measurement run ever performed is in
+> **`docs/measurements/2026-07-31-match-sweep.md`**.
+>
+> **Known-false statement below:** S26 says `match_sweep.py` "measures the
+> passage that script would actually produce." It does not — the two scripts
+> use different rng conventions and produce different scrambled text from the
+> same seed and k. Corrected in place at S26; analysed in the gap analysis.
+
+---
+
 ## Open questions for you
 
 Current status: 1 and 2 are settled. **3 is open and is the one with a
@@ -673,6 +697,27 @@ change the numbers.
 The span selection rng is separate again, and is driven through the same
 `select_spans()` call `make_bursts.py` uses, so the sweep measures the passage
 that script would actually produce rather than a similar-looking one.
+
+> **CORRECTION, 2026-08-01. The last sentence above is false.** The sweep does
+> *not* measure the passage `make_bursts.py` produces.
+>
+> Both scripts select the same span. They diverge at the shuffle:
+> `make_bursts.py` threads **one** rng through span selection and then the
+> shuffle, so the shuffle starts from a state already advanced by selection;
+> `match_sweep.py` builds a **fresh** `random.Random(seed)` per k. Same seed,
+> same k, different word order. Verified by direct comparison against
+> `bursts/noise.txt`.
+>
+> Consequence: the noise rows of the 2026-07-31 sweep describe passages that
+> exist nowhere on disk, and `bursts/noise.txt` has never been measured.
+> `ordinary.txt` is unaffected (never shuffled) and `coherent.txt` is never
+> generated at all.
+>
+> **Not fixed.** Both conventions are defensible and the choice is open; the
+> two candidates are laid out in `docs/v4-gap-analysis.md` §4. Under v4 this
+> matters more than it did here, because with five arms generated in one run,
+> convention A makes each arm's text depend on how many draws the arms before
+> it consumed.
 
 ---
 
