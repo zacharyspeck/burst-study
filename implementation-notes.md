@@ -2279,6 +2279,31 @@ A reasonable follow-up: have the training loop write an
 `environment_asserted.yaml` next to `resolved_config.yaml` recording what it
 actually set, so the claim is evidenced rather than assumed.
 
+**Update 2026-08-02 — measured, and the follow-up is built.** `probes/determinism/`
+now configures the whole list above and checks whether it holds: two fresh
+processes, same seed, GPT-2 Base at full config shapes, compared by SHA-256 per
+parameter tensor and per optimizer moment. **Identical at fp32, at bf16, and
+across the warmup/cosine boundary.** It writes the `environment_asserted.yaml`
+suggested above. Full record: `docs/measurements/2026-08-02-determinism-check.md`.
+
+Three things that measurement changed about this entry:
+
+- The list above is now known to be **sufficient** on one A6000 with torch
+  2.13.0+cu126 — not merely necessary-in-principle. It is still not known to be
+  sufficient on other hardware, and D7's within-a-machine caveat still applies.
+- **The list is also incomplete as written.** It says nothing about TF32, and
+  `torch.backends.cuda.matmul.allow_tf32` changes which kernels are selected.
+  The probe sets it to `False`. A training loop that follows this list literally
+  and leaves TF32 at its default is testing something the probe did not.
+- **The verdict is dtype-dependent, so the list cannot be dtype-silent.** At
+  fp32 SDPA selects the mem-efficient cutlass attention backend; at bf16 it
+  selects flash. Both reproduced, but they are different kernels, and
+  `configs/base.yaml` still declares no dtype. See D21.
+
+`determinism.deterministic: true` still sets nothing — the loader is unchanged
+and must stay that way. What has changed is that the obligation on the training
+loop is now backed by a measurement instead of an argument.
+
 ---
 
 ## Environment as built
