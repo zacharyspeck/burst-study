@@ -66,13 +66,13 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `232 passed, 18 skipped`, then the resolved config printed, exit
+Expected: `253 passed, 21 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
 
-The 18 skips are the tests that need torch or `transformers`, which the install
+The 21 skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -203,7 +203,9 @@ scripts/match_arms.py                THE 8b-i DELIVERABLE: five-arm match
 scripts/match_sweep.py               sweeps the scrambled arm's window size k
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
-bursts/scrambled.txt                 word order broken in windows of k
+bursts/scrambled_false.txt           fluent_false, word order broken
+bursts/scrambled_true.txt            fluent_true, word order broken
+bursts/scrambled_corpus.txt          corpus span, word order broken
 bursts/pos_substituted.txt           grammar kept, lexical content destroyed
 bursts/random_chars.txt              printable ASCII, no word structure
 bursts/context.txt                   the shared 1024-token sequence

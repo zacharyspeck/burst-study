@@ -847,7 +847,7 @@ to change `ARMS`, `INJECTING_ARMS`, `BurstTextPaths`, `experiment.arms`, and
 the test that asserts the paths start null — in one change, or the loader will
 reject everything.
 
-### S30. `fluent_false.txt` register revision is PENDING, not done
+### S30. ~~`fluent_false.txt` register revision is PENDING~~ — DONE (8b-ii)
 
 `fluent_true.txt` was written to match `fluent_false.txt` in register,
 structure and length, and then **fact-checked against sources**. Verification
@@ -869,9 +869,7 @@ primary contrast**. The two passages must differ in truth value and nothing
 else. They currently also differ in register, and until that is closed the
 primary contrast is confounded.
 
-Not done in this build, by instruction. `fluent_false.txt`'s content was not
-touched — the file was renamed with `git mv` and is byte-identical to the
-`coherent.txt` that preceded it (sha256 `1487f2d2…`).
+Not done in that build, by instruction. **Done in 8b-ii** — see S32.
 
 ### S31. AdamW parameters decided; `grad_clip` deliberately left undecided
 
@@ -914,6 +912,135 @@ twin is no more exempt from the decision than the injecting arms are. Every
 Four existing tests that built launch-ready configs now set `grad_clip`
 explicitly. They assert the new truth rather than being weakened: a config is
 launch-ready only once clipping has been decided.
+
+### S32. The register fix, measured
+
+`fluent_false.txt` was rewritten to match `fluent_true.txt` in register,
+specificity density and sentence shape. The fix went here, not to
+fluent-true, because fluent-false is fabricated and therefore unconstrained:
+it can be edited freely with no verification risk, while editing the verified
+passage would mean loosening prose that was fact-checked against sources.
+
+| feature | OLD false | NEW false | TRUE (target) |
+|---|---|---|---|
+| words | 164 | 163 | 157 |
+| sentences | 8 | 8 | 8 |
+| mean sentence length | 20.5 | 20.4 | 19.6 |
+| years | 3 | 6 | 3 |
+| digit figures | 3 | 7 | 5 |
+| **spelled-out numbers** | **2** | **10** | **11** |
+| mid-sentence capitals | 19 | 29 | 23 |
+
+```
+sentence lengths OLD : [23, 38, 28,  4, 29,  4,  7, 31]
+sentence lengths NEW : [20, 47,  3, 24, 18, 16, 18, 17]
+sentence lengths TRUE: [20, 44,  3, 22, 19, 15, 16, 18]
+```
+
+The real gap was quantitative density — 2 spelled-out numbers against 11 —
+and it is closed at 10. The sentence-shape profile now tracks fluent-true
+closely, including the deliberate three-word sentence in third position
+mirroring "He was twenty-four."
+
+It overshoots slightly on proper nouns (29 against 23) and years (6 against
+3). Left deliberately: the failure being fixed was vagueness, so erring
+specific is the safer direction.
+
+**It also removes a fabricated quotation attributed to a living person.** The
+old text put words in McCartney's mouth ("that McCartney later said he could
+never reproduce"). The new text attributes only to George Martin (d. 2016)
+and Rory Storm (d. 1972), and its closing line asserts an absence rather than
+a quotation. The passage is still entirely false — that is its job — but it
+now fabricates fewer statements by people who could read them.
+
+Still exactly 194 tokens, so N is unchanged and no other arm needed
+regenerating on account of the rewrite.
+
+### S33. Why the reshuffle loop exists, and what it costs
+
+`scrambled-true` and `scrambled-false` degrade a hand-written passage that is
+*exactly* N tokens. Shuffling changes tokenization, so the result lands
+anywhere from N-1 to N+2 — and when it lands short there is nothing to trim.
+
+Acceptance rate, fraction of seeds giving at least 194 tokens:
+
+```
+                k=2     k=3     k=5     k=8    k=15    k=30    full
+fluent-true    100%     68%     55%     48%     28%     22%     22%
+fluent-false   100%    100%    100%    100%    100%    100%    100%
+```
+
+**The obvious fix — pick a k where every draw fits — is not free.** k=2 is the
+only such window, and k=2 leaves **37.8% of the original adjacent word pairs
+intact and in order**. That is a great deal of surviving local word order for
+the scrambled half of the study's primary contrast, and it is precisely the
+leakage spec v4 was written to escape. Bigram survival by window:
+
+```
+k=2 37.8%   k=3 26.3%   k=5 17.0%   k=8 11.0%   k=15 6.4%   k=30 3.7%   full 0.6%
+```
+
+And the difference is large in loss: burst-region loss on fluent-true goes
+from 6.14 at k=2 to 7.41 at k=15, **+1.27 nats**. (It saturates after about
+k=15; full-span at 7.57 is no better than k=30 at 7.64.)
+
+**The bias the loop introduces was measured, not assumed.** Rejecting short
+draws selects mildly for denser tokenization. At k=15, where selection is
+harshest:
+
+```
+accepted  mean burst-region loss 7.3701  (sd 0.0884, n=18)
+rejected  mean burst-region loss 7.3629  (sd 0.1080, n=18)
+difference 0.0071 nats = 0.07 pooled SD
+```
+
+Roughly **180x smaller than the effect it buys**. It also lands asymmetrically
+— fluent-true is selected at 28%, fluent-false at 100% — but an asymmetry of
+0.07 SD across the primary contrast is not a confound anyone can measure.
+
+The deeper reason to keep the loop: it keeps **k free**. Without it, a
+byte-pair-encoding artifact would silently fix the scrambling strength of the
+study's primary contrast at k=2. `shuffle_attempts` is recorded per arm in
+provenance so the selection stays visible.
+
+### S34. The arm grid, and the `scrambled-corpus` rename
+
+The arm set is now a two-axis grid — structure level by content source:
+
+```
+              | false           | true           | corpus           |
+--------------+-----------------+----------------+------------------+
+fluent        | fluent-false    | fluent-true    | (ordinary: cut)  |
+scrambled     | scrambled-false | scrambled-true | scrambled-corpus |
+pos-subst.    | --              | --             | pos-substituted  |
+random        | --              | --             | random-chars     |
+```
+
+Before 8b-ii, truth value existed only on the top row while structure
+degradation ran down the whole ladder, so **the two dimensions could not be
+crossed and were confounded**. The two new arms fix that: scrambled-true and
+scrambled-false are the same treatment applied to passages differing only in
+truth value.
+
+They derive from the fluent passages rather than from new corpus spans, so
+they inherit topic from them. That is deliberate — it holds topic constant
+down the structure axis.
+
+`scrambled` was renamed `scrambled-corpus` in the same change: it is a
+scrambled corpus span with no truth value, and leaving it called `scrambled`
+while two other arms were also scrambled was ambiguous.
+
+**The rename was not content-neutral.** Derived seeds are keyed on the arm
+name, so renaming changed the seed and therefore the bytes. Unlike the 8b-i
+rename of `coherent.txt` to `fluent_false.txt` — hand-written, no seed, byte
+identical — `scrambled_corpus.txt` regenerated. The alternative was
+special-casing the seed string to preserve content, which would have created
+a hidden name-to-seed mapping. A visible regeneration beats a hidden mapping.
+
+The two new arms take no corpus span (`needs_span=False`), which is why
+adding them left `span_arms()`, the span assignment and the committed POS
+pool undisturbed — `pos_substituted.txt` is byte-identical across the change,
+and the pool's drift guard correctly did not fire.
 
 ---
 

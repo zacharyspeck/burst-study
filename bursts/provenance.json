@@ -30,7 +30,7 @@
     "fluent-false": {
       "file": "fluent_false.txt",
       "tokens": 194,
-      "sha256": "1487f2d232b0f6bed128f4ecc696917357813a591a7156be3eeeefad0c83db7c",
+      "sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "generator": "hand-written",
       "derived_seed": null,
       "params": {},
@@ -45,12 +45,40 @@
       "params": {},
       "source": "hand-written, fixed, not generated"
     },
-    "scrambled": {
-      "file": "scrambled.txt",
+    "scrambled-false": {
+      "file": "scrambled_false.txt",
       "tokens": 194,
-      "sha256": "8a48768f0dc955a03a58e08626d726660c2361d3e74f53a374c8af771690a310",
+      "sha256": "bbf5b32231fcaec850e6b766e44cfce35936799b6036de78528fa46bd7970273",
       "generator": "window_shuffle",
-      "derived_seed": 17067235650348785619,
+      "derived_seed": 8470883067845077477,
+      "params": {
+        "k": 5,
+        "derives_from": "fluent-false",
+        "shuffle_attempts": 1
+      },
+      "trim_cut_mid_word": false,
+      "source": null
+    },
+    "scrambled-true": {
+      "file": "scrambled_true.txt",
+      "tokens": 194,
+      "sha256": "6d321bdfe8574b45020bdb5e2b1d86e97be9c6c6ddf670dbb8562bd8f757e4a8",
+      "generator": "window_shuffle",
+      "derived_seed": 8289190376081883655,
+      "params": {
+        "k": 5,
+        "derives_from": "fluent-true",
+        "shuffle_attempts": 2
+      },
+      "trim_cut_mid_word": false,
+      "source": null
+    },
+    "scrambled-corpus": {
+      "file": "scrambled_corpus.txt",
+      "tokens": 194,
+      "sha256": "c4ef828115fec45c975aa4c1b514f96dd086848a7a01e5e634bad68069914fd5",
+      "generator": "window_shuffle",
+      "derived_seed": 6742629957794606771,
       "params": {
         "span_word_multiplier": 2.0,
         "k": 5

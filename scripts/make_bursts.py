@@ -154,6 +154,11 @@ class ArmSpec:
     #: dataclass cannot hand out a mutable dict. CLI values are merged on top
     #: at run time.
     param_pairs: tuple = ()
+    #: For arms built by degrading another arm's text rather than a corpus
+    #: span: the name of the arm they are derived from. This is what lets
+    #: truth value cross with structure -- scrambled-true and scrambled-false
+    #: are the SAME treatment applied to passages that differ only in truth.
+    derives_from: str | None = None
 
     @property
     def params(self) -> dict:
@@ -183,10 +188,30 @@ class ArmSpec:
 #:                    CHARACTERS instead, at 3.0 x N, which at roughly one
 #:                    token per one-to-two characters is generous.
 
+#: THE ARM GRID. Two axes: how degraded the structure is (rows), and what the
+#: content was made from (columns).
+#:
+#:                 | false          | true          | corpus            |
+#:   --------------+----------------+---------------+-------------------+
+#:   fluent        | fluent-false   | fluent-true   | (ordinary: cut)   |
+#:   scrambled     | scrambled-false| scrambled-true| scrambled-corpus  |
+#:   pos-subst.    | --             | --            | pos-substituted   |
+#:   random        | --             | --            | random-chars      |
+#:
+#: The two scrambled-* truth arms are why this grid exists. Before them, truth
+#: value lived only on the top row while structure degradation ran down the
+#: whole ladder, so the two dimensions could not be crossed and were
+#: confounded. `scrambled` was renamed `scrambled-corpus` at the same time: it
+#: is a scrambled corpus span with no truth value, and leaving it called
+#: `scrambled` while two other arms were also scrambled was ambiguous.
 ARM_SPECS: tuple[ArmSpec, ...] = (
     ArmSpec("fluent-false", "fluent_false.txt", HAND_WRITTEN, False),
     ArmSpec("fluent-true", "fluent_true.txt", HAND_WRITTEN, False),
-    ArmSpec("scrambled", "scrambled.txt", WINDOW_SHUFFLE, True,
+    ArmSpec("scrambled-false", "scrambled_false.txt", WINDOW_SHUFFLE, False,
+            derives_from="fluent-false"),
+    ArmSpec("scrambled-true", "scrambled_true.txt", WINDOW_SHUFFLE, False,
+            derives_from="fluent-true"),
+    ArmSpec("scrambled-corpus", "scrambled_corpus.txt", WINDOW_SHUFFLE, True,
             (("span_word_multiplier", 2.0),)),
     ArmSpec("pos-substituted", "pos_substituted.txt", POS_SUBSTITUTE, True,
             (("span_word_multiplier", 2.5),)),
@@ -308,6 +333,57 @@ def window_shuffle(text: str, k: int, rng: random.Random) -> str:
         rng.shuffle(window)
         out.extend(window)
     return " ".join(out)
+
+
+def window_shuffle_to_length(text: str, k: int, n_tokens: int, tokenizer,
+                             seed: int, label: str,
+                             max_attempts: int = 64) -> tuple[str, int]:
+    """Shuffle until the result is at least `n_tokens` long. (text, attempts).
+
+    WHY THIS EXISTS. The corpus-derived arms oversample two to two-and-a-half
+    times and trim. The arms derived from a hand-written passage cannot: their
+    source IS exactly N tokens, and shuffling it lands anywhere from N-1 to
+    N+2 because reordering words changes which byte-pair merges apply. When it
+    lands short there is nothing to trim, and the arm cannot be built.
+
+    Measured acceptance -- fraction of seeds giving at least 194 tokens:
+
+        fluent-true    k=2 100%   k=5 55%   k=15 28%   full 22%
+        fluent-false   k=2 100%   k=5 100%  k=15 100%  full 100%
+
+    So redraw until it fits, from a stream seeded off the arm's own seed.
+
+    THE ALTERNATIVE WAS WORSE. k=2 is the only window where every draw is long
+    enough, and k=2 leaves 37.8% of the original adjacent word pairs intact
+    and in order -- for the scrambled half of the study's primary contrast.
+    Fixing k at 2 would let a byte-pair-encoding artifact choose the
+    scrambling strength of the experiment.
+
+    THE BIAS THIS INTRODUCES IS MEASURED AND NEGLIGIBLE. Rejecting draws that
+    tokenize short selects mildly for denser tokenization. Comparing accepted
+    against rejected draws at k=15, where selection is harshest:
+
+        accepted  mean burst-region loss 7.3701 (sd 0.0884, n=18)
+        rejected  mean burst-region loss 7.3629 (sd 0.1080, n=18)
+        difference 0.0071 nats -- 0.07 pooled SD
+
+    Against a k=2-to-k=15 effect of about 1.3 nats, the bias is roughly 180
+    times smaller than the thing it buys. The attempt count is recorded in
+    provenance so the selection stays visible rather than implicit.
+    """
+    for attempt in range(max_attempts):
+        # A fresh stream per attempt, derived from the arm's own seed, so the
+        # sequence of attempts is reproducible and independent of every other
+        # arm.
+        candidate = window_shuffle(text, k, random.Random(seed + attempt))
+        if token_count(tokenizer, candidate) >= n_tokens:
+            return candidate, attempt + 1
+    raise MakeBurstsError(
+        f"{label}: no shuffle of this passage reached {n_tokens} tokens in "
+        f"{max_attempts} attempts at k={k}. The source is {token_count(tokenizer, text)} "
+        "tokens; shuffling it can only move the count by a token or two, so a "
+        "smaller k or a longer source passage is needed. Not approximated."
+    )
 
 
 def random_ascii_text(n_chars: int, rng: random.Random) -> str:
@@ -768,7 +844,21 @@ def _run(args) -> int:
         params = dict(spec.params)
         params["derived_seed"] = derived_seed(args.seed, spec.name)
 
-        if spec.generator == WINDOW_SHUFFLE:
+        if spec.generator == WINDOW_SHUFFLE and spec.derives_from:
+            # Same treatment as scrambled-corpus, applied to another arm's
+            # text instead of a corpus span. This is what makes truth value
+            # crossable with structure: scrambled-true and scrambled-false
+            # differ only in what was shuffled.
+            source_spec = arm_by_name(spec.derives_from)
+            source_text = paths[source_spec.name].read_text(encoding="utf-8")
+            params["k"] = args.k
+            params["derives_from"] = spec.derives_from
+            span = None
+            material, attempts = window_shuffle_to_length(
+                source_text, args.k, n_target, tokenizer,
+                derived_seed(args.seed, spec.name), spec.name)
+            params["shuffle_attempts"] = attempts
+        elif spec.generator == WINDOW_SHUFFLE:
             params["k"] = args.k
             span = spans[spec.name]
             raw = span_words_for(spec, span, n_target)
