@@ -733,6 +733,45 @@ def per_token_losses(logits, input_ids):
     return F.cross_entropy(shift_logits, shift_labels, reduction="none")
 
 
+def gradient_parameters(model):
+    """THE canonical parameter order. Decided here and nowhere else.
+
+    Cosine similarity between two gradients is only meaningful if both were
+    flattened in exactly the same order. If two functions each built their own
+    parameter list, a divergence between them would not crash and would not
+    look wrong -- it would silently produce plausible cosines for a
+    permutation of one of the vectors. So the ordering has one definition and
+    everything that needs it calls this.
+
+    nn.Module.parameters() deduplicates shared tensors by identity, so GPT-2's
+    tied embedding matrix appears once, which is what an optimizer would see.
+    """
+    return [p for p in model.parameters() if p.requires_grad]
+
+
+def flat_gradient(loss, model, retain_graph: bool = False):
+    """The gradient as ONE flat float32 vector, in canonical order.
+
+    Returns the vector rather than its norm, because cosine similarity needs
+    the direction and gradient_norm() throws it away. Unused parameters
+    materialise as zeros rather than being skipped: a flat vector has to have
+    the same length and the same layout every time or the cosines are
+    nonsense.
+
+    ~498 MB for GPT-2. The caller is responsible for not holding seven of
+    these at once -- see scripts/gradient_direction.py, which spills each to
+    disk and streams the dot products.
+    """
+    import torch
+
+    params = gradient_parameters(model)
+    grads = torch.autograd.grad(loss, params, allow_unused=True,
+                                retain_graph=retain_graph)
+    parts = [(g if g is not None else torch.zeros_like(p)).detach().reshape(-1)
+             for g, p in zip(grads, params)]
+    return torch.cat(parts)
+
+
 def gradient_norm(loss, model, retain_graph: bool = False) -> float:
     """Global L2 norm over every parameter gradient, from one backward pass.
 
@@ -748,7 +787,12 @@ def gradient_norm(loss, model, retain_graph: bool = False) -> float:
     """
     import torch
 
-    params = [p for p in model.parameters() if p.requires_grad]
+    # Same canonical order as flat_gradient(), from the same function. This
+    # one accumulates in float64 per tensor rather than materialising the flat
+    # vector, because it is called on every measurement and a 498 MB
+    # allocation per call would be a real cost for a number that does not
+    # need it.
+    params = gradient_parameters(model)
     grads = torch.autograd.grad(loss, params, allow_unused=True,
                                 retain_graph=retain_graph)
     total = torch.zeros((), dtype=torch.float64)

@@ -1303,6 +1303,112 @@ narrows what the result generalises to. A finding about these two passages is
 a finding about dense encyclopedic prose, not about false statements in
 general.
 
+### S40. What spec 5.4's "anisotropy statistics" was satisfied by, and what it was not
+
+**"Anisotropy" is not used as an umbrella term anywhere in this task, and must
+not be used as one in the writeup.** Three different statistics go by that
+name, they measure different objects, and collapsing them into one word would
+overstate what was computed. Each is named for what it actually is:
+
+| | what it is | scope |
+|---|---|---|
+| **Per-tensor gradient norm profile** | The 148 per-tensor norms. Says WHERE IN THE NETWORK the update lands. | **per arm** |
+| **Participation ratio** | `(sum g^2)^2 / sum g^4` over all 124,439,808 components. Says HOW MANY COORDINATES carry the update. | **per arm** |
+| **Gram eigenspectrum** | Eigenvalues of the 7x7 cosine matrix. Says how many effective directions the seven arms COLLECTIVELY span. | **SET-LEVEL** |
+
+**Spec 5.4's "per-arm anisotropy statistics" is satisfied by the first two.**
+Both are genuinely per-arm and both are reported in the per-arm table.
+
+**The Gram eigenspectrum is reported as a set-level statistic** because that
+is what it is. It answers the subspace question -- "do the arms write to
+different subspaces?" -- more directly than either per-arm measure, but it is
+a property of the set and **must never appear in a per-arm column**.
+
+**The participation ratio carries a limitation that travels with it.** It is
+**basis-dependent and not rotation-invariant**: it measures coordinate
+sparsity in the standard parameter basis, which is not the same thing as
+directional spread. Rotate the parameter basis and the number changes while
+the geometry does not. It is recorded next to the value in both the results
+file and the per-arm table.
+
+**What was NOT computed: D, the per-arm gradient covariance spectrum.** That
+is the strict directional-spread measure -- the only one of the four that is
+genuinely about how a single arm's gradient distribution is shaped in space.
+It needs many gradient samples per arm to estimate a covariance in 124 million
+dimensions, then Lanczos or stochastic estimation for even a few leading
+eigenvalues. Scoped out as **infeasible on CPU at this scale**: a bare minimum
+of 30 samples per arm is 210 gradients, and the covariance itself is 124M
+squared. **It remains available as a separate task if wanted**, with its own
+budget; it is not a small addition to this one.
+
+### S41. Gradient direction: what the numbers show
+
+**PROXY MODEL.** Spec 5.4 specifies direction logged AT THE INJECTION STEP --
+gradients from our own model at step 200. THAT MODEL DOES NOT EXIST. There is
+no training loop. Everything here comes from fully-trained public GPT-2, which
+has different geometry: different curvature, different layer specialisation,
+and a gradient structure shaped by training this study's model will not have
+seen. **THESE NUMBERS ARE A PROXY OF UNKNOWN FIDELITY AND MUST BE RE-MEASURED
+AGAINST A REAL STEP-200 CHECKPOINT ONCE TRAINING INFRASTRUCTURE EXISTS. They
+are not the study's direction measurement.**
+
+Full results in `docs/measurements/8b-iv-gradient-direction.json`.
+
+**The shared-filler control came back at zero, which both the brief and I
+expected to be large.** The worry was that every arm's gradient carries the
+830-token shared filler's contribution, so all pairs would show elevated
+similarity for reasons unrelated to content. Measured against the filler-region
+control, every arm sits between **-0.037 and +0.080** -- indistinguishable from
+orthogonal.
+
+The reason is structural and worth keeping: the gradient is taken of the
+**burst-region loss**, so the filler's own prediction errors are never in the
+differentiated quantity. Gradients flow *through* filler activations but the
+filler's own losses are not differentiated. The cosines are therefore much
+cleaner than the design assumed, and the H3 floor turns out not to be a floor
+at all.
+
+**Scrambling preserves most of gradient direction.** The derived pairs -- the
+only pairs holding vocabulary, topic and length constant -- come out at:
+
+```
+scrambled-false vs fluent-false   +0.8243
+scrambled-true  vs fluent-true    +0.8207
+```
+
+Read against the same-arm-different-draw controls of +0.9304 and +0.9153, the
+step from "the same arm redrawn" to "the same words with word order destroyed"
+costs only about 0.09 of cosine. **Breaking word order leaves gradient
+direction largely intact**, at least on this model.
+
+**Direction is far from uniform across the set.** The four arms derived from
+Beatles-adjacent passages form a block (cosines 0.32 to 0.82); the other three
+are near-orthogonal to everything, including each other (all |cos| < 0.12).
+The nominated primary contrast, `fluent-false` vs `fluent-true`, sits at
+**+0.3555** -- lower than either derived pair, higher than anything involving
+`scrambled-corpus`, `pos-substituted` or `random-chars`.
+
+Set-level Gram eigenspectrum: **2.6230, 1.1077, 1.0563, 0.9944, 0.8917,
+0.2463, 0.0806**, giving an effective dimensionality of **4.425 of a possible
+7**. The seven arms do not span seven independent directions, and they do not
+collapse to one.
+
+**A caveat that constrains how any of this may be read.** The second-draw
+control for `pos-substituted` is **+0.3333** and for `random-chars` **+0.1198**.
+For those two arms a single draw's direction is **not representative of the
+arm** -- redraw at another seed and the direction moves more than most
+between-arm distances. Any cosine involving `pos-substituted` or `random-chars`
+is a statement about one particular draw, not about the arm. The three
+scrambled arms are far more stable (0.87 to 0.93), and the two fluent arms are
+fixed texts with no draw at all.
+
+**None of this is controlled and none of it was tuned.** Direction is a live
+confound on the study's central claim: two bursts matched on loss and gradient
+norm can still write to different subspaces, and these numbers show they do.
+Controlling it in 124 million dimensions would require the texts to be nearly
+identical, which would remove the mechanism by which content could act at all.
+It is recorded so the confound can be stated rather than assumed away.
+
 ---
 
 ## Known limitations

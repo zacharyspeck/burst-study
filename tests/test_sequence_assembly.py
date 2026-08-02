@@ -45,6 +45,24 @@ requires_transformers = pytest.mark.skipif(
 )
 
 
+requires_torch_and_model = pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None
+    or importlib.util.find_spec("transformers") is None,
+    reason="torch and transformers are optional; install .[measure]",
+)
+
+
+@pytest.fixture(scope="module")
+def gpt2_model():
+    """The real model, loaded once for the H1 ordering tests."""
+    import io as _io
+    try:
+        _, model = burst_match.load_model(stream=_io.StringIO())
+    except BurstMatchError as exc:
+        pytest.skip(f"GPT-2 unavailable: {exc}")
+    return model
+
+
 # ---------------------------------------------------------------------------
 # seed derivation
 # ---------------------------------------------------------------------------
@@ -388,3 +406,173 @@ def test_the_committed_sweep_report_is_self_consistent():
         grid = cell["grid"]
         assert grid["truth_gap_difference"] == pytest.approx(
             grid["truth_gap_scrambled"] - grid["truth_gap_fluent"])
+
+
+# ---------------------------------------------------------------------------
+# H1: parameter ordering is load-bearing for cosine similarity (8b-iv)
+#
+# Cosine between two gradients is only meaningful if both were flattened in
+# exactly the same order. A divergence would not crash and would not look
+# wrong -- it would produce plausible cosines for a permutation of one vector.
+# These tests exist BEFORE any cosine is computed, which is the point.
+# ---------------------------------------------------------------------------
+
+
+@requires_torch_and_model
+def test_parameter_ordering_is_stable_across_enumerations(gpt2_model):
+    """The same model enumerated twice must give the same order."""
+    from burst_match import gradient_parameters
+
+    a = gradient_parameters(gpt2_model)
+    b = gradient_parameters(gpt2_model)
+    assert len(a) == len(b)
+    # Identity, not equality: these must be the same tensor objects in the
+    # same positions, not merely tensors that happen to compare equal.
+    assert all(x is y for x, y in zip(a, b))
+
+
+@requires_torch_and_model
+def test_flat_gradient_layout_matches_the_canonical_order(gpt2_model):
+    """The concatenation must follow gradient_parameters(), tensor by tensor.
+
+    Checked by construction rather than by trusting the implementation: walk
+    the flat vector in canonical order and confirm each tensor's slice is
+    exactly that tensor's own gradient.
+    """
+    import torch
+    from burst_match import flat_gradient, gradient_parameters
+
+    params = gradient_parameters(gpt2_model)
+    ids = torch.tensor([[10, 20, 30, 40, 50]])
+    logits = gpt2_model(input_ids=ids).logits
+    loss = logits.float().pow(2).mean()
+
+    flat = flat_gradient(loss, gpt2_model, retain_graph=True)
+    grads = torch.autograd.grad(loss, params, allow_unused=True)
+
+    assert flat.numel() == sum(p.numel() for p in params)
+    offset = 0
+    for g, p in zip(grads, params):
+        expected = (g if g is not None else torch.zeros_like(p)).reshape(-1)
+        got = flat[offset:offset + p.numel()]
+        assert torch.equal(got, expected), (
+            f"flat vector diverges from canonical order at offset {offset}")
+        offset += p.numel()
+    assert offset == flat.numel()
+
+
+@requires_torch_and_model
+def test_two_flattens_of_the_same_input_are_bitwise_identical(gpt2_model):
+    """If this drifts, every cosine in 8b-iv is silently meaningless."""
+    import torch
+    from burst_match import flat_gradient
+
+    ids = torch.tensor([[10, 20, 30, 40, 50]])
+
+    def once():
+        logits = gpt2_model(input_ids=ids).logits
+        return flat_gradient(logits.float().pow(2).mean(), gpt2_model)
+
+    a, b = once(), once()
+    assert torch.equal(a, b)
+    assert (a - b).abs().max().item() == 0.0
+
+
+@requires_torch_and_model
+def test_self_cosine_is_one(gpt2_model):
+    """The numerical ceiling. Float64 accumulation can land a hair above 1.0,
+    which is why reported cosines are clamped rather than trusted raw."""
+    import torch
+    from burst_match import flat_gradient
+
+    ids = torch.tensor([[10, 20, 30, 40, 50]])
+    logits = gpt2_model(input_ids=ids).logits
+    g = flat_gradient(logits.float().pow(2).mean(), gpt2_model).double()
+    cos = float(torch.dot(g, g) / (g.norm() * g.norm()))
+    assert abs(cos - 1.0) < 1e-9, f"self-cosine {cos!r} is not 1.0"
+
+
+@requires_torch_and_model
+def test_flat_gradient_norm_agrees_with_gradient_norm(gpt2_model):
+    """Two code paths, one ordering, and they must agree on the magnitude."""
+    import torch
+    from burst_match import flat_gradient, gradient_norm
+
+    ids = torch.tensor([[10, 20, 30, 40, 50]])
+    logits = gpt2_model(input_ids=ids).logits
+    loss = logits.float().pow(2).mean()
+
+    flat = flat_gradient(loss, gpt2_model, retain_graph=True)
+    from_flat = float(flat.double().norm())
+    from_stream = gradient_norm(loss, gpt2_model)
+    assert abs(from_flat - from_stream) / from_stream < 1e-6
+
+
+# ---------------------------------------------------------------------------
+# 8b-iv: the committed direction results
+# ---------------------------------------------------------------------------
+
+DIRECTION_FILE = (REPO_ROOT / "docs" / "measurements"
+                  / "8b-iv-gradient-direction.json")
+
+
+def test_direction_results_carry_the_proxy_model_limitation():
+    """The limitation must travel with the numbers, not live only in notes."""
+    data = json.loads(DIRECTION_FILE.read_text(encoding="utf-8"))
+    lim = data["LIMITATION"]
+    assert "THAT MODEL DOES NOT EXIST" in lim
+    assert "PROXY OF UNKNOWN FIDELITY" in lim
+    assert "step-200" in lim.lower()
+
+
+def test_direction_results_do_not_call_anything_anisotropy():
+    """The three statistics measure different objects; the umbrella term
+    would overstate what was computed. D was never computed at all."""
+    raw = DIRECTION_FILE.read_text(encoding="utf-8")
+    lowered = raw.lower()
+    # The word may appear only where it is explicitly disclaimed.
+    for line in lowered.splitlines():
+        if "anisotropy" in line:
+            assert "not" in line, (
+                f"'anisotropy' used without disclaimer: {line.strip()}")
+
+
+def test_the_gram_eigenspectrum_is_not_reported_per_arm():
+    data = json.loads(DIRECTION_FILE.read_text(encoding="utf-8"))
+    assert "set_level_gram_eigenspectrum" in data
+    assert "SET-LEVEL" in data["set_level_gram_eigenspectrum"]["note"]
+    for arm, block in data["per_arm"].items():
+        assert not any("gram" in k.lower() or "eigen" in k.lower()
+                       for k in block), f"{arm} carries a set-level statistic"
+
+
+def test_participation_ratio_records_its_basis_dependence():
+    data = json.loads(DIRECTION_FILE.read_text(encoding="utf-8"))
+    for arm, block in data["per_arm"].items():
+        assert "participation_ratio" in block
+        assert "basis-dependent" in block["participation_ratio_note"]
+
+
+def test_every_arm_pair_and_control_is_present():
+    import itertools
+    data = json.loads(DIRECTION_FILE.read_text(encoding="utf-8"))
+    names = [s.name for s in make_bursts.ARM_SPECS]
+    pairs = data["cosines"]["arm_pairs"]
+    assert len(pairs) == len(list(itertools.combinations(names, 2))) == 21
+    for value in pairs.values():
+        assert -1.0 <= value <= 1.0, "cosines must be clamped to [-1, 1]"
+    # A matrix without a floor is uninterpretable; both controls must exist.
+    assert set(data["cosines"]["arm_vs_filler_control"]) == set(names)
+    assert data["cosines"]["same_arm_second_draw"], "no second-draw control"
+
+
+def test_per_tensor_energy_shares_are_real_fractions():
+    """Per-tensor norms add in quadrature. Summing them and dividing by the
+    total norm gives values above 1, which is not a share -- caught when an
+    earlier version reported 1.2387."""
+    data = json.loads(DIRECTION_FILE.read_text(encoding="utf-8"))
+    for arm, block in data["per_arm"].items():
+        top5 = block["per_tensor_top5_energy_share"]
+        top20 = block["per_tensor_top20_energy_share"]
+        assert 0.0 <= top5 <= 1.0, f"{arm} top-5 share {top5} is not a fraction"
+        assert top5 <= top20 <= 1.0

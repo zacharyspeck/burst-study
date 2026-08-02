@@ -37,6 +37,12 @@ __pycache__/
 # `.venv/` above does not match this name.
 /.venv-ml/
 
+# Spilled gradient vectors from scripts/gradient_direction.py. One flat fp32
+# GPT-2 gradient is ~498 MB and that script needs thirteen of them, so they go
+# to disk rather than being held in RAM. Derived, reproducible, and far too
+# large to commit -- the results file keeps the numbers, not the vectors.
+/.gradcache/
+
 # The cached OpenWebText slice that scripts/make_bursts.py cuts spans from.
 # Corpus data is never committed -- the corpus is named in the config, never
 # vendored. The burst texts cut FROM it are committed, because those are

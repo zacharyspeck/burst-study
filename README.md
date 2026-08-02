@@ -66,13 +66,13 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `261 passed, 21 skipped`, then the resolved config printed, exit
+Expected: `267 passed, 26 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
 
-The 21 skips are the tests that need torch or `transformers`, which the install
+The 26 skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -203,6 +203,7 @@ scripts/match_arms.py                all arms at one burst position
 scripts/match_sweep.py               sweeps the scrambled arm's window size k
 scripts/position_sweep.py            8b-ii: burst position + gradient diagnostic
 scripts/tune_arms.py                 8b-iii: tunes arms toward the median
+scripts/gradient_direction.py        8b-iv: pairwise gradient cosine + profiles
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
 bursts/scrambled_false.txt           fluent_false, word order broken
