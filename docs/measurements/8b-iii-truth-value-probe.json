@@ -1,0 +1,275 @@
+{
+  "task": "8b-iii truth-value probe",
+  "purpose": "does the fluent-false / fluent-true gradient-norm gap survive register matching? Diagnostic only; not an arm, not shipped.",
+  "position": 400,
+  "burst_tokens": 194,
+  "band": {
+    "median": 21.4783,
+    "low": 19.3305,
+    "high": 23.6261
+  },
+  "protocol": "length and register were adjusted BLIND to gradient norm; gradient norm was measured once, on the final draft only. No draft was selected on its gradient norm.",
+  "drafts": {
+    "D1": {
+      "tokens": 197,
+      "register": {
+        "sents": 8,
+        "mean": 19.625,
+        "digits": 6,
+        "spelled": 13,
+        "caps": 26
+      },
+      "sentence_lengths": [
+        20,
+        41,
+        3,
+        26,
+        14,
+        17,
+        16,
+        20
+      ],
+      "register_distance_from_fluent_false": 0.583115234670132,
+      "gradnorm_measured": false,
+      "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the northern tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie went back to session work. He was declared bankrupt the following year with debts of three thousand two hundred and ten pounds. He joined the Tornados in 1964, left in 1966, and later formed a band in Spain. Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
+    },
+    "D2": {
+      "tokens": 196,
+      "register": {
+        "sents": 8,
+        "mean": 19.25,
+        "digits": 6,
+        "spelled": 11,
+        "caps": 28
+      },
+      "sentence_lengths": [
+        20,
+        41,
+        3,
+        26,
+        13,
+        15,
+        15,
+        21
+      ],
+      "register_distance_from_fluent_false": 0.3325546254042129,
+      "gradnorm_measured": false,
+      "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the northern tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
+    },
+    "D3": {
+      "tokens": 195,
+      "register": {
+        "sents": 8,
+        "mean": 19.125,
+        "digits": 6,
+        "spelled": 11,
+        "caps": 28
+      },
+      "sentence_lengths": [
+        19,
+        41,
+        3,
+        26,
+        13,
+        15,
+        15,
+        21
+      ],
+      "register_distance_from_fluent_false": 0.3386895947293663,
+      "gradnorm_measured": false,
+      "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
+    },
+    "D4": {
+      "tokens": 194,
+      "register": {
+        "sents": 8,
+        "mean": 19.0,
+        "digits": 6,
+        "spelled": 11,
+        "caps": 28
+      },
+      "sentence_lengths": [
+        19,
+        40,
+        3,
+        26,
+        13,
+        15,
+        15,
+        21
+      ],
+      "register_distance_from_fluent_false": 0.3448245640545196,
+      "gradnorm_measured": true,
+      "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
+    }
+  },
+  "measured": {
+    "C6_true": {
+      "gradnorm_from_burst_region_loss": 18.0028997408122,
+      "burst_region_loss": 4.285584926605225,
+      "tokens": 194,
+      "text": "Jimmie Nicol joined the Beatles as their drummer on 3 June 1964 and played eight shows of the world tour. Ringo Starr had collapsed with tonsillitis on the eve of departure, and Nicol, who had drummed for Colin Hicks and the Cabin Boys and sat in with Georgie Fame and the Blue Flames, was auditioned on six songs at Abbey Road. He was twenty-four. He opened at the KB Hallen in Copenhagen before 4,500 people, then played the Netherlands, Hong Kong and Australia, and was paid five hundred pounds and an Eterna-matic watch. Starr rejoined in Melbourne on 14 June and Nicol flew home alone. He was declared bankrupt the following year with debts of four thousand and sixty-six pounds. He joined the Spotnicks in 1965, left in 1967, and later formed a band in Mexico. McCartney remembered his stock reply, that things were getting better, and made it a song three years later."
+    },
+    "D4_false_twin": {
+      "gradnorm_from_burst_region_loss": 17.419778781705887,
+      "burst_region_loss": 4.257383823394775,
+      "tokens": 194,
+      "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
+    }
+  },
+  "comparison": {
+    "register_matched_gap": -0.5831209591063136,
+    "original_fluent_gap": 2.9605999999999995,
+    "share_of_original_gap": -0.19696039961707548
+  },
+  "surprisal": {
+    "C6-true": {
+      "mean": 4.2855851801697975,
+      "sd": 3.246733781470075,
+      "median": 3.379175543785095,
+      "max": 16.09893226623535,
+      "top10pct_share": 0.2491357748618789,
+      "top25pct_share": 0.5210382555243671
+    },
+    "D4-false-twin": {
+      "mean": 4.257384297452668,
+      "sd": 3.404320063083015,
+      "median": 3.1427907943725586,
+      "max": 18.2756290435791,
+      "top10pct_share": 0.25723541544769246,
+      "top25pct_share": 0.5356004099984523
+    }
+  },
+  "top_surprisals": {
+    "C6_true": [
+      {
+        "pos": 0,
+        "token": "J",
+        "loss": 16.09893226623535
+      },
+      {
+        "pos": 155,
+        "token": " Spot",
+        "loss": 12.816835403442383
+      },
+      {
+        "pos": 50,
+        "token": " Cabin",
+        "loss": 12.798821449279785
+      },
+      {
+        "pos": 58,
+        "token": " Fame",
+        "loss": 12.148504257202148
+      },
+      {
+        "pos": 84,
+        "token": " KB",
+        "loss": 11.270448684692383
+      },
+      {
+        "pos": 176,
+        "token": " stock",
+        "loss": 10.845047950744629
+      },
+      {
+        "pos": 56,
+        "token": " Georg",
+        "loss": 10.816901206970215
+      },
+      {
+        "pos": 36,
+        "token": " departure",
+        "loss": 10.690035820007324
+      },
+      {
+        "pos": 6,
+        "token": " Beatles",
+        "loss": 10.576578140258789
+      },
+      {
+        "pos": 129,
+        "token": " Nicol",
+        "loss": 10.301889419555664
+      },
+      {
+        "pos": 114,
+        "token": "tern",
+        "loss": 10.196579933166504
+      },
+      {
+        "pos": 117,
+        "token": "matic",
+        "loss": 10.166728973388672
+      }
+    ],
+    "D4_false_twin": [
+      {
+        "pos": 0,
+        "token": "Row",
+        "loss": 18.2756290435791
+      },
+      {
+        "pos": 111,
+        "token": " Fram",
+        "loss": 17.785036087036133
+      },
+      {
+        "pos": 175,
+        "token": " complaint",
+        "loss": 12.14838695526123
+      },
+      {
+        "pos": 170,
+        "token": " Allan",
+        "loss": 11.812418937683105
+      },
+      {
+        "pos": 31,
+        "token": " ple",
+        "loss": 11.404699325561523
+      },
+      {
+        "pos": 174,
+        "token": " stock",
+        "loss": 11.192288398742676
+      },
+      {
+        "pos": 29,
+        "token": " collapsed",
+        "loss": 11.02270793914795
+      },
+      {
+        "pos": 67,
+        "token": " audition",
+        "loss": 10.667595863342285
+      },
+      {
+        "pos": 121,
+        "token": " Leeds",
+        "loss": 10.552616119384766
+      },
+      {
+        "pos": 6,
+        "token": " Holl",
+        "loss": 10.49866771697998
+      },
+      {
+        "pos": 71,
+        "token": " numbers",
+        "loss": 10.033361434936523
+      },
+      {
+        "pos": 118,
+        "token": " rejo",
+        "loss": 10.021103858947754
+      }
+    ]
+  },
+  "caveats": [
+    "TWO TEXTS IS ONE COMPARISON, not evidence that truth value drives gradient norm in general.",
+    "The false twin is a different subject with different proper nouns; register features are matched but individual token rarity is not.",
+    "Surprisal is loss, not gradient. The gradient gap need not decompose the way the loss does.",
+    "Nothing here was shipped to bursts/ and no arm was changed."
+  ]
+}
