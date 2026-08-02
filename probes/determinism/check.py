@@ -34,6 +34,7 @@ def run_one(label: str, outdir: Path, args, python: str) -> dict:
         "--steps", str(args.steps),
         "--micro-batch", str(args.micro_batch),
         "--attn", args.attn,
+        "--dtype", args.dtype,
         "--adamw-impl", args.adamw_impl,
         "--run", args.run,
     ]
@@ -102,6 +103,7 @@ def main() -> int:
     ap.add_argument("--steps", type=int, default=20)
     ap.add_argument("--micro-batch", type=int, default=8)
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
+    ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32")
     ap.add_argument("--adamw-impl", choices=("foreach", "fused", "single"),
                     default="foreach")
     ap.add_argument("--warmup-steps", type=int, default=None)
@@ -113,7 +115,7 @@ def main() -> int:
     args = ap.parse_args()
 
     tag = (f"steps{args.steps}_mb{args.micro_batch}_{args.attn}_"
-           f"{args.adamw_impl}"
+           f"{args.dtype}_{args.adamw_impl}"
            + (f"_warmup{args.warmup_steps}" if args.warmup_steps is not None else ""))
     root = args.outdir_root / tag
 

@@ -72,11 +72,12 @@ GPU, fp32, sampler and DataLoader-worker seeding.
 
 **Not covered:**
 
-- **A different dtype.** At fp32, SDPA selects the mem-efficient cutlass
-  backend. A bf16/fp16 run selects *flash* attention instead — a different
-  kernel with different determinism properties. `configs/base.yaml` has no
-  dtype field, so if the study trains in mixed precision **this result does not
-  transfer and the probe must be re-run.**
+- **fp16.** `--dtype` offers fp32 and bf16, and both are run, because
+  `configs/base.yaml` declares no dtype and the answer is not the same for
+  each: at fp32 SDPA selects the mem-efficient cutlass backend, at bf16 it
+  selects *flash* attention — a different kernel family. fp16 is not offered:
+  it would need a GradScaler, whose step-skipping state machine is its own
+  determinism question and does not belong inside this one.
 - **A different GPU, driver, or torch build.** Same limitation as D7 records
   for `burst_match.py`, for the same reason.
 - **A resumed run.** RNG state in checkpoints is a listed cross-module

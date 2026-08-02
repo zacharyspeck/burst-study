@@ -148,6 +148,12 @@ def main() -> int:
                     help="sequences per forward pass; batch_size/micro-batch "
                          "gradient accumulation steps make up a full batch")
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
+    ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32",
+                    help="bf16 runs the forward under autocast with fp32 master "
+                         "weights. This is not cosmetic: at bf16 SDPA selects "
+                         "the FLASH backend instead of the mem-efficient one, "
+                         "and flash's backward accumulates dq with atomics. "
+                         "configs/base.yaml declares no dtype, so both are run.")
     ap.add_argument("--adamw-impl", choices=("foreach", "fused", "single"),
                     default="foreach")
     ap.add_argument("--warmup-steps", type=int, default=None,
@@ -191,8 +197,16 @@ def main() -> int:
           f"| warmup={warmup}"
           f"{' (OVERRIDDEN)' if args.warmup_steps is not None else ''}",
           flush=True)
-    print(f"attn:    {args.attn} | adamw: {args.adamw_impl} | dtype: float32",
+    print(f"attn:    {args.attn} | adamw: {args.adamw_impl} | "
+          f"dtype: {args.dtype} (PROBE ASSUMPTION -- not in the config)",
           flush=True)
+
+    import contextlib
+    if args.dtype == "bf16":
+        def autocast_ctx():
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    else:
+        autocast_ctx = contextlib.nullcontext
 
     model = build_model(cfg, args.attn, device)
     print(f"params:  {model.parameter_count():,} "
@@ -241,7 +255,11 @@ def main() -> int:
             x, y = next(batches)
             x = x.to(device, non_blocking=False)
             y = y.to(device, non_blocking=False)
-            loss = model(x, y) / accum
+            # No GradScaler: bf16 has fp32's exponent range, so the loss
+            # scaling fp16 needs is unnecessary -- and a scaler would add its
+            # own step-skipping state machine to a determinism comparison.
+            with autocast_ctx():
+                loss = model(x, y) / accum
             loss.backward()
             loss_sum += loss.item()
 
@@ -264,7 +282,7 @@ def main() -> int:
     # touches neither the data iterator nor the optimizer, so --profile-kernels
     # cannot change the digest it is supposed to be describing.
     if args.profile_kernels:
-        kernels = _capture_kernels(model, micro, device, cfg)
+        kernels = _capture_kernels(model, micro, device, cfg, autocast_ctx)
 
     param_digests = {
         name: tensor_digest(p) for name, p in sorted(model.state_dict().items())
@@ -294,7 +312,7 @@ def main() -> int:
         "adamw_impl": args.adamw_impl,
         "warmup_steps_used": warmup,
         "warmup_overridden": args.warmup_steps is not None,
-        "dtype": "float32",
+        "dtype": args.dtype,
         "param_count": model.parameter_count(),
         "combined_sha256": combined.hexdigest(),
         "param_digests": param_digests,
@@ -328,7 +346,7 @@ def main() -> int:
                         "probe_assumptions": {
                             "micro_batch": micro,
                             "accum_steps": accum,
-                            "dtype": "float32",
+                            "dtype": args.dtype,
                             "attn_impl": args.attn,
                             "adamw_impl": args.adamw_impl,
                         }}, sort_keys=True),
@@ -339,7 +357,7 @@ def main() -> int:
     return 0
 
 
-def _capture_kernels(model, micro: int, device, cfg) -> list[str]:
+def _capture_kernels(model, micro: int, device, cfg, autocast_ctx) -> list[str]:
     """Record the CUDA kernels one forward+backward launches.
 
     This is what lets a 20-step result speak about a 9536-step run: the kernel
@@ -361,7 +379,9 @@ def _capture_kernels(model, micro: int, device, cfg) -> list[str]:
                           (micro, cfg.training.seq_len), generator=g,
                           dtype=torch.long).to(device)
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-            model(x, y).backward()
+            with autocast_ctx():
+                loss = model(x, y)
+            loss.backward()
             torch.cuda.synchronize()
         names = {
             e.key for e in prof.key_averages()
