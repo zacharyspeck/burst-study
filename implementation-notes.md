@@ -2635,6 +2635,92 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S75. Step 11 stage 2: the corpus, built and verified
+
+150 blocks, **2,510,290,944 tokens**, complete and consistent. The training
+slice is **2,499,805,184** — exactly `expected_token_budget`, so the loader's
+assertion holds — plus a **10,485,760**-token held-out slice.
+
+    manifest sha256  e305bea71aa68c8ad355b7da3915125530b65a5de391f8dc08766b8b9dd5b255
+    tokenizer probe  agrees (transformers 5.14.1, tokenizers 0.22.2)
+    held-out         disjoint
+    verified         150 blocks re-hashed, 149 boundaries against arithmetic
+
+The record is in `docs/measurements/11-corpus.{json,md}` and is committed. The
+5.02 GB it describes is not, and proves itself against the record.
+
+#### A FIFTH INSTANCE, and this one was mine and numeric
+
+The timing gate in S74 reported **7.2 s per shard**. Measured across the real
+build, shards took **11.0 s to 26.7 s**. The gate timed the FIRST shard, which
+reads from the start of file 0, and reported it as "seconds per shard" — a
+quantity named for one thing and computed as another, in a number that then
+went into a commit message and into the notes.
+
+Nothing downstream broke, because the chunking had margin and nothing was
+traded away. That is exactly what makes the shape worth logging again: the
+wrong number was plausible, useful-looking, and never contradicted.
+
+**The cause was real and is fixed.** `TokenSource._read_batch` read
+`handle.metadata.row_group(g).num_rows` inside the skip loop, and
+`handle.metadata` rebuilds a `FileMetaData` object on every access — so the
+cost of seeking to the read position grew as the position advanced through a
+file and reset at file boundaries. Row-group sizes are now read once per file
+and cached.
+
+**Proven to change no content:** `train-148.bin` was deleted and rebuilt under
+the fixed code and came back as `19f03775a91f`, byte-identical to the original,
+in 11.0 s against 13.3 s. A seek cost, not a content decision.
+
+#### Resumability was tested by accident, twice, and held
+
+The build was killed twice mid-run by the environment rather than by design —
+at block 127 and again at block 131. Both times:
+
+- every completed block was present and recorded,
+- **no `.partial` file was left behind**,
+- the next invocation resumed from the recorded source position without
+  re-reading anything, and
+- the shards it then produced continued the corpus correctly.
+
+That is worth more than the single deliberate delete-and-rebuild test, because
+nothing about it was arranged. The token-level source position — `file_index`,
+`row_index`, `token_offset` — is what made it work: a shard boundary lands
+mid-document far more often than not, and a resume rounded to a document
+boundary would have dropped or duplicated text while leaving the corpus exactly
+the right size.
+
+#### What the verifier is for, demonstrated before it was finished
+
+Run against the partial corpus mid-build it reported:
+
+    1 FINDING(S):
+      - the manifest records no tokenizer identity, so drift at this machine
+        cannot be detected at all
+
+Correct, and a gap I had only just closed in code the running job predated. A
+verifier earns trust by failing; every test in
+`tests/test_corpus_verify.py` breaks something specific — corruption, a
+truncated file, a manifest disagreeing with its own data, a boundary that does
+not match arithmetic, a short training slice, a divergent tokenizer — and
+asserts the break is found.
+
+Two properties are asserted structurally rather than behaviourally: it must not
+import `datasets` or `huggingface_hub`, because it runs on a cluster with no
+network; and its tokenizer probe must degrade to a **loud** skip, because a
+verification that silently omits its only tokenizer check reads as a pass.
+
+#### The tokenizer identity is a probe, not a version string
+
+Two builds can report the same version and behave differently, and a vendored
+tokenizer reports whatever it likes. So the identity carries the SHA-256 of the
+token ids from the committed probe passage, reused from
+`metrics.load_context_batch` so there is **one** definition of "did the
+tokenizer change" across steps 10 and 11. Drift is compared on that hash, not
+on version strings: a version bump that changes no output is not a reason to
+refuse, and a version that stayed still while the output moved is exactly what
+must be caught.
+
 ### S74. Step 11 stage 1: fetching pinned source files, and the timing gate
 
 `scripts/corpus_fetch.py`. Downloads OpenWebText's Parquet files at a pinned
@@ -2680,6 +2766,15 @@ One shard, end to end, on a real source file:
 | one shard (16,777,216 tokens) | **7.2 s** |
 | 149 shards + held-out | **18.0 min** |
 | shards fitting a 600 s run | 83 |
+
+> **CORRECTED after the build. THESE NUMBERS WERE WRONG, and wrong in the
+> S49 shape: I measured the FIRST shard and reported it as "seconds per
+> shard".** The first shard reads from the start of file 0; every later one
+> pays a seek. Measured across the real build, per-shard times ran **11.0 s to
+> 26.7 s**, typically 12–13 s, against the 7.2 s claimed — so the true total was
+> nearer **35 minutes than 18**. See S75 for the cause and the fix. The
+> quantity was named "per shard" and computed as "for the first shard", which
+> is the same error this build has now logged five times.
 
 **Tokenization is not the bottleneck it was feared to be.** The 600 s cap that
 killed four runs in step 9 is not a real constraint here: a whole shard costs
@@ -3991,7 +4086,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-580 tests, counted per file with `--collect-only` rather than from memory.
+613 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4011,10 +4106,12 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_data_order.py` | 32 |
 | `tests/test_corpus_spec.py` | 19 |
 | `tests/test_corpus_fetch.py` | 19 |
-| **total** | **580** |
+| `tests/test_corpus_tokenize.py` | 20 |
+| `tests/test_corpus_verify.py` | 13 |
+| **total** | **613** |
 
-In the base environment (`.venv/`, no torch) the run is **363 passed, 156
-skipped**. In `.venv-ml/` it is **580 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **395 passed, 157
+skipped**. In `.venv-ml/` it is **613 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
