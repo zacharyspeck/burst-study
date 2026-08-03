@@ -62,6 +62,32 @@ training:
   batch_size: 256
   seq_len: 1024
 
+  # Sequences per forward pass. batch_size / micro_batch is the number of
+  # gradient accumulation steps that make up one optimizer step.
+  #
+  # UNSET ON PURPOSE, and the training loop REFUSES to run without it. There
+  # is no default and no inferred value, because this number is part of the
+  # study's definition rather than a performance knob:
+  #
+  # ACCUMULATION SUMS PARTIAL GRADIENTS IN SEQUENCE, AND FLOATING-POINT
+  # ADDITION IS NOT ASSOCIATIVE. 8 x 32 and 16 x 16 produce DIFFERENT BITS
+  # from identical data. Two runs that agree on every other value here and
+  # differ in this one are not the same run, and nothing downstream would
+  # notice: resolved_config.yaml would be byte-identical between them.
+  #
+  # Accumulation is mandatory rather than optional. A full batch of logits is
+  # 256 x 1024 x 50257 x 4 B = 52.70 GB against 48 GiB on the card the
+  # determinism probe used, so micro_batch == batch_size cannot run at all.
+  #
+  # The determinism result in docs/measurements/2026-08-02-determinism-check.md
+  # was established at micro_batch 8 -- a value probes/determinism/train_once.py
+  # INVENTED because this field did not exist. That result therefore describes
+  # a configuration nobody chose, and it does NOT transfer to any other value
+  # here. See S67. The pilot settles this on real hardware.
+  micro_batch: null
+
+  # The loader asserts batch_size % micro_batch == 0 when micro_batch is set.
+
   # Optimizer steps for the whole run.
   #
   # Steps are 0-INDEXED: the first step is 0 and the LAST STEP IS 9535

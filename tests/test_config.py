@@ -130,6 +130,7 @@ def test_null_injection_fields_are_fine_for_twin(tmp_path):
     """
     base = write_base(tmp_path, checkpointing__weights_only_interval=50,
                       checkpointing__full_interval=1000,
+                      training__micro_batch=8,
                       optimizer__grad_clip=1.0)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
@@ -571,6 +572,10 @@ def valid_burst_base(tmp_path, path_value):
         # grad_clip is null in the shipped config and is rejected at launch,
         # so a config that is meant to BE launch-ready has to decide it.
         optimizer__grad_clip=1.0,
+        # Likewise micro_batch: it is null in the shipped config on purpose and
+        # every arm needs it, because the accumulation shape is part of what
+        # makes two runs the same run.
+        training__micro_batch=8,
         injection__injection_step=4768,
         injection__burst_length_tokens=64,
         injection__burst_text_paths__coherent=path_value,
@@ -652,6 +657,7 @@ def test_twin_needs_no_burst_text(tmp_path):
     """twin launches with every burst text path still null."""
     base = write_base(tmp_path, checkpointing__weights_only_interval=50,
                       checkpointing__full_interval=1000,
+                      training__micro_batch=8,
                       optimizer__grad_clip=1.0)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
@@ -1011,6 +1017,7 @@ def test_null_grad_clip_blocks_launch_for_every_arm(tmp_path):
 def test_a_decided_grad_clip_is_accepted(tmp_path):
     base = write_base(tmp_path, checkpointing__weights_only_interval=50,
                       checkpointing__full_interval=1000,
+                      training__micro_batch=8,
                       optimizer__grad_clip=1.0)
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)

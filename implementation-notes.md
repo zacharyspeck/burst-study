@@ -2635,6 +2635,91 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S76. Step 12 groundwork: micro_batch in the config, and the model seam
+
+#### `training.micro_batch`, null on purpose, and the loop refuses without it
+
+Added to `configs/base.yaml` as `null`, following the pattern `grad_clip` and
+the injection fields already use: present, undecided, and blocking at launch.
+`_missing_for_launch` lists it for **every** arm, and
+`TrainingConfig.accumulation_steps` raises rather than returning 1 when it is
+unset — a silent 1 would train on a batch 32x smaller than the config
+describes.
+
+**Why it has no default, stated in the config and in the code:**
+accumulation sums partial gradients in sequence, and **floating-point addition
+is not associative**, so `8 x 32` and `16 x 16` produce **different bits from
+identical data**. Two runs agreeing on every other value and differing in this
+one are not the same run, and `resolved_config.yaml` would be byte-identical
+between them — the exact hole S67 documents.
+
+Accumulation is mandatory rather than a tuning choice: a full batch of logits
+is `256 x 1024 x 50257 x 4 B` = **52.70 GB against 48 GiB**, so
+`micro_batch == batch_size` cannot run at all. Arithmetic, checked
+independently of the figure I was given.
+
+**And the value the determinism result rests on was invented.**
+`docs/measurements/2026-08-02-determinism-check.md` was established at
+`micro_batch 8` because `probes/determinism/train_once.py` had to supply one
+that the config did not carry. That result therefore describes a configuration
+nobody chose and **does not transfer to any other value.** The pilot settles
+this on real hardware, since the memory table in the step 12 plan is explicitly
+a floor: it omits body activations and the question of whether SDPA
+materialises attention probabilities, which at `seq² x n_head x 4 B` = 50.3 MB
+per sequence per layer would dominate everything else.
+
+The loader also now checks `batch_size % micro_batch == 0`. A remainder would
+make the last micro-batch of every step a different size, so the step would
+train on fewer sequences than `batch_size` claims and the token-budget identity
+the whole corpus was built against would quietly stop describing what was
+trained on.
+
+#### The model seam, and the four things it does not paper over
+
+`scripts/model_seam.py`. Six functions wide: build, loss, parameters,
+state_dict, train/eval, count. The only real difference between HF GPT-2 and
+`probes/determinism/model.py` is the forward signature, and `compute_loss` is
+that difference in one place.
+
+**No default family.** `build_model(cfg, family)` refuses without an explicit
+choice, and the refusal says why, because a default would silently decide four
+things that are not the loop's to decide:
+
+1. **Checkpoints are not interchangeable** — parameter names differ entirely.
+2. **The seed-to-weights map is family-specific**, so no checkpoint from one is
+   comparable to one from the other, ever. Twin comparisons stay valid because
+   both arms use one family.
+3. **Determinism evidence does not transfer** — Conv1D reaches cuBLAS through
+   `addmm` with different operand strides than `F.linear`.
+4. **Step 9's ruler reads Conv1D only.**
+
+Both 1 and 2 are asserted as tests rather than left as prose, because a narrow
+interface is exactly the thing that hides them: the loop is portable across
+families and **the runs are not.**
+
+#### An obligation discharged: `expected_param_count` is finally compared
+
+It has been in the config since the beginning with nothing checking it —
+implementation-notes.md recorded that as an open gap. `build_model` now
+compares at construction, and **both families build to exactly 124,439,808**,
+measured. The error message names the tying difference specifically, because a
+mismatch of exactly `vocab_size x n_embd = 38,597,376` means the tie is wrong
+rather than the shape.
+
+`parameter_count` uses `named_parameters()`, which deduplicates the tied
+embedding. `state_dict()` does not, and would overstate by that same 38,597,376
+— so the check would pass for an untied model, which is the worst way for a
+count to be wrong.
+
+#### Determinism will need re-establishing on rented hardware
+
+Asa's result covers **his A6000, with the handwritten `nn.Linear` model, at an
+invented micro-batch.** The pilot will run on rented GPUs, and the study intends
+HF GPT-2. We will be running neither the same card nor the same model, so that
+result transfers on none of its three axes and has to be re-established. This
+is not a criticism of the result — it is what S68 already says about its scope,
+now with a second reason attached.
+
 ### S75. Step 11 stage 2: the corpus, built and verified
 
 150 blocks, **2,510,290,944 tokens**, complete and consistent. The training
@@ -4086,7 +4171,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-613 tests, counted per file with `--collect-only` rather than from memory.
+637 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4108,10 +4193,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_fetch.py` | 19 |
 | `tests/test_corpus_tokenize.py` | 20 |
 | `tests/test_corpus_verify.py` | 13 |
-| **total** | **613** |
+| `tests/test_model_seam.py` | 24 |
+| **total** | **637** |
 
-In the base environment (`.venv/`, no torch) the run is **395 passed, 157
-skipped**. In `.venv-ml/` it is **613 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **395 passed, 158
+skipped**. In `.venv-ml/` it is **637 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

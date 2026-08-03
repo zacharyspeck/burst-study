@@ -288,7 +288,7 @@ def test_sequences_for_budget_matches_the_config_arithmetic():
     assert 2441216 * 1024 == 2499805184
 
 
-def test_sequence_count_agrees_with_the_shipped_config():
+def test_sequence_count_agrees_with_the_shipped_config(tmp_path):
     """Two routes to the same number: this module, and burst.config."""
     sys.path.insert(0, str(REPO_ROOT))
     from burst.config import load_config
@@ -298,7 +298,11 @@ def test_sequence_count_agrees_with_the_shipped_config():
     # The corpus arithmetic under test is identical across arms.
     cfg = load_config(REPO_ROOT / "configs" / "base.yaml",
                       REPO_ROOT / "configs" / "runs" / "seed03_twin.yaml",
-                      outdir=Path("/tmp/unused"))
+                      outdir=tmp_path,
+                      # Inspecting arithmetic, not launching:
+                      # training.micro_batch is null on purpose and
+                      # launch mode correctly refuses without it.
+                      require_complete=False)
     derived = D.sequences_for_budget(
         cfg.training.batch_size, cfg.training.seq_len, cfg.training.total_steps)
     assert derived * cfg.training.seq_len == cfg.corpus.expected_token_budget

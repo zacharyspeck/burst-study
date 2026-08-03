@@ -344,6 +344,31 @@ class TrainingConfig:
     batch_size: int
     seq_len: int
     total_steps: int
+    #: Sequences per forward pass, or None while undecided.
+    #:
+    #: Deliberately has no default, for the same reason grad_clip has none:
+    #: guessing it would put a study-defining value in the code rather than in
+    #: the record. batch_size / micro_batch gradient accumulation steps make up
+    #: one optimizer step, and BECAUSE FLOATING-POINT ADDITION IS NOT
+    #: ASSOCIATIVE, two accumulation shapes over identical data give different
+    #: bits. A default here would silently decide part of the experiment.
+    micro_batch: int | None = None
+
+    @property
+    def accumulation_steps(self) -> int:
+        """How many micro-batches make one optimizer step.
+
+        Raises rather than guessing when micro_batch is undecided, so a caller
+        cannot accidentally get 1 and train on a batch 32x smaller than the one
+        the config describes.
+        """
+        if self.micro_batch is None:
+            raise ConfigError(
+                "training.micro_batch is null, so the number of gradient "
+                "accumulation steps is undefined. It has no default: see the "
+                "comment in configs/base.yaml for why guessing it would change "
+                "the experiment rather than merely its speed.")
+        return self.batch_size // self.micro_batch
 
 
 @dataclass(frozen=True)
@@ -779,6 +804,8 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             batch_size=_int(merged, "training", "batch_size", source),
             seq_len=_int(merged, "training", "seq_len", source),
             total_steps=_int(merged, "training", "total_steps", source),
+            micro_batch=_int(merged, "training", "micro_batch", source,
+                             allow_null=True),
         ),
         optimizer=OptimizerConfig(
             name=_str(merged, "optimizer", "name", source),
@@ -883,6 +910,34 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             "One of these four numbers was edited without the others. "
             f"Source: {source}"
         )
+
+    # Requirement 4b: accumulation must divide the batch exactly.
+    #
+    # A remainder would mean the last micro-batch of every step is a different
+    # size from the others, so the step would train on fewer sequences than
+    # batch_size claims -- and the token-budget identity above, which is what
+    # the whole corpus was built against, would quietly stop describing what
+    # was trained on. Checked here rather than in the training loop so that a
+    # bad pairing fails at load, before a GPU is allocated.
+    micro = cfg.training.micro_batch
+    if micro is not None:
+        if micro <= 0:
+            raise ConfigError(
+                f"training.micro_batch must be positive; got {micro}. "
+                f"Source: {source}")
+        if micro > cfg.training.batch_size:
+            raise ConfigError(
+                f"training.micro_batch ({micro}) exceeds batch_size "
+                f"({cfg.training.batch_size}); a micro-batch is a slice of the "
+                f"batch, not a multiple of it. Source: {source}")
+        if cfg.training.batch_size % micro != 0:
+            raise ConfigError(
+                f"training.batch_size ({cfg.training.batch_size}) is not "
+                f"divisible by training.micro_batch ({micro}); "
+                f"{cfg.training.batch_size % micro} sequences would be left "
+                "over every step, so the step would not train on the batch the "
+                "config describes.\n"
+                f"Source: {source}")
 
     # Cheap arithmetic sanity checks in the same spirit as the one above.
     if cfg.training.seq_len > cfg.model.block_size:
@@ -1064,6 +1119,10 @@ def _missing_for_launch(cfg: Config) -> list[str]:
         missing.append("checkpointing.full_interval")
     if cfg.model.tie_embeddings is None:
         missing.append("model.tie_embeddings")
+    # Every arm needs it: accumulation shape is part of what makes two runs the
+    # same run, so no arm can launch without it having been decided.
+    if cfg.training.micro_batch is None:
+        missing.append("training.micro_batch")
     # Every arm, including twin. Clipping applies to the whole run, not just
     # to the step the burst lands on, so twin is no more exempt from the
     # decision than the injecting arms are.

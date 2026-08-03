@@ -163,13 +163,17 @@ def test_the_sampler_index_space_is_the_training_slice_only():
 # ---------------------------------------------------------------------------
 
 
-def test_geometry_agrees_with_the_shipped_config():
+def test_geometry_agrees_with_the_shipped_config(tmp_path):
     sys.path.insert(0, str(REPO_ROOT))
     from burst.config import load_config
 
     cfg = load_config(REPO_ROOT / "configs" / "base.yaml",
                       REPO_ROOT / "configs" / "runs" / "seed03_twin.yaml",
-                      outdir=Path("/tmp/unused"))
+                      outdir=tmp_path,
+                      # Inspecting arithmetic, not launching:
+                      # training.micro_batch is null on purpose and
+                      # launch mode correctly refuses without it.
+                      require_complete=False)
     report = S.check_against_config(cfg)
     assert report["agrees"] is True
     assert report["expected_token_budget"] == S.TRAIN_TOKENS
