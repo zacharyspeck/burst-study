@@ -66,7 +66,7 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `293 passed, 154 skipped`, then the resolved config printed, exit
+Expected: `293 passed, 156 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values

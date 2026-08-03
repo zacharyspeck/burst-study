@@ -2591,6 +2591,236 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S71. Step 10, first half: the four layout-independent metrics
+
+`scripts/metrics.py` and `scripts/metrics_report.py`. Barrier, raw L2,
+activation similarity, per-layer CKA. Built against junk checkpoints because no
+trained model exists and none will for weeks.
+
+#### Why these four are the half that could be built
+
+The natural companions -- aligned barrier, aligned L2, the RSF subspace probe --
+all route through `canonicalize`, which is Conv1D-only, while which layout the
+study trains is undecided in the repo. **The intent is HF GPT-2 and that swap
+has not landed, so nothing here assumes it has.** All three are present raising
+`NotImplementedError` that names the blocker and points at `docs/layout-cost.md`;
+a silent omission is indistinguishable from an oversight.
+
+The four that were built need none of it. **Nothing in `metrics.py` reads a
+weight axis.** L2 and the barrier treat parameters as a flat vector; CKA and
+activation similarity read *activations*, and a residual stream is
+`(batch, seq, n_embd)` under either layout. That is the whole reason these are
+the first half.
+
+#### The CKA variant, and why each axis was pinned that way
+
+Named in every output as `linear_cka_unbiased_hsic_tokens_as_samples_v1`.
+
+| axis | choice | why |
+| --- | --- | --- |
+| kernel | linear | RBF needs a bandwidth, which is one more free parameter that would go unrecorded. Linear is no worse for layer comparison. |
+| estimator | **unbiased HSIC_1** | The biased estimator's value depends on the sample count, so a number taken at one batch size is not comparable to one taken at another. This build has already made numbers incomparable across versions five times; the defensive choice is the one that removes the dependence. |
+| samples | token positions | n = 1024 from one committed sequence, d = 768. |
+| centering | inside the estimator | HSIC_1 centers via diagonal-zeroed Gram matrices. The features must NOT also be column-centered, or the data is centered twice and the result is quietly wrong rather than obviously broken. |
+
+**The unbiased estimator can return a slightly negative HSIC**, so CKA can land
+just outside `[0, 1]`. It is reported **unclipped**, and the report says why in
+its own output rather than only here. Clipping to 1.0 would convert a
+diagnostic into exactly the thing this repo keeps getting caught by: a
+plausible float that looks like a working metric.
+
+`_hsic1` is pinned against a direct transcription of the index-sum definition
+in `tests/test_metrics.py`, deliberately sharing no code with the vectorized
+path. That is the check that catches double-centering.
+
+#### What activation similarity compares, and what it is blind to
+
+Per layer and per token position, the cosine between the two models' residual
+vectors **in the raw basis**, aggregated over the 1024 positions as
+min/median/max. All 13 layers. On the committed batch.
+
+- **Blind to magnitude.** Cosine ignores vector length, so a model whose
+  activations point correctly and are twice as long scores 1.0. The norm ratio
+  is reported beside it for exactly that reason.
+- **Blind to anything outside the batch.** Both it and CKA see only those 1024
+  positions.
+- **NOT blind to rotation**, unlike CKA. That is the point of reporting both:
+  CKA is invariant to an orthogonal change of basis and this is not, so a pair
+  differing by a hidden-internal rotation scores ~1.0 on CKA and poorly here.
+  The gap between them is the signal. Pinned by
+  `test_cosine_is_not_rotation_invariant_unlike_cka`.
+
+#### The model interface, and where the coupling actually is
+
+| metric | depends on | layout-dependent |
+| --- | --- | --- |
+| `l2_distance_raw` | `named_parameters()` | no |
+| `barrier` | `state_dict` / `load_state_dict`, a forward, deepcopy-ability | no |
+| CKA, cosine | an ordered list of per-layer activations | no, but **structure**-dependent |
+
+The activation tap list is the one real coupling, and it is passed in
+explicitly rather than inferred from module names. Guessing is the S49/S53
+shape: a quantity named for one thing and computed as another.
+
+Three specific traps handled rather than assumed:
+
+- **`named_parameters()` not `state_dict()` for L2.** `state_dict` does not
+  deduplicate the tied embedding, so using it would silently double-weight 38M
+  of GPT-2's 124M parameters in every distance.
+- **Non-float buffers are never interpolated.** A GPT-2 `state_dict` carries
+  causal masks; a blended mask still runs and yields a perfectly plausible loss
+  curve that means nothing. They are asserted identical and copied through.
+- **The tie is checked after every load.** If `load_state_dict` ever broke the
+  `lm_head`/`wte` tie, every interior alpha would measure a model with an
+  independent output head.
+
+#### THE TAP TRAP, found by looking rather than by being bitten
+
+**Verified empirically before the tap helper was written:** HF's
+`output_hidden_states` returns `[drop, h0, ..., h[n-2], ln_f(h[n-1])]`. The last
+entry is **not** the last block's output -- `ln_f` has been applied to it.
+
+So the obvious tap list, "hook every transformer block", disagrees with the
+native route in its final slot, comparing a raw block output against a
+normalized one. It would not crash. It would return plausible per-layer numbers
+with one layer quietly measuring something else.
+`test_naive_all_blocks_tap_would_disagree` pins that the trap is real rather
+than hypothetical.
+
+`cross_check_activation_routes` requires the hook route and the native route to
+agree exactly, and it runs **at every seed of every report**, not once at
+import. This is the S55 independent-recomputation pattern applied **before a
+bug existed rather than after one was found** -- the first time in this build
+that has happened. On disagreement it raises and names both routes; it does not
+pick a winner, because which one is right cannot be determined from the
+disagreement itself.
+
+#### The barrier cannot be responsiveness-tested on junk, and this is measured
+
+**Junk checkpoints sit at chance loss along the entire interpolation.** Measured
+on the tiny model: `ln(64) = 4.1589` against endpoints of 4.160 to 4.164. There
+is nothing to climb over, so the curve **sags below the chord** rather than
+rising above it, and `max_excess` is 0 by definition when the maximum falls at
+an endpoint.
+
+This is true of the zeroed-block pair as well as the independent-init pair, so
+the prediction in the approved plan -- that independent inits would give a large
+barrier -- **was wrong, and the measurement is what corrected it.** No junk pair
+can demonstrate that the barrier metric finds a barrier.
+
+Two consequences, both taken:
+
+1. `barrier_from_losses` is split out so the **arithmetic** is tested against a
+   synthetic curve with a peak deliberately in it. That is the test that a
+   barrier would be found and correctly sized. What junk establishes is only
+   that the interior alphas are really evaluated.
+2. `min_excess` and `rose_above_chord` are reported, because a curve below the
+   chord renders as a flat `max_excess = 0.0` that reads like a broken metric.
+   The report derives its own wording from whether the curve ever rose.
+
+The identical pair's barrier reads ~1e-9 rather than exactly 0, and that is
+arithmetic, not a barrier: `(1 - a) * w + a * w` is not bitwise `w` in float, so
+interior alphas run a model a few ulps from the endpoints. It is reported as a
+**separate quantity** from the weight-metric deviation, because filing it under
+the same heading would either look like a defect or train a reader to ignore a
+number that should be zero.
+
+#### The batch is part of the measurement
+
+`bursts/context.txt` -- committed, human-reviewed, 1024 GPT-2 tokens, sha256
+already in `bursts/provenance.json`. Re-tokenized every run rather than pinning
+the ids, and **that is the safer direction**: a tokenizer version shift leaves
+the file hash alone and moves the token hash, so the drift is loud. Pinning the
+ids would make the same shift invisible because nothing would ever re-tokenize.
+Both hashes go into every report.
+
+`--tiny` cannot use it -- 1024 GPT-2 tokens against a 64-token vocabulary and 32
+positions is an index error, not a small inaccuracy -- so the smoke path has its
+own byte-derived batch whose `source` says out loud that it is not the
+measurement input.
+
+#### Timing, measured before the run rather than estimated
+
+One cell at GPT-2 124M shapes, on the real 1024-token batch:
+
+| component | seconds |
+| --- | --- |
+| barrier, 21 alphas | 76.9 (3.66 per alpha) |
+| build junk pair | 5.7 |
+| 2x layer activations | 5.5 |
+| route cross-check | 5.5 |
+| L2 + CKA + cosine | 2.2 |
+| **one (pair, seed) cell** | **~90** |
+
+4 pairs x 10 seeds = 40 cells ~ 3600s, six times over the ~600s cap. Chunked as
+**one pair x 5 seeds = ~480s, 8 chunks**, merged per seed. The barrier is 85% of
+the cell, so it is the only thing worth cutting if the budget ever tightens --
+but nothing was cut: ten seeds and the 21-point grid both survived, so the
+tradeoff did not have to be made.
+
+#### Two defects the real run exposed, both in the reporting rather than the metrics
+
+**1. A cross-seed count that was only the last chunk.**
+`barrier_rose_above_chord_count` was summed inside one `measure_pair` call and
+stored. Under chunked running that keeps only the last chunk's five seeds while
+reading as a total, and the report printed:
+
+    rose above chord: 4 of 10 seeds (8 of them above the 4.80e-08 noise floor)
+
+Eight cannot exceed four, and **that arithmetic impossibility is the only
+reason the bug was visible at all** -- had the derived count not been added
+beside it, "4 of 10" would have been wrong and unremarkable forever. Every
+cross-seed summary is now derived from `by_seed`, exactly like min/median/max,
+and `test_seed_summaries_are_derived_not_stored_per_chunk` asserts the two
+counts cannot contradict.
+
+This is the same family as S69's stale variant list and S70's hand-written
+provenance: **a value that looks like a total and is not.**
+
+**2. The rise count had to be measured against float noise, not zero.**
+The identical pair rises above the chord on 9 of 10 seeds, at ~2.7e-08. Counted
+against zero that reads as a defect in the one pair that must be perfect.
+`barrier_noise_floor` takes the identical pair's worst excess as the floor and
+every other pair's rises are counted against it. The result separates cleanly:
+
+| pair | rose above chord | cleared the 4.80e-08 floor |
+| --- | --- | --- |
+| identical | 9/10 | **0/10** |
+| zeroed_block | 8/10 | **8/10** |
+| noise | 1/10 | 1/10 |
+| independent | 0/10 | 0/10 |
+
+The floor is measured rather than chosen, and it is the level below which no
+barrier on this grid means anything.
+
+#### The headline responsiveness result
+
+At GPT-2 124M shapes, ten seeds, on the committed batch:
+
+| pair | L2 median | layer 12 CKA median | layer 12 cosine median |
+| --- | --- | --- | --- |
+| identical | 0 | 1.000000 | 1.000000 |
+| noise | 11.156 | -- | -- |
+| zeroed_block | 77.919 | 0.998919 | 0.952470 |
+| independent | 358.809 | -- | -- |
+
+L2 orders strictly: `0 < 11.2 < 77.9 < 358.8`, so the metric neither saturates
+nor collapses. **The zeroed-block pair is the load-bearing case and it moves in
+the predicted direction:** layers 0 through 11 read exactly `1.000000` on both
+CKA and cosine, and only layer 12 -- the one carrying the zeroed final block
+through `ln_f` -- moves. A metric that dropped everywhere would have passed a
+weaker "something changed" test while being just as broken.
+
+The route cross-check agreed at **0.0 absolute gap on all ten seeds**.
+
+#### What this half cannot answer
+
+Recorded in the report itself, derived from which functions actually raise so
+it cannot go stale when one is implemented: no aligned metrics, no RSF probe,
+and **no trained models**. Someone opening
+`docs/measurements/10-metrics.md` in two months must not be able to mistake it
+for the metrics module being finished.
+
 ### S70. The report now states its own provenance, and the prose reads the data
 
 Four defects in the measurement report, all of the same family: **a record that
@@ -3398,7 +3628,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-447 tests, counted per file with `--collect-only` rather than from memory.
+510 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -3413,10 +3643,12 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_canonicalize_mutations.py` | 16 |
 | `tests/test_canonicalize_diagnostics.py` | 10 |
 | `tests/test_measurement_report.py` | 12 |
-| **total** | **447** |
+| `tests/test_metrics.py` | 45 |
+| `tests/test_metrics_report.py` | 18 |
+| **total** | **510** |
 
-In the base environment (`.venv/`, no torch) the run is **293 passed, 154
-skipped**. In `.venv-ml/` it is **447 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **293 passed, 156
+skipped**. In `.venv-ml/` it is **510 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
