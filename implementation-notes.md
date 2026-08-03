@@ -2635,6 +2635,74 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S78. The determinism path, repaired: three declared values and a digest that sees the step counter
+
+From the 2026-08-03 contradiction scan. All three items block the pilot, because
+the pilot exists to establish determinism on real hardware and the loop could
+not have reproduced the only determinism evidence that exists.
+
+#### The loop and the evidence used different AdamW implementations
+
+`scripts/train.py` hardcoded `foreach=False, fused=False` — the **`single`**
+implementation. `probes/determinism/train_once.py:157` defaults to
+**`foreach`**, and the committed result was produced under it.
+
+The three implementations group their arithmetic differently — per tensor, per
+fused group, or in one kernel — so **each produces different bits from
+identical moments.** The loop meant to inherit that evidence could not have
+reproduced it, and nothing said so because nothing declared the value.
+
+Fixed in the direction the evidence points: **the loop now reads
+`optimizer.adamw_impl` from the config**, and the probe is untouched. Committed
+evidence is not invalidated to accommodate a hardcoded default.
+
+#### `state_digest` could not see the step counter
+
+It hashed every parameter tensor plus `exp_avg` and `exp_avg_sq`, and **not
+`step`**. AdamW's bias correction is `1 - beta**step`, so two optimizer states
+with identical moments at different step counts produce different next updates
+— and digested identically. Verified: moving `step` by 100 left the digest
+unchanged.
+
+The resume path itself was never wrong (`optimizer.load_state_dict` restores
+`step`). What was wrong is that **the acceptance test could not have detected
+that class of divergence**, while asserting "bit-identical final states".
+
+`scripts/train.py::state_digest` now includes it, pinned by
+`test_state_digest_covers_the_optimizer_step_counter`.
+
+**`probes/determinism/train_once.py` still has the omission**, so the committed
+determinism result carries it. `docs/measurements/2026-08-02-determinism-check.md`
+now opens with an amended-coverage banner saying so. The result is not
+withdrawn — nothing suggests those runs differed in `step`, and there is no
+reason they would — but the comparison could not have caught it, and the
+difference between "was identical" and "was not shown to differ" is the whole
+point of a digest. Closing it in the probe needs the A6000 this repo lacks.
+
+#### dtype: fp32 by coincidence, not by declaration
+
+`scripts/train.py` has **no autocast at all** (verified: zero occurrences) and
+trained fp32 implicitly. The probe's default is also fp32, so they agreed by
+accident.
+
+`training.dtype` is now a launch-blocking field. The loop **refuses `bf16`
+explicitly** rather than training fp32 while the record claims bf16 — the
+config accepts the value because `probes/determinism` covers both dtypes and
+the field describes the study, not this one implementation. A run whose
+provenance was wrong about the arithmetic that produced it would be worse than
+one that will not start.
+
+#### All three are now the same shape
+
+`training.micro_batch`, `training.dtype`, `optimizer.adamw_impl`: null in the
+shipped config, launch-blocking for **every** arm, no defaults anywhere, and
+validated against closed sets (`DTYPES`, `ADAMW_IMPLS`) by hand — the pattern
+`arm` uses against `ARMS`, which is the enum helper S67 said the loader lacks.
+
+This is what S67 asked for, arrived at from the opposite direction: not because
+the config system wanted completeness, but because the absence of two of them
+had already produced a silent divergence between the loop and the evidence.
+
 ### S77. The training loop: resume is bit-identical, and what that does not prove
 
 `scripts/train.py`, `scripts/rng_state.py`. The acceptance test passes: a run
@@ -4255,7 +4323,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-672 tests, counted per file with `--collect-only` rather than from memory.
+677 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4279,11 +4347,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_verify.py` | 13 |
 | `tests/test_model_seam.py` | 24 |
 | `tests/test_rng_state.py` | 17 |
-| `tests/test_train.py` | 18 |
-| **total** | **672** |
+| `tests/test_train.py` | 23 |
+| **total** | **677** |
 
 In the base environment (`.venv/`, no torch) the run is **395 passed, 160
-skipped**. In `.venv-ml/` it is **672 passed, 0 skipped**. The 172 config tests
+skipped**. In `.venv-ml/` it is **677 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

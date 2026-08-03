@@ -1,5 +1,36 @@
 # Determinism check — `determinism: true` holds, on this machine, at both dtypes
 
+> ## COVERAGE AMENDED 2026-08-03 — THE COMPARISON HAD A BLIND SPOT
+>
+> This result is not withdrawn. What changed is what it is known to cover.
+>
+> **The digest omits AdamW's `step` counter.** `probes/determinism/train_once.py`
+> hashes every parameter tensor and, per parameter, only `exp_avg` and
+> `exp_avg_sq`. It does not hash `step`. Bias correction is `1 - beta**step`, so
+> **two optimizer states holding identical moments at different step counts
+> produce different next updates and digest identically here.** Verified
+> directly: moving `step` by 100 leaves the combined SHA-256 unchanged.
+>
+> Nothing suggests the runs compared below actually differed in `step` — they
+> were fresh processes running the same number of steps, so there is no reason
+> they would. The point is narrower and worth stating plainly: **this comparison
+> could not have detected it if they had.** The claim "byte equality of every
+> saved parameter tensor and every optimizer moment" is exactly true; the
+> broader reading, "the two final states are identical", is not what was
+> measured.
+>
+> `scripts/train.py::state_digest` now includes the step counter.
+> **`probes/determinism/train_once.py` has NOT been changed**, so re-running the
+> probe today reproduces the same blind spot. Closing it means editing the probe
+> and re-running, which needs the A6000 this repo does not have.
+>
+> **A second scoping change, same date.** The result was produced with
+> `--adamw-impl foreach` (the probe's default) at an invented micro-batch of 8,
+> on one RTX A6000, with `probes/determinism/model.py`'s `nn.Linear` model.
+> `configs/base.yaml` now declares `training.micro_batch`, `training.dtype` and
+> `optimizer.adamw_impl` as launch-blocking fields with no defaults, so a future
+> run states which of these it used instead of inheriting them. See S78.
+
 **Date:** 2026-08-02
 **Code:** commit `27dc517` (tree clean; `run_provenance.yaml` in each run
 directory records `dirty: false`)

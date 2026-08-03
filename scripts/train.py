@@ -217,6 +217,20 @@ def state_digest(model, optimizer) -> str:
             if key in state:
                 combined.update(f"param{i:03d}.{key}".encode())
                 combined.update(tensor_digest(state[key]).encode())
+        # THE STEP COUNTER IS PART OF THE STATE, and omitting it was a real
+        # blind spot rather than a tidy simplification. AdamW's bias correction
+        # is 1 - beta**step, so two optimizers holding identical moments at
+        # different step counts produce DIFFERENT next updates -- and without
+        # this they digested identically. probes/determinism/train_once.py has
+        # the same omission, so the committed determinism result was taken with
+        # a comparison that could not detect this class of divergence. See S78.
+        if "step" in state:
+            combined.update(f"param{i:03d}.step".encode())
+            step_value = state["step"]
+            combined.update(
+                tensor_digest(step_value).encode()
+                if hasattr(step_value, "detach")
+                else repr(step_value).encode())
     return combined.hexdigest()
 
 
@@ -337,6 +351,26 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
     micro = cfg.training.micro_batch
     accum = cfg.training.accumulation_steps
 
+    if cfg.training.dtype is None:
+        raise TrainError(
+            "training.dtype is null and this loop has NO DEFAULT for it. It "
+            "changes which kernels run and therefore reduction order; the "
+            "determinism probe measured 66 kernels against 74 between fp32 and "
+            "bf16. Decide it in configs/base.yaml.")
+    if cfg.training.dtype != "fp32":
+        raise TrainError(
+            f"training.dtype is {cfg.training.dtype!r}, and this loop "
+            "implements fp32 ONLY -- it has no autocast. Training fp32 while "
+            "the config records bf16 would make every run's provenance wrong "
+            "about the arithmetic that produced it, so this refuses instead. "
+            "probes/determinism covers bf16; scripts/train.py does not.")
+    if cfg.optimizer.adamw_impl is None:
+        raise TrainError(
+            "optimizer.adamw_impl is null and this loop has NO DEFAULT for it. "
+            "foreach, fused and single group their arithmetic differently and "
+            "produce different bits from identical moments. Decide it in "
+            "configs/base.yaml.")
+
     determinism = configure_determinism(cfg.seed, strict=strict_determinism)
 
     # THE PERMUTATION CONTRACT, before a single batch is consumed.
@@ -353,7 +387,12 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         model.parameters(), lr=cfg.learning_rate.peak,
         betas=(cfg.optimizer.beta1, cfg.optimizer.beta2),
         eps=cfg.optimizer.eps, weight_decay=cfg.optimizer.weight_decay,
-        foreach=False, fused=False,
+        # Taken from the config, never hardcoded. This loop previously fixed
+        # `single` here while the committed determinism result was produced
+        # under `foreach`, which made that evidence inapplicable to the loop
+        # meant to inherit it -- silently, because nothing declared the value.
+        foreach=(cfg.optimizer.adamw_impl == "foreach"),
+        fused=(cfg.optimizer.adamw_impl == "fused"),
     )
 
     start_step = 0
@@ -426,6 +465,8 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         "model": SEAM.describe(model, family),
         "micro_batch": micro,
         "accumulation_steps": accum,
+        "dtype": cfg.training.dtype,
+        "adamw_impl": cfg.optimizer.adamw_impl,
         "steps_run": [start_step, total],
         "determinism": determinism,
         "rng_sources": RNG.sources_captured(RNG.capture()),

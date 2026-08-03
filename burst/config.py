@@ -45,7 +45,9 @@ from typing import Any
 import yaml
 
 __all__ = [
+    "ADAMW_IMPLS",
     "ARMS",
+    "DTYPES",
     "INJECTING_ARMS",
     "Config",
     "ConfigError",
@@ -65,6 +67,18 @@ ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary", "twin")
 #: gets no injection, so it does not need injection_step or
 #: burst_length_tokens filled in before it can be launched.
 INJECTING_ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary")
+
+#: Compute dtypes the loader will accept. Closed set, validated by hand in
+#: _validate_semantics because the loader has no enum helper -- the same
+#: pattern `arm` uses against ARMS. `bf16` is accepted by the CONFIG and is
+#: NOT IMPLEMENTED by scripts/train.py, which has no autocast; the loop
+#: refuses it explicitly rather than training fp32 while the record says bf16.
+DTYPES: tuple[str, ...] = ("fp32", "bf16")
+
+#: AdamW implementations. Each groups its arithmetic differently -- per tensor,
+#: per fused group, or in one kernel -- so each produces different bits from
+#: identical moments.
+ADAMW_IMPLS: tuple[str, ...] = ("foreach", "fused", "single")
 
 #: A run override file may set these top-level keys and nothing else. This is
 #: stricter than "unknown keys are rejected" on purpose -- the study's claim is
@@ -353,6 +367,15 @@ class TrainingConfig:
     #: ASSOCIATIVE, two accumulation shapes over identical data give different
     #: bits. A default here would silently decide part of the experiment.
     micro_batch: int | None = None
+    #: Compute dtype for the forward and backward pass, or None while undecided.
+    #:
+    #: No default, for the same reason micro_batch has none: it CHANGES WHICH
+    #: CUDA KERNELS ARE SELECTED, and therefore reduction order. The
+    #: determinism probe measured this directly -- fp32 chose
+    #: fmha_cutlassF/B, bf16 chose pytorch_flash::flash_fwd/bwd, 66 kernels
+    #: against 74. A run that inherited a dtype rather than declaring one would
+    #: be reproducible only by accident.
+    dtype: str | None = None
 
     @property
     def accumulation_steps(self) -> int:
@@ -388,6 +411,16 @@ class OptimizerConfig:
     #: rejected at launch, exactly like the injection fields, so no run can
     #: start without someone having decided.
     grad_clip: float | None
+    #: Which AdamW implementation to use, or None while undecided.
+    #:
+    #: No default, and this one has already caused a divergence: the training
+    #: loop hardcoded `single` while the committed determinism result was
+    #: produced under `foreach`. The three implementations group their
+    #: arithmetic differently -- per tensor, per fused group, or in one kernel
+    #: -- so THEY PRODUCE DIFFERENT BITS from identical moments. That made the
+    #: only determinism evidence this study has inapplicable to the loop meant
+    #: to inherit it, silently, because nothing declared the value.
+    adamw_impl: str | None = None
 
 
 @dataclass(frozen=True)
@@ -806,6 +839,7 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             total_steps=_int(merged, "training", "total_steps", source),
             micro_batch=_int(merged, "training", "micro_batch", source,
                              allow_null=True),
+            dtype=_str(merged, "training", "dtype", source, allow_null=True),
         ),
         optimizer=OptimizerConfig(
             name=_str(merged, "optimizer", "name", source),
@@ -813,6 +847,8 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             beta1=_float(merged, "optimizer", "beta1", source),
             beta2=_float(merged, "optimizer", "beta2", source),
             eps=_float(merged, "optimizer", "eps", source),
+            adamw_impl=_str(merged, "optimizer", "adamw_impl", source,
+                            allow_null=True),
             grad_clip=_float(merged, "optimizer", "grad_clip", source,
                              allow_null=True),
         ),
@@ -938,6 +974,23 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
                 "over every step, so the step would not train on the batch the "
                 "config describes.\n"
                 f"Source: {source}")
+
+    # Requirement 4c: the two closed-set reduction-order fields.
+    #
+    # Validated by hand against a tuple because the loader has no enum helper,
+    # which is exactly how `arm` is checked against ARMS. Both change which
+    # kernels run and therefore what bits come out, so a typo that fell through
+    # to a default would be a different experiment wearing the same config.
+    if cfg.training.dtype is not None and cfg.training.dtype not in DTYPES:
+        raise ConfigError(
+            f"training.dtype must be exactly one of {', '.join(DTYPES)}; got "
+            f"{cfg.training.dtype!r}. Source: {source}")
+    if (cfg.optimizer.adamw_impl is not None
+            and cfg.optimizer.adamw_impl not in ADAMW_IMPLS):
+        raise ConfigError(
+            f"optimizer.adamw_impl must be exactly one of "
+            f"{', '.join(ADAMW_IMPLS)}; got {cfg.optimizer.adamw_impl!r}. "
+            f"Source: {source}")
 
     # Cheap arithmetic sanity checks in the same spirit as the one above.
     if cfg.training.seq_len > cfg.model.block_size:
@@ -1123,6 +1176,12 @@ def _missing_for_launch(cfg: Config) -> list[str]:
     # same run, so no arm can launch without it having been decided.
     if cfg.training.micro_batch is None:
         missing.append("training.micro_batch")
+    # Same class as micro_batch: both decide reduction order, so both are part
+    # of what makes two runs the same run, for every arm.
+    if cfg.training.dtype is None:
+        missing.append("training.dtype")
+    if cfg.optimizer.adamw_impl is None:
+        missing.append("optimizer.adamw_impl")
     # Every arm, including twin. Clipping applies to the whole run, not just
     # to the step the burst lands on, so twin is no more exempt from the
     # decision than the injecting arms are.

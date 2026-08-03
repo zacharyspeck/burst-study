@@ -88,6 +88,19 @@ training:
 
   # The loader asserts batch_size % micro_batch == 0 when micro_batch is set.
 
+  # Compute dtype for the forward and backward pass: fp32 or bf16.
+  #
+  # UNSET ON PURPOSE, and the training loop REFUSES without it, for the same
+  # reason as micro_batch: it CHANGES WHICH CUDA KERNELS RUN, and therefore
+  # reduction order. The determinism probe measured this directly -- fp32
+  # selected fmha_cutlassF/B, bf16 selected pytorch_flash::flash_fwd/bwd, 66
+  # kernels against 74.
+  #
+  # NOTE: scripts/train.py implements fp32 ONLY. It has no autocast, and it
+  # refuses bf16 explicitly rather than training fp32 while this field claims
+  # bf16. probes/determinism covers both; the loop does not. See S78.
+  dtype: null
+
   # Optimizer steps for the whole run.
   #
   # Steps are 0-INDEXED: the first step is 0 and the LAST STEP IS 9535
@@ -115,6 +128,21 @@ optimizer:
   # keeps influencing updates after the injection step.
   beta1: 0.9
   beta2: 0.95
+
+  # Which AdamW implementation: foreach, fused, or single.
+  #
+  # UNSET ON PURPOSE and launch-blocking. The three group their arithmetic
+  # differently -- per tensor, per fused group, or in one kernel -- so each
+  # produces DIFFERENT BITS from identical moments.
+  #
+  # THIS FIELD EXISTS BECAUSE ITS ABSENCE ALREADY CAUSED A DIVERGENCE.
+  # scripts/train.py hardcoded `foreach=False, fused=False` -- the `single`
+  # implementation -- while the committed determinism result in
+  # docs/measurements/2026-08-02-determinism-check.md was produced under
+  # `foreach`. The loop meant to inherit that evidence could not have
+  # reproduced it, and nothing said so because nothing declared the value.
+  # See S78.
+  adamw_impl: null
 
   # NOT 1e-8. PyYAML's float rule requires a decimal point, so `1e-8` parses
   # as the STRING '1e-8' -- see the formatting rule at the top of this file.
