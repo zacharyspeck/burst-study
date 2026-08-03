@@ -73,7 +73,10 @@ REPORT_STEM = "9-canonicalization-error"
 
 #: Seven decades, bracketing from below float32 epsilon up to a large change.
 EPSILONS = (1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2)
-SEEDS = (11, 22, 33, 44, 55)
+#: Widened from five. The sort's failure was seed-dependent, which makes seed
+#: stability a live question for the alignment path too rather than an
+#: assumption -- so the sweep reports spread across seeds, not just a median.
+SEEDS = (11, 22, 33, 44, 55, 66, 77, 88, 99, 110)
 SHAPES = ("isotropic", "per_tensor")
 
 #: Interpolation from initialization (0.0) to public GPT-2 (1.0).
@@ -265,15 +268,17 @@ def gauge_dimensions(arch) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def measure_symmetry_residual(build, arch, seeds, stream) -> dict:
+def measure_symmetry_residual(build, arch, seeds, stream, recipe=None) -> dict:
     import copy
     import torch
 
-    reference = build()
-    C.canonicalize(reference, arch)
-    ref_sd = C.canonical_state_dict(reference)
-    theta_norm = l2_norm(ref_sd)
-    del reference
+    # The twin defines the frame; both sides are then measured against it.
+    # Canonical form is pairwise-relative since the FFN permutation is fixed by
+    # matching rather than sorting, so a reference is required for the shipped
+    # recipe to do anything at all.
+    frame = build()
+    C.canonicalize(frame, arch, recipe=recipe)
+    theta_norm = l2_norm(C.canonical_state_dict(frame))
 
     rows = {}
     for name in RECIPE_SYMMETRIES + ("__composed__",):
@@ -287,8 +292,8 @@ def measure_symmetry_residual(build, arch, seeds, stream) -> dict:
                     moved, arch)
             d_raw = l2_distance(C.canonical_state_dict(plain),
                                 C.canonical_state_dict(moved))
-            C.canonicalize(plain, arch)
-            C.canonicalize(moved, arch)
+            C.canonicalize(plain, arch, recipe=recipe, reference=frame)
+            C.canonicalize(moved, arch, recipe=recipe, reference=frame)
             d_canon = l2_distance(C.canonical_state_dict(plain),
                                   C.canonical_state_dict(moved))
             raws.append(d_raw)
@@ -324,6 +329,35 @@ def _order_flips(a, b) -> int:
     return sum(1 for x, y in zip(a, b) if tuple(x) != tuple(y))
 
 
+def _basis_drift(sd_a, sd_b, arch) -> float:
+    """Smallest |cos| between corresponding canonical Q-factor columns.
+
+    1.0 means the head-internal SVD picked the same basis in both models; below
+    1.0 means it ROTATED. This exists because _sign_flips only sees discrete
+    +/-1 flips, and the failure that actually bites is a CONTINUOUS rotation of
+    the basis inside a near-degenerate subspace. On real GPT-2 the smallest
+    singular gap is 5.479e-06, so a perturbation of that order rotates the
+    basis substantially while flipping no signs at all -- which is exactly the
+    case the sign counter reported as 0/0/0 while the distance inflated 2000x.
+    """
+    worst = 1.0
+    for layer in range(arch.n_layer):
+        w = sd_a[f"transformer.h.{layer}.attn.c_attn.weight"]
+        w2 = sd_b[f"transformer.h.{layer}.attn.c_attn.weight"]
+        for head in range(arch.n_head):
+            sl = head_columns_local(head, arch)
+            a, b = w[:, sl].double(), w2[:, sl].double()
+            na = a.norm(dim=0).clamp_min(1e-300)
+            nb = b.norm(dim=0).clamp_min(1e-300)
+            cos = ((a * b).sum(dim=0) / (na * nb)).abs()
+            worst = min(worst, float(cos.min()))
+    return worst
+
+
+def head_columns_local(head, arch):
+    return C.head_columns("q", head, arch)
+
+
 def _sign_flips(sd_a, sd_b, arch) -> int:
     """Columns of the canonical Q factor that came out with opposite signs."""
     import torch
@@ -341,17 +375,17 @@ def _sign_flips(sd_a, sd_b, arch) -> int:
     return flips
 
 
-def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream) -> dict:
+def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream,
+                          recipe=None) -> dict:
     """Does canonicalization inflate the distance between two NEARLY IDENTICAL
     models? That is the question the study actually asks of this ruler."""
     import copy
 
     reference = build()
     ref_plain_sd = C.canonical_state_dict(reference)
-    ref_report = C.canonicalize(reference, arch)
+    ref_report = C.canonicalize(reference, arch, recipe=recipe)
     ref_sd = C.canonical_state_dict(reference)
     conditions = list(ref_report.head_conditions)
-    del reference
 
     # Split the heads by conditioning so a spike can be attributed. The
     # head-internal step inverts through this spectrum, so the worst-
@@ -374,13 +408,14 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream) -> dict:
         for epsilon in epsilons:
             key = f"{shape}|{epsilon:g}"
             ratios, worst_ratios, median_ratios = [], [], []
-            head_flips, ffn_flips, sign_flips = [], [], []
+            head_flips, ffn_flips, sign_flips, drifts = [], [], [], []
             gaps, margins = [], []
             for seed in seeds:
                 moved = build()
                 d_raw = perturb(moved, epsilon, shape, seed)
                 moved_plain_sd = C.canonical_state_dict(moved)
-                report = C.canonicalize(moved, arch)
+                report = C.canonicalize(moved, arch, recipe=recipe,
+                                        reference=reference)
                 moved_sd = C.canonical_state_dict(moved)
 
                 d_canon = l2_distance(ref_sd, moved_sd)
@@ -402,13 +437,21 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream) -> dict:
                 ffn_flips.append(_order_flips(ref_report.ffn_orders,
                                               report.ffn_orders))
                 sign_flips.append(_sign_flips(ref_sd, moved_sd, arch))
+                drifts.append(_basis_drift(ref_sd, moved_sd, arch))
                 gaps.append(report.min_singular_gap)
                 margins.append(min(report.min_head_sort_margin,
                                    report.min_ffn_sort_margin))
                 del moved, moved_sd, moved_plain_sd
 
+            spread = (max(ratios) / min(ratios)) if min(ratios) > 0 else float("inf")
             results[key] = {
                 "shape": shape, "epsilon": epsilon,
+                "n_seeds": len(ratios),
+                # Seed stability. The retired sort's inflation was
+                # seed-dependent, which is what disqualified it, so this is
+                # measured for the shipped recipe rather than assumed away.
+                "ratio_stdev": statistics.stdev(ratios) if len(ratios) > 1 else 0.0,
+                "ratio_max_over_min": spread,
                 "ratio_min": min(ratios),
                 "ratio_median": statistics.median(ratios),
                 "ratio_max": max(ratios),
@@ -419,6 +462,9 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream) -> dict:
                 "head_order_flips_total": sum(head_flips),
                 "ffn_order_flips_total": sum(ffn_flips),
                 "sign_flips_total": sum(sign_flips),
+                # 1.0 = the head-internal basis is identical in both models.
+                # Below 1.0 = it rotated, which sign_flips cannot see.
+                "min_basis_alignment_cos": min(drifts),
                 "min_singular_gap_min": min(gaps),
                 "min_sort_margin_min": min(margins),
             }
@@ -428,7 +474,8 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream) -> dict:
                   f"worst-cond={r['ratio_worst_conditioned_heads_median']:.4f} "
                   f"med-cond={r['ratio_median_conditioned_heads_median']:.4f}  "
                   f"flips h/f/s={r['head_order_flips_total']}/"
-                  f"{r['ffn_order_flips_total']}/{r['sign_flips_total']}",
+                  f"{r['ffn_order_flips_total']}/{r['sign_flips_total']} "
+                  f"basis_cos={r['min_basis_alignment_cos']:.4f}",
                   file=stream, flush=True)
 
     return {
@@ -467,29 +514,38 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
     """
     import copy
 
+    # Variants are defined against the SHIPPED recipe. An earlier version
+    # filtered for SortFFNNeurons, which DEFAULT_RECIPE no longer contains, so
+    # four of the five removals were no-ops and the table reported them all as
+    # identical. The live attribution question is now the head-internal step.
     variants = {
-        "full_recipe": C.DEFAULT_RECIPE,
-        "without_ffn_sort": tuple(
-            s for s in C.DEFAULT_RECIPE if not isinstance(s, C.SortFFNNeurons)),
+        "shipped_recipe": C.DEFAULT_RECIPE,
+        "without_ffn_permutation": tuple(
+            s for s in C.DEFAULT_RECIPE
+            if not isinstance(s, (C.AlignFFNNeurons, C.SortFFNNeurons))),
         "without_head_sort": tuple(
             s for s in C.DEFAULT_RECIPE if not isinstance(s, C.SortHeads)),
-        "without_either_sort": tuple(
+        "without_head_internal": tuple(
             s for s in C.DEFAULT_RECIPE
-            if not isinstance(s, (C.SortHeads, C.SortFFNNeurons))),
+            if not isinstance(s, C.CanonicalizeHeadInternal)),
+        "RETIRED_sort_recipe": C.SORT_ONLY_RECIPE,
     }
     rows = {}
     for label, recipe in variants.items():
         reference = build()
         C.canonicalize(reference, arch, recipe=recipe)
         ref_sd = C.canonical_state_dict(reference)
-        del reference
         cells = {}
         for epsilon in epsilons:
             ratios = []
             for seed in seeds:
                 moved = build()
                 d_raw = perturb(moved, epsilon, "isotropic", seed)
-                C.canonicalize(moved, arch, recipe=recipe)
+                # reference= is REQUIRED: without it AlignFFNNeurons is a no-op
+                # and every variant collapses to "no permutation step", which
+                # is what made an earlier version of this table report all five
+                # variants as identical.
+                C.canonicalize(moved, arch, recipe=recipe, reference=reference)
                 ratios.append(
                     l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
                 del moved
@@ -498,10 +554,10 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
         print(f"    {label:<22} " + "  ".join(
             f"eps={k}:{v:.4g}" for k, v in cells.items()),
             file=stream, flush=True)
-        del ref_sd
+        del reference, ref_sd
 
     # The matching route, on the same perturbations.
-    no_sort = variants["without_either_sort"]
+    no_sort = variants["without_ffn_permutation"]
     reference = build()
     C.canonicalize(reference, arch, recipe=no_sort)
     ref_sd = C.canonical_state_dict(reference)
@@ -549,23 +605,33 @@ def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
     """
     import copy
 
-    no_sort = tuple(s for s in C.DEFAULT_RECIPE
-                    if not isinstance(s, (C.SortHeads, C.SortFFNNeurons)))
+    # AlignFFNNeurons MUST be in this exclusion list. It was not, and because
+    # DEFAULT_RECIPE no longer contains SortFFNNeurons the filter removed
+    # nothing -- so the variant labelled "no_permutation_step" still aligned,
+    # and reported that dropping the step costs nothing. It costs 6.9e+07.
+    no_perm = tuple(s for s in C.DEFAULT_RECIPE
+                    if not isinstance(s, (C.SortHeads, C.SortFFNNeurons,
+                                          C.AlignFFNNeurons)))
+    no_sort = no_perm
 
     def canon_none(model, reference):
-        C.canonicalize(model, arch, recipe=no_sort)
+        C.canonicalize(model, arch, recipe=no_sort, reference=reference)
 
     def canon_align(model, reference):
         C.canonicalize(model, arch, recipe=no_sort)
         C.align_permutations_to(model, reference, arch)
 
     def canon_sort(model, reference):
-        C.canonicalize(model, arch, recipe=C.DEFAULT_RECIPE)
+        C.canonicalize(model, arch, recipe=C.SORT_ONLY_RECIPE)
+
+    def canon_shipped(model, reference):
+        C.canonicalize(model, arch, recipe=C.DEFAULT_RECIPE, reference=reference)
 
     variants = {
         "no_permutation_step": (no_sort, canon_none),
         "hungarian_alignment": (no_sort, canon_align),
-        "ffn_sort": (C.DEFAULT_RECIPE, canon_sort),
+        "ffn_sort_RETIRED": (C.SORT_ONLY_RECIPE, canon_sort),
+        "shipped_recipe": (C.DEFAULT_RECIPE, canon_shipped),
     }
 
     rows = {}
@@ -585,7 +651,7 @@ def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
                 # d_raw is the epsilon alone. The permutation is gauge and
                 # contributes nothing a correct ruler should report.
                 d_raw = perturb(moved, epsilon, "isotropic", seed)
-                canon_fn(moved, reference)
+                canon_fn(moved, reference)   # each variant threads reference
                 ratios.append(
                     l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
                 del moved
@@ -710,7 +776,12 @@ def measure_dispersion_sweep(build, arch, levels, stream) -> dict:
             for b, original in zip(C._conv1d_biases(model), biases):
                 b.copy_(t * original)
         try:
-            report = C.canonicalize(model, arch)
+            # SORT_ONLY_RECIPE deliberately: the FFN sort margin is a property
+            # of the MODEL's keys, not of the shipped recipe, and it is what
+            # says why the sort was retired and how much worse it gets toward
+            # initialization. The shipped recipe does not compute it, so it is
+            # measured through the retired one and labelled as such.
+            report = C.canonicalize(model, arch, recipe=C.SORT_ONLY_RECIPE)
             row = {
                 "min_layernorm_gain": report.min_layernorm_gain,
                 "min_singular_gap": report.min_singular_gap,
@@ -790,6 +861,26 @@ def format_report(payload) -> str:
             f"{cell['head_order_flips_total']:>5}"
             f"/{cell['ffn_order_flips_total']}"
             f"/{cell['sign_flips_total']}")
+
+    retired = payload.get("epsilon_sweep_RETIRED_sort_recipe")
+    if retired:
+        lines += ["", thin,
+                  "the RETIRED sort-based recipe, same sweep, for comparison",
+                  thin,
+                  "NOT the study's ruler. Kept so the measurement that retired",
+                  "it stays reproducible. sort_ffn_neurons in place of",
+                  "align_ffn_neurons; every other step identical.",
+                  "",
+                  f"{'shape':<12}{'epsilon':>9}{'ratio med':>13}{'ratio min':>12}"
+                  f"{'ratio max':>13}{'ffn flips':>11}"]
+        for cell in retired["cells"].values():
+            lines.append(
+                f"{cell['shape']:<12}{cell['epsilon']:>9.0e}"
+                f"{cell['ratio_median']:>13.4g}{cell['ratio_min']:>12.4g}"
+                f"{cell['ratio_max']:>13.4g}"
+                f"{cell['ffn_order_flips_total']:>11}")
+        lines.append("")
+        lines.append("  The shipped recipe's rows are in section B above.")
 
     gauge = payload["gauge_dimensions"]
     lines += ["", thin,
@@ -890,6 +981,13 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="run against the in-process tiny model, for a "
                              "fast smoke test rather than a real measurement")
     parser.add_argument("--seeds", type=int, default=len(SEEDS))
+    parser.add_argument(
+        "--sections", default="ABCDE",
+        help=("which measurements to run, e.g. DE. A subset MERGES into the "
+              "existing results file rather than replacing it, so an "
+              "expensive section does not have to be recomputed to correct a "
+              "cheap one. The merged file records which sections were "
+              "refreshed and when."))
     return parser
 
 
@@ -915,27 +1013,49 @@ def main(argv=None) -> int:
             return copy.deepcopy(source)
 
     seeds = SEEDS[:args.seeds]
+    want = set(args.sections.upper())
+    stem = REPORT_STEM + ("-tiny" if args.tiny else "")
+    existing = {}
+    prior = Path(args.reportdir) / f"{stem}.json"
+    if want != set("ABCDE") and prior.is_file():
+        existing = json.loads(prior.read_text(encoding="utf-8"))
+        print(f"merging sections {sorted(want)} into {prior}", file=stream)
+    residual = sweep = retired_sweep = dispersion = None
+    attribution = sort_margins = permuted = None
+
     print(f"model: {'TINY (smoke test)' if args.tiny else 'gpt2 124M'} | "
           f"{arch.n_layer}L {arch.n_head}H {arch.n_embd}D | "
           f"{arch.n_params:,} params | seeds {list(seeds)}", file=stream)
 
-    print("\nA. symmetry residual", file=stream)
-    residual = measure_symmetry_residual(build, arch, seeds, stream)
+    if "A" in want:
+        print("\nA. symmetry residual", file=stream)
+        residual = measure_symmetry_residual(build, arch, seeds, stream,
+                                             recipe=C.DEFAULT_RECIPE)
 
-    print("\nB. epsilon sweep", file=stream)
-    sweep = measure_epsilon_sweep(build, arch, EPSILONS, SHAPES, seeds, stream)
+    if "B" in want:
+        print("\nB. epsilon sweep", file=stream)
+        sweep = measure_epsilon_sweep(build, arch, EPSILONS, SHAPES, seeds, stream,
+                                      recipe=C.DEFAULT_RECIPE)
 
-    print("\nC. dispersion sweep", file=stream)
-    dispersion = measure_dispersion_sweep(build, arch, DISPERSION_LEVELS, stream)
+        print(chr(10) + 'B-retired. epsilon sweep  [RETIRED sort recipe]', file=stream)
+        retired_sweep = measure_epsilon_sweep(
+            build, arch, EPSILONS, ('isotropic',), seeds, stream,
+            recipe=C.SORT_ONLY_RECIPE)
 
-    print("\nD. step attribution", file=stream)
-    attribution = measure_step_attribution(
-        build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
-    sort_margins = measure_sort_margins(build, arch, stream)
+    if "C" in want:
+        print("\nC. dispersion sweep", file=stream)
+        dispersion = measure_dispersion_sweep(build, arch, DISPERSION_LEVELS, stream)
 
-    print("\nE. permuted-model recovery", file=stream)
-    permuted = measure_permuted_recovery(
-        build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
+    if "D" in want:
+        print("\nD. step attribution", file=stream)
+        attribution = measure_step_attribution(
+            build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
+        sort_margins = measure_sort_margins(build, arch, stream)
+
+    if "E" in want:
+        print("\nE. permuted-model recovery", file=stream)
+        permuted = measure_permuted_recovery(
+            build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
 
     payload = {
         "task": "step 9 phase 5",
@@ -947,22 +1067,29 @@ def main(argv=None) -> int:
                          "n_embd": arch.n_embd, "n_inner": arch.n_inner,
                          "parameters": arch.n_params},
         "recipe": [s.name for s in C.DEFAULT_RECIPE],
+        "retired_recipe": [s.name for s in C.SORT_ONLY_RECIPE],
+        "recipe_note": ("The SHIPPED recipe ends align_ffn_neurons and every "
+                        "headline number here describes it. Anything under a "
+                        "RETIRED key describes the superseded sort_ffn_neurons "
+                        "recipe, kept so the measurement that retired it stays "
+                        "reproducible. Those are NOT the study's ruler."),
         "seeds": list(seeds),
         "environment": {"python": sys.version.split()[0],
                         "platform": platform.platform(),
                         "torch": torch.__version__},
-        "symmetry_residual": residual,
-        "epsilon_sweep": sweep,
+        "epsilon_sweep_RETIRED_sort_recipe": retired_sweep or existing.get("epsilon_sweep_RETIRED_sort_recipe"),
+        "symmetry_residual": residual or existing.get("symmetry_residual"),
+        "epsilon_sweep": sweep or existing.get("epsilon_sweep"),
         "gauge_dimensions": gauge_dimensions(arch),
-        "dispersion_sweep": dispersion,
-        "step_attribution": attribution,
-        "ffn_sort_margins": sort_margins,
-        "permuted_model_recovery": permuted,
+        "dispersion_sweep": dispersion or existing.get("dispersion_sweep"),
+        "step_attribution": attribution or existing.get("step_attribution"),
+        "ffn_sort_margins": sort_margins or existing.get("ffn_sort_margins"),
+        "permuted_model_recovery": permuted or existing.get("permuted_model_recovery"),
+        "sections_refreshed_this_run": sorted(want),
     }
 
     reportdir = Path(args.reportdir)
     reportdir.mkdir(parents=True, exist_ok=True)
-    stem = REPORT_STEM + ("-tiny" if args.tiny else "")
     (reportdir / f"{stem}.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     text = format_report(payload)

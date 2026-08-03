@@ -10,13 +10,13 @@ A. SYMMETRY RESIDUAL -- the ruler against itself
 Two models that are secretly identical, in different gauges.
 
 symmetry                            d_raw   d_canonical       ratio
-layernorm_gain_rescale         4.1274e+02    2.9475e-11   7.148e-14
-head_permutation               9.7660e+02    1.1996e-14   1.250e-17
-head_internal_transform        1.0470e+03    4.0365e-11   3.855e-14
+layernorm_gain_rescale         4.1226e+02    2.9704e-11   7.197e-14
+head_permutation               9.8616e+02    1.1980e-14   1.227e-17
+head_internal_transform        1.0472e+03    4.0076e-11   3.829e-14
 ffn_neuron_permutation         1.3509e+03    0.0000e+00   0.000e+00
-key_bias_shift                 9.6216e+01    0.0000e+00   0.000e+00
-value_bias_shift               3.4179e+02    9.1635e-14   2.690e-16
-__composed__                   1.8424e+03    4.3994e-11   2.396e-14
+key_bias_shift                 9.6210e+01    0.0000e+00   0.000e+00
+value_bias_shift               3.4192e+02    9.1478e-14   2.676e-16
+__composed__                   1.8384e+03    4.2312e-11   2.304e-14
 
 ==============================================================================
 B. EPSILON SWEEP -- does canonicalizing INFLATE a real difference?
@@ -27,20 +27,38 @@ ratio = ||canon(M) - canon(M+eps)|| / ||M - (M+eps)||.
 head condition number over 144 heads: min 2.62, median 5.51, max 1.1e+03
 
 shape         epsilon  ratio med  ratio max  worst-cond  med-cond   flips h/f/s
-isotropic       1e-08740101.0288808844.6538      4.2114    5.5393    0/10/0
-isotropic       1e-07 93056.6538102519.0788      4.2114    5.5393    0/18/0
-isotropic       1e-06 23016.9582 25985.8451      4.5249    5.5392    0/50/0
-isotropic       1e-05  8339.9073  8530.8867   1295.7607    5.5382    0/60/0
-isotropic       1e-04  2447.8120  2499.5034    202.9261  272.3325    0/60/21
-isotropic       1e-03   540.8203   546.2573     52.5237   93.3403    1/60/376
-isotropic       1e-02    67.1422    67.2861     16.8650   23.5282    5/60/3348
-per_tensor      1e-08740101.0288808844.6540      4.7542    7.3094    0/10/0
-per_tensor      1e-07 93056.6538 98934.9633      4.7542    7.3095    0/17/0
-per_tensor      1e-06 22637.6051 24905.2322      5.1070    7.3096    0/50/0
-per_tensor      1e-05  8050.3229  8194.0271   1153.6143    7.3107    0/60/1
-per_tensor      1e-04  2376.1777  2427.3885    180.6069  289.6754    0/60/35
-per_tensor      1e-03   536.4485   539.6810     56.1346  109.0303    3/60/651
-per_tensor      1e-02    67.3253    67.3899     17.1074   28.3632    5/60/4647
+isotropic       1e-08     3.2629     3.4868      4.7156    5.6440    0/0/0
+isotropic       1e-07     3.2629     3.4868      4.7156    5.6440    0/0/0
+isotropic       1e-06  1929.2841  2450.5376      4.9317    5.6441    0/0/0
+isotropic       1e-05   278.4886   475.6342    651.0262    5.7533    0/0/0
+isotropic       1e-04    91.2910   125.0040    204.4178  280.2209    0/0/47
+isotropic       1e-03    36.7707    43.5507     52.3092   86.8081    4/0/882
+isotropic       1e-02    11.3600    11.9627     17.2862   23.7842   11/0/6801
+per_tensor      1e-08     4.1409     4.7206      5.3320    7.3509    0/0/0
+per_tensor      1e-07     4.1410     4.7205      5.3321    7.3509    0/0/0
+per_tensor      1e-06  1929.2853  3118.8574      6.5183    7.3508    0/0/0
+per_tensor      1e-05   324.1982   475.6395    580.4860    7.4686    0/0/1
+per_tensor      1e-04   109.5156   153.8735    193.8587  328.6574    0/0/74
+per_tensor      1e-03    47.2007    56.2472     52.9160  107.7024    7/0/1369
+per_tensor      1e-02    12.9935    13.5646     17.0926   28.6261   12/0/9428
+
+------------------------------------------------------------------------------
+the RETIRED sort-based recipe, same sweep, for comparison
+------------------------------------------------------------------------------
+NOT the study's ruler. Kept so the measurement that retired
+it stays reproducible. sort_ffn_neurons in place of
+align_ffn_neurons; every other step identical.
+
+shape         epsilon    ratio med   ratio min    ratio max  ffn flips
+isotropic       1e-08    5.606e+05       3.314    8.088e+05         16
+isotropic       1e-07     8.75e+04       3.481    1.139e+05         30
+isotropic       1e-06    2.356e+04   1.984e+04     2.67e+04        105
+isotropic       1e-05         8331        8018         8668        120
+isotropic       1e-04         2441        2426         2500        120
+isotropic       1e-03          541       539.5        546.3        120
+isotropic       1e-02        67.15       66.95        67.29        120
+
+  The shipped recipe's rows are in section B above.
 
 ------------------------------------------------------------------------------
 gauge subspace, counted exactly
@@ -86,10 +104,11 @@ Median ratio, isotropic perturbation, recipe steps removed one
 at a time. A pooled ratio says something is wrong; this says what.
 
 recipe variant                 eps=1e-08       eps=1e-06      eps=0.0001
-full_recipe                  808844.6538      23016.9582       2447.8120
-without_ffn_sort                  3.0501          3.0911         84.3839
-without_head_sort            808844.6538      23016.9582       2447.8120
-without_either_sort               3.0501          3.0911         84.3839
+shipped_recipe                    3.0501          3.0911         84.3839
+without_ffn_permutation           3.0501          3.0911         84.3839
+without_head_sort                 3.0501          3.0911         84.3839
+without_head_internal             0.9093          0.9093          0.9117
+RETIRED_sort_recipe          808844.6538      23016.9582       2447.8120
 hungarian_alignment               3.0501          3.0911         84.3839
 
 ------------------------------------------------------------------------------
@@ -113,7 +132,8 @@ permutation is gauge and a correct ruler should not report it.
 variant                        eps=1e-08       eps=1e-06      eps=0.0001
 no_permutation_step            6.895e+07       6.895e+05            6896
 hungarian_alignment                 3.05           3.091           84.38
-ffn_sort                            3.05       2.215e+04            2447
+ffn_sort_RETIRED                    3.05       2.215e+04            2447
+shipped_recipe                      3.05           3.091           84.38
 
 ==============================================================================
 OPEN QUESTION -- the distortion factor is a range

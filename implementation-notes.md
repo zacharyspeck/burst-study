@@ -2316,6 +2316,50 @@ worth recording given S55:
 Both are now tests with the reasoning in their docstrings rather than
 assumptions in mine.
 
+### S61. The S55 pattern one level up: mis-named experimental conditions
+
+S55 is about a *quantity* named for one thing and computed as another. The
+phase 5 re-run produced two instances of the same shape applied to an
+*experimental condition* — a variant labelled as one thing and executed as
+another — and both produced reassuring numbers.
+
+**Instance 1: the reference was not threaded.** Measurements D and E called
+`canonicalize(model, arch, recipe=recipe)` with no `reference=`. Since
+`AlignFFNNeurons` is a deliberate no-op without a reference, every variant
+collapsed to "no permutation step" and the attribution table reported all five
+as identical — `3.05 / 3.091 / 84.38` across the board. A table where every row
+agrees looks like a clean result rather than a broken harness.
+
+**Instance 2: the variant filters went stale.** After instance 1 was fixed, the
+filters still excluded `SortFFNNeurons`, which `DEFAULT_RECIPE` had stopped
+containing one commit earlier. The filter therefore removed nothing, and the
+variant **labelled `no_permutation_step` still performed the permutation
+step** — reporting that dropping it costs nothing, when measurement E had
+already established it costs `6.9e+07`.
+
+Neither was caught by a test. Both were caught by reading a table and noticing
+that a number which should have been enormous was not — the same "measure
+something adjacent and be surprised" route S55 says is the only thing that has
+ever worked here.
+
+**What is different about these**, and why the S60 guard does not cover them:
+`tests/test_canonicalize_diagnostics.py` checks that each *reported quantity*
+equals what it is named for. It has nothing to say about whether a *variant*
+is the condition its label claims. A recipe variant is data, constructed at
+call time, and there is no natural place to assert "this tuple of steps really
+is the recipe minus its permutation step" other than at the point of use.
+
+**Partial mitigation applied:** the variant dictionaries now filter on the
+abstract behaviour (`AlignFFNNeurons` *or* `SortFFNNeurons` for "no permutation
+step") rather than on one concrete class, so replacing one implementation with
+another does not silently empty the filter. `measure_step_attribution` also
+gained a `without_head_internal` variant, because after the alignment change
+the head-internal step is the live attribution question and the old variant set
+was asking a question that had already been answered.
+
+**Not mitigated:** nothing asserts that a variant is what it is called. If a
+third instance appears, this note is where to start.
+
 ### S55. STANDING RISK: metrics that are not the quantity they are named after
 
 Three instances in one build. This is no longer a series of incidents and

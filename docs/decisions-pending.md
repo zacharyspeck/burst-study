@@ -96,6 +96,26 @@ canonical form means, which is out of scope for a measurement task.
 A ruling between 1–4. If 3 or 4, that is a design task rather than a
 measurement one and wants its own plan and its own gate.
 
+### A related measurement bug, found and fixed while investigating this
+
+Twice in one session a measurement's *variant definitions* went stale against
+the recipe they were varying, and both times the result was a table that read
+as reassuring:
+
+1. Measurements D and E did not thread `reference=` through `canonicalize()`.
+   Without it `AlignFFNNeurons` is a no-op, so every variant collapsed to "no
+   permutation step" and the table reported all five as identical.
+2. After that was fixed, the variant *filters* were still written against
+   `SortFFNNeurons`, which `DEFAULT_RECIPE` no longer contains. The filter
+   removed nothing, so the variant labelled **`no_permutation_step` still
+   performed the permutation step** — and reported that dropping it costs
+   nothing. Dropping it costs `6.9e+07`.
+
+Both are the S55 shape one level up: not a mis-named quantity but a mis-named
+*experimental condition*, producing a plausible number that argues something is
+safe. Fixed, and D now carries a `without_head_internal` variant because that
+is the live attribution question rather than the retired one.
+
 ### Note on the earlier report
 
 Phase 5 as first reported said the residual `3.05` came from the head-internal
