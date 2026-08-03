@@ -165,11 +165,11 @@ ACTIVATION ROUTE CROSS-CHECK
 ==============================================================================
 TIMING -- measured before the run, not estimated
 ==============================================================================
-  seconds_this_run                  281.33
+  seconds_this_run                  260.8
   seeds_this_run                    5
   pairs_this_run                    1
   alpha_grid_points                 21
-  seconds_per_pair_seed             56.27
+  seconds_per_pair_seed             52.16
 
 ==============================================================================
 WHAT THIS FILE CANNOT ANSWER

@@ -175,7 +175,13 @@ def shard_sequence_range(shard_index: int) -> tuple:
     return start, start + SEQUENCES_PER_SHARD
 
 
-def shard_byte_size(shard_index: int = 0) -> int:
+def shard_byte_size() -> int:
+    """Bytes in a training shard. Every shard is the same size by construction.
+
+    Took an unused `shard_index` argument until 2026-08-03, which implied a
+    per-shard variability the exact geometry forbids -- 149 x 16,384 divides
+    evenly, so there is no ragged final shard to be a special case.
+    """
     return SEQUENCES_PER_SHARD * SEQ_LEN * BYTES_PER_TOKEN
 
 

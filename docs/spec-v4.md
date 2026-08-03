@@ -114,6 +114,14 @@ later be checked against the possibility that the arms pushed different ways.
 
 **Step 200, fixed.**
 
+> **NOT YET IN THE CONFIG.** `configs/base.yaml` has
+> `injection.injection_step: null`, and every injecting arm is launch-blocked
+> until it is set. This section asserts the decision; the config records what
+> has been written down. The two disagree until someone edits the config, and
+> `--launch` is what stops that disagreement reaching a run. The same is true of
+> `burst_length_tokens`, which this document notes below and which is also still
+> null despite `bursts/` being built to 194 tokens.
+
 Two interactions with values already in `configs/base.yaml`, noted because
 neither is recorded anywhere as intentional:
 

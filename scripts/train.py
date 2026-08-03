@@ -150,6 +150,27 @@ class ShardReader:
                 "tokenized corpus built by scripts/corpus_tokenize.py; it does "
                 "not tokenize anything itself.")
         self.manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        # 1.9: the loop previously took the corpus directory entirely on
+        # trust. It verified the permutation and the held-out boundary -- both
+        # statements ABOUT a corpus -- while never checking that the corpus on
+        # disk was the one those statements describe. Full hash verification is
+        # scripts/corpus_verify.py's job and costs minutes; this is the cheap
+        # part that catches a corpus built from a different snapshot or to a
+        # different geometry.
+        recorded = self.manifest.get("spec", {})
+        if recorded.get("revision") not in (None, SPEC.REVISION):
+            raise TrainError(
+                f"the corpus at {self.outdir} was built from revision "
+                f"{recorded.get('revision')!r}, but corpus_spec pins "
+                f"{SPEC.REVISION!r}. These are different corpora.")
+        recorded_total = (recorded.get("total") or {}).get("tokens")
+        if recorded_total is not None and recorded_total != SPEC.TOTAL_TOKENS:
+            raise TrainError(
+                f"the corpus at {self.outdir} holds {recorded_total:,} tokens; "
+                f"corpus_spec describes {SPEC.TOTAL_TOKENS:,}. The geometry "
+                "changed after this corpus was built, so the sequence indices "
+                "this loop would serve do not mean what the corpus recorded.")
         self._maps: dict = {}
 
     def sequence(self, index: int):
@@ -322,7 +343,12 @@ def lr_at(step: int, cfg) -> float:
     total = cfg.training.total_steps
     if step < warmup:
         return peak * (step + 1) / warmup
-    progress = (step - warmup) / max(1, total - warmup)
+    # CLAMPED, matching probes/determinism/train_once.py. Without min(1.0, .)
+    # a step past total_steps sends the cosine back UP and the learning rate
+    # rises again -- verified: at step 9586 the unclamped form returns
+    # 0.0000600382 against the floor of 0.00006. Reachable through
+    # `--steps N` with N > total_steps.
+    progress = min(1.0, (step - warmup) / max(1, total - warmup))
     return final + 0.5 * (peak - final) * (1.0 + math.cos(math.pi * progress))
 
 
@@ -364,12 +390,29 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
             "the config records bf16 would make every run's provenance wrong "
             "about the arithmetic that produced it, so this refuses instead. "
             "probes/determinism covers bf16; scripts/train.py does not.")
+    if cfg.optimizer.grad_clip is None:
+        raise TrainError(
+            "optimizer.grad_clip is null and this loop has NO DEFAULT for it. "
+            "It previously fell back to float('inf'), which silently disables "
+            "clipping -- a study-defining value chosen by omission, in the one "
+            "module whose docstring says it refuses to do that. Decide it in "
+            "configs/base.yaml.")
     if cfg.optimizer.adamw_impl is None:
         raise TrainError(
             "optimizer.adamw_impl is null and this loop has NO DEFAULT for it. "
             "foreach, fused and single group their arithmetic differently and "
             "produce different bits from identical moments. Decide it in "
             "configs/base.yaml.")
+
+    # 1.10: the geometry duplicate exists so it can be checked, and until now
+    # it was checked only by the test suite. A run could train on a corpus
+    # built to a different token budget than the config it was launched with.
+    #
+    # Skipped only when the caller supplied its own n_sequences, which means a
+    # miniature corpus and therefore a geometry corpus_spec does not describe.
+    # The CLI never supplies it, so every real run is checked.
+    if n_sequences is None:
+        SPEC.check_against_config(cfg)
 
     determinism = configure_determinism(cfg.seed, strict=strict_determinism)
 
@@ -442,8 +485,7 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         # gradient separately -- a different algorithm wearing the same config
         # value, and it would look fine.
         pre_clip = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), cfg.optimizer.grad_clip
-            if cfg.optimizer.grad_clip is not None else float("inf"))
+            model.parameters(), cfg.optimizer.grad_clip)
         optimizer.step()
 
         grad_norms.append({"step": step, "pre_clip_grad_norm": float(pre_clip),

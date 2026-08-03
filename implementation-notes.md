@@ -2644,6 +2644,69 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S80. The live wrong number, re-measured — and the rest of the scan
+
+#### 10-metrics: re-measured, not re-rendered
+
+`docs/measurements/10-metrics.json` stored `barrier_rose_above_chord_count` as
+a **per-chunk** value (5, 4, 0, 0) while the `.md` derived 9, 8, 1, 0 from the
+same `by_seed` data. Two files in one measurement set, contradicting each other
+in the repo.
+
+The fix for the *code* landed on 2026-08-03 with S70's derived counts, but the
+JSON was only **re-rendered** — so the old key persisted with its old values and
+the new one never appeared. **Re-rendering is what left it wrong the first
+time**, which is why this was re-measured from scratch: 8 chunks, 4 pairs x 10
+seeds.
+
+| pair | rose (derived) | cleared the 4.80e-08 floor | stored `_this_chunk` |
+| --- | --- | --- | --- |
+| identical | 9/10 | 0 | 5 |
+| zeroed_block | 8/10 | 8 | 4 |
+| noise | 1/10 | 1 | 0 |
+| independent | 0/10 | 0 | 0 |
+
+The re-measure **reproduced the same values**, which is the useful part: the
+derived numbers were right all along and only the stored key was wrong. The
+replacement key is named `barrier_rose_above_chord_this_chunk` — it still holds
+a per-chunk count, and now says so.
+
+#### Block 4, the rest
+
+| scan item | what it was | what it is now |
+| --- | --- | --- |
+| 3.2 | `grad_clip` fell back to `float("inf")`, silently disabling clipping | refuses; a study-defining value chosen by omission, in the module whose docstring says it refuses to do that |
+| 1.9 | the loop took the corpus directory on trust — it verified the permutation and the held-out boundary, both statements ABOUT a corpus, while never checking the corpus was the one they describe | `ShardReader` checks the manifest's revision and total against `corpus_spec` |
+| 1.10 | `check_against_config` ran only in tests | runs at startup on every production path; skipped only when a caller supplies its own `n_sequences`, which the CLI never does |
+| 2.7 | LR unclamped past `total_steps`, so the cosine turned back up — 0.0000600382 at step 9586 against a 0.00006 floor | `min(1.0, progress)`, matching the probe |
+| 2.4 | `RNG.digest` omitted numpy, which `capture()` records and `sources_captured()` lists | covered |
+| 2.5 | the uint16 check examined the first and last token and claimed to validate the block | scans every token, with a message about tokens rather than about integers |
+| 2.6 | `shard_byte_size(shard_index)` ignored its argument, implying a per-shard variability the exact geometry forbids | argument removed |
+
+#### Stale prose corrected
+
+`tests/test_config.py` claimed `grad_clip` is null in the shipped config; it has
+been 1.0 since 2026-07-31. `scripts/generate_overrides.py` hardcoded "40 run
+override files" in a docstring while reading the count from the config —
+it moved to 70 with no edit needed, which is the argument for not writing counts
+down. `probes/determinism/train_once.py` said all three reduction-order values
+"had to be supplied here"; that is now true of none of them as config fields,
+though the probe still supplies its own, which is why its result describes a
+configuration nobody chose.
+
+`docs/spec-v4.md` asserted **step 200, fixed** while `configs/base.yaml` has
+`injection_step: null`, and the same for `burst_length_tokens` against
+`bursts/`'s 194. Both now carry a note that the section states a decision and
+the config records what has been written down — `--launch` is what stops the
+disagreement reaching a run.
+
+#### Not fixed, and why
+
+**`probes/determinism/train_once.py` still omits the step counter from its
+digest.** Closing it means editing the probe and re-running, which needs the
+A6000 this repo does not have. Recorded in the report's banner instead, so the
+result's coverage is stated rather than assumed.
+
 ### S79. The arm list reconciled to v4, and the run count is 70
 
 Three sources disagreed: `burst/config.py` said four (retired v3),
@@ -3635,6 +3698,24 @@ This is why min/median/max is reported on everything. A median-only table would
 have shown a flawless ruler.
 
 ### S67. OPEN: the config omits the three values that decide reproducibility
+
+> **RESOLVED IN PLACE 2026-08-03. All three are now config fields**:
+> `training.micro_batch`, `training.dtype` and `optimizer.adamw_impl`, each null
+> in the shipped config, launch-blocking for every arm, with no default
+> anywhere and closed-set validation. The heading and the original text below
+> are kept unchanged, per CLAUDE.md rule 2: the fact that the gap existed, and
+> what it cost, is part of the record.
+>
+> **What it cost, since that is the part worth keeping.** Two of the three were
+> not merely undeclared — they were silently decided by code. `scripts/train.py`
+> hardcoded `foreach=False, fused=False` while the committed determinism result
+> ran `foreach`, and trained fp32 with no autocast while declaring nothing. The
+> loop meant to inherit that evidence could not have reproduced it, and the
+> 2026-08-03 contradiction scan is what found it. See S78.
+>
+> The "enum-style validation" this entry says the loader lacks now exists as
+> `DTYPES` and `ADAMW_IMPLS`, checked by hand exactly as `arm` is checked
+> against `ARMS` — which is the pattern this entry recommended.
 
 **Not fixed. The values depend on decisions not yet made, so this records the
 gap rather than closing it.**

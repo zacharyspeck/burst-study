@@ -169,6 +169,13 @@ def digest(state: dict) -> str:
         hasher.update(repr(_as_random_state(state["python"])).encode())
     for saved in (state.get("torch_cuda_all") or []):
         hasher.update(_as_byte_tensor(saved).cpu().numpy().tobytes())
+    # numpy is captured by capture() and listed by sources_captured(), so
+    # omitting it here made the digest quieter than the thing it claims to
+    # fingerprint: two states differing only in numpy's generator hashed the
+    # same. Currently inert -- nothing in the loop uses numpy's global RNG --
+    # which is exactly why it would have gone unnoticed.
+    if state.get("numpy") is not None:
+        hasher.update(repr(state["numpy"]).encode())
     return hasher.hexdigest()
 
 

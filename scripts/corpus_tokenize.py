@@ -197,8 +197,15 @@ def write_block(path: Path, tokens: list) -> dict:
     the commit point: a file under its real name has been written whole and
     hashed, and a `.partial` left by a crash is discarded rather than resumed.
     """
-    if any(t < 0 or t > 65535 for t in tokens[:1] + tokens[-1:]):
-        raise CorpusTokenizeError("a token does not fit uint16")
+    # Checks EVERY token, not the first and last. The sampled version claimed
+    # to validate the block and examined two elements of it; a mid-array value
+    # out of range fell through to int.to_bytes, which raises OverflowError
+    # with a message about integers rather than about tokens.
+    bad = next((t for t in tokens if t < 0 or t > 65535), None)
+    if bad is not None:
+        raise CorpusTokenizeError(
+            f"token {bad} does not fit uint16 (0..65535); the vocabulary this "
+            "corpus was tokenized with does not match the dtype the shards use")
     partial = path.with_suffix(path.suffix + ".partial")
     payload = b"".join(
         int(t).to_bytes(SPEC.BYTES_PER_TOKEN, SPEC.BYTE_ORDER) for t in tokens)

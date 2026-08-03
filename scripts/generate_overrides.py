@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-"""Generate all 40 run override files: 10 seeds x 4 arms.
+"""Generate every run override file: n_seeds x arms, both read from the config.
+
+Currently 70 (10 seeds x 7 arms). The count is deliberately not written
+down as a literal anywhere in this module -- it moved from 40 to 70 on
+2026-08-03 when the arm list was reconciled, and nothing here needed
+editing.
 
 The seed count and the arm names are read from configs/base.yaml rather than
 hard-coded here, so there is exactly one place where the shape of the study is

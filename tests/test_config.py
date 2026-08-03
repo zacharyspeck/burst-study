@@ -584,8 +584,10 @@ def valid_burst_base(tmp_path, path_value):
     return write_base(
         tmp_path,
         checkpointing__weights_only_interval=50, checkpointing__full_interval=1000,
-        # grad_clip is null in the shipped config and is rejected at launch,
-        # so a config that is meant to BE launch-ready has to decide it.
+        # grad_clip IS decided (1.0) in the shipped config; set here anyway so
+        # this fixture stays launch-ready if that ever reverts to null. The
+        # comment previously claimed it was null, which stopped being true when
+        # it was decided on 2026-07-31.
         optimizer__grad_clip=1.0,
         # Likewise micro_batch: it is null in the shipped config on purpose and
         # every arm needs it, because the accumulation shape is part of what

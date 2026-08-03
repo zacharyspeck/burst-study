@@ -9,7 +9,15 @@ through burst.config, so this is the first thing in the repo that consumes the
 config the way a training loop would. The values that are NOT in that config
 and had to be supplied here -- micro-batch size, dtype, the AdamW
 implementation -- are command-line arguments, printed in the header, and
-recorded in environment_asserted.yaml. They are assumptions, not decisions;
+recorded in environment_asserted.yaml. They were assumptions, not decisions.
+AS OF 2026-08-03 ALL THREE ARE CONFIG FIELDS -- training.micro_batch,
+training.dtype and optimizer.adamw_impl -- so a future run declares them
+instead of inheriting whatever this probe happened to pass. This probe still
+supplies its own, which is why its result describes a configuration nobody
+chose. See S67 and S78.
+
+The originally recorded wording follows:
+they are assumptions, not decisions;
 see probes/determinism/README.md.
 """
 

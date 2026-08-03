@@ -1,6 +1,5 @@
 {
   "task": "step 10 first half -- layout-independent metrics",
-  "LIMITATION": "EVERY NUMBER IN THIS FILE IS MEASURED ON JUNK CHECKPOINTS. No trained model exists in this study and none will for weeks, so these are throwaway models built in process from pinned seeds and never written to disk. The consequence is not a caveat, it is the frame: this is a PLUMBING result showing that each metric responds to a difference, and it is not a measurement of anything about training. No number here should be quoted as a property of the study's models. THE ACTIVATION METRICS REST ON A THIN BASIS. CKA and activation similarity are computed over 1024 token positions drawn from a SINGLE DOCUMENT (bursts/context.txt), and for CKA those positions are the entire sample -- it is a statement about a sample of activations, and one document is a narrow one. This is a limitation of the numbers in this file as they stand, not merely of a decision left untaken, and it is independent of which text is used. The held-out corpus slice offers 10,240 sequences against this one, and would be the better basis. The batch is deliberately NOT being changed: every number here is keyed to a batch identity, so a swap would make old and new numbers incomparable, and that is a change to make once against trained checkpoints rather than twice. That text is ALSO corpus-derived -- bursts/context.txt is openwebtext document 73 -- so it is safe from a memorisation confound only because the held-out slice is taken from the FRONT of the corpus. See cross-module obligation 1.",
   "model": "GPT-2 124M shapes, JUNK weights (never trained)",
   "cka_variant": "linear_cka_unbiased_hsic_tokens_as_samples_v1",
   "batch": {
@@ -101,7 +100,7 @@
         "median": -2.7444614580929283e-08,
         "max": -3.539740944802361e-09
       },
-      "barrier_rose_above_chord_count": 5,
+      "barrier_rose_above_chord_this_chunk": 5,
       "cka": {
         "0": {
           "by_seed": {
@@ -867,7 +866,7 @@
         "median": 0.0,
         "max": 0.0
       },
-      "barrier_rose_above_chord_count": 4,
+      "barrier_rose_above_chord_this_chunk": 4,
       "cka": {
         "0": {
           "by_seed": {
@@ -1633,7 +1632,7 @@
         "median": -0.00023407995228730272,
         "max": 0.0
       },
-      "barrier_rose_above_chord_count": 0,
+      "barrier_rose_above_chord_this_chunk": 0,
       "cka": {
         "0": {
           "by_seed": {
@@ -2399,7 +2398,7 @@
         "median": -0.11427687008093379,
         "max": -0.05701427763231415
       },
-      "barrier_rose_above_chord_count": 0,
+      "barrier_rose_above_chord_this_chunk": 0,
       "cka": {
         "0": {
           "by_seed": {
@@ -3112,16 +3111,16 @@
   },
   "route_cross_check": {
     "by_seed": {
-      "66": 0.0,
-      "77": 0.0,
-      "88": 0.0,
-      "99": 0.0,
-      "110": 0.0,
       "11": 0.0,
       "22": 0.0,
       "33": 0.0,
       "44": 0.0,
-      "55": 0.0
+      "55": 0.0,
+      "66": 0.0,
+      "77": 0.0,
+      "88": 0.0,
+      "99": 0.0,
+      "110": 0.0
     },
     "n_seeds": 10,
     "worst_abs_gap": 0.0,
@@ -3129,11 +3128,11 @@
     "note": "hooks and output_hidden_states must reach identical tensors. This is the S55 independent-route pattern applied before a bug exists rather than after one was found. On disagreement the run STOPS rather than picking a route -- which route is correct cannot be determined from the disagreement itself."
   },
   "timing": {
-    "seconds_this_run": 281.33,
+    "seconds_this_run": 260.8,
     "seeds_this_run": 5,
     "pairs_this_run": 1,
     "alpha_grid_points": 21,
-    "seconds_per_pair_seed": 56.27
+    "seconds_per_pair_seed": 52.16
   },
   "pairs_refreshed_this_run": [
     "independent"
@@ -3161,8 +3160,6 @@
       "separated_from_identical": true
     }
   },
-  "CANNOT_ANSWER": "THIS IS HALF OF STEP 10 AND THE METRICS MODULE IS NOT DONE. Built and measured here: barrier, l2_distance_raw, activation_similarity, per_layer_cka. NOT built, and still raising NotImplementedError: aligned_barrier, aligned_l2, rsf_subspace_probe -- all of which route through scripts/canonicalize.py, which is Conv1D-only, while which layout the study trains is undecided in this repo. So this file cannot tell you: how far two checkpoints are once permutation gauge is removed, whether a barrier survives alignment, or anything about the RSF subspace. It also cannot tell you anything about TRAINED models, because none exist. See docs/layout-cost.md and open question 3 in docs/step9-summary.md.",
-  "PROVENANCE": "Metrics measured: barrier, raw L2, activation similarity and per-layer CKA (linear_cka_unbiased_hsic_tokens_as_samples_v1), on 4 junk checkpoint pairs. Seed coverage is read from the cells, not from the top-level 'seeds' key, which records only the LAST CHUNK'S WINDOW: identical at 10 seeds; independent at 10 seeds; noise at 10 seeds; zeroed_block at 10 seeds. The floor is 10 seeds and every pair meets it. The measurement input is bursts/context.txt at 1024 tokens, file sha256 b55dbe00537f, token sha256 e47ede6a3794. The token hash is derived by re-tokenizing the committed text every run: a tokenizer version shift leaves the file hash alone and moves the token hash, so drift is loud rather than silent. Two copies of one model deviate on L2, CKA and cosine by at most 1.110e-15. Its barrier reads 4.804e-08 rather than exactly zero, and that is arithmetic rather than a barrier: the interpolation evaluates (1 - a) * w + a * w, which is not bitwise w in floating point for most a, so interior alphas run a model a few ulps from the endpoints. It is the floor below which no barrier measured on this grid is meaningful. THE BARRIER IS NOT DEMONSTRATED BY THIS FILE, AND CANNOT BE. Junk checkpoints sit at chance loss along the entire interpolation, so there is mostly nothing to climb over: the curve sags below the chord instead of rising above it, and max_excess is 0 by definition when the maximum falls at an endpoint. Rises are counted against the identical pair's floor of 4.804e-08, not against zero, because interpolation float noise alone lifts two copies of one model above the chord on some seeds. Above that floor: noise on 1 of 10 seeds, largest 0.000216; zeroed_block on 8 of 10 seeds, largest 0.00956. That is the expected outcome for untrained weights and says nothing about whether the metric would find a real barrier between two trained checkpoints. What is established is that the interpolation is evaluated and that the arithmetic finds a peak when one is present -- the latter tested against a synthetic curve in tests/test_metrics.py, not by any number in this file. Responsiveness: the most similar any differing pair gets at its least-affected layer is CKA 0.6396, against 1.0 for two copies of one model. READ THE RANGE, NOT THE MEDIAN. Every cell stores its per-seed values and reports min/median/max over the union of chunks.",
   "barrier_noise_floor": 4.803701791900039e-08,
   "barriers_above_noise": {
     "identical": {
@@ -3189,5 +3186,8 @@
       "n_seeds": 10,
       "max_excess": 0.0
     }
-  }
+  },
+  "CANNOT_ANSWER": "THIS IS HALF OF STEP 10 AND THE METRICS MODULE IS NOT DONE. Built and measured here: barrier, l2_distance_raw, activation_similarity, per_layer_cka. NOT built, and still raising NotImplementedError: aligned_barrier, aligned_l2, rsf_subspace_probe -- all of which route through scripts/canonicalize.py, which is Conv1D-only, while which layout the study trains is undecided in this repo. So this file cannot tell you: how far two checkpoints are once permutation gauge is removed, whether a barrier survives alignment, or anything about the RSF subspace. It also cannot tell you anything about TRAINED models, because none exist. See docs/layout-cost.md and open question 3 in docs/step9-summary.md.",
+  "LIMITATION": "EVERY NUMBER IN THIS FILE IS MEASURED ON JUNK CHECKPOINTS. No trained model exists in this study and none will for weeks, so these are throwaway models built in process from pinned seeds and never written to disk. The consequence is not a caveat, it is the frame: this is a PLUMBING result showing that each metric responds to a difference, and it is not a measurement of anything about training. No number here should be quoted as a property of the study's models. THE ACTIVATION METRICS REST ON A THIN BASIS. CKA and activation similarity are computed over 1024 token positions drawn from a SINGLE DOCUMENT (bursts/context.txt), and for CKA those positions are the entire sample -- it is a statement about a sample of activations, and one document is a narrow one. This is a limitation of the numbers in this file as they stand, not merely of a decision left untaken, and it is independent of which text is used. The held-out corpus slice offers 10,240 sequences against this one, and would be the better basis. The batch is deliberately NOT being changed: every number here is keyed to a batch identity, so a swap would make old and new numbers incomparable, and that is a change to make once against trained checkpoints rather than twice. That text is ALSO corpus-derived -- bursts/context.txt is openwebtext document 73 -- so it is safe from a memorisation confound only because the held-out slice is taken from the FRONT of the corpus. See cross-module obligation 1.",
+  "PROVENANCE": "Metrics measured: barrier, raw L2, activation similarity and per-layer CKA (linear_cka_unbiased_hsic_tokens_as_samples_v1), on 4 junk checkpoint pairs. Seed coverage is read from the cells, not from the top-level 'seeds' key, which records only the LAST CHUNK'S WINDOW: identical at 10 seeds; independent at 10 seeds; noise at 10 seeds; zeroed_block at 10 seeds. The floor is 10 seeds and every pair meets it. The measurement input is bursts/context.txt at 1024 tokens, file sha256 b55dbe00537f, token sha256 e47ede6a3794. The token hash is derived by re-tokenizing the committed text every run: a tokenizer version shift leaves the file hash alone and moves the token hash, so drift is loud rather than silent. Two copies of one model deviate on L2, CKA and cosine by at most 1.110e-15. Its barrier reads 4.804e-08 rather than exactly zero, and that is arithmetic rather than a barrier: the interpolation evaluates (1 - a) * w + a * w, which is not bitwise w in floating point for most a, so interior alphas run a model a few ulps from the endpoints. It is the floor below which no barrier measured on this grid is meaningful. THE BARRIER IS NOT DEMONSTRATED BY THIS FILE, AND CANNOT BE. Junk checkpoints sit at chance loss along the entire interpolation, so there is mostly nothing to climb over: the curve sags below the chord instead of rising above it, and max_excess is 0 by definition when the maximum falls at an endpoint. Rises are counted against the identical pair's floor of 4.804e-08, not against zero, because interpolation float noise alone lifts two copies of one model above the chord on some seeds. Above that floor: noise on 1 of 10 seeds, largest 0.000216; zeroed_block on 8 of 10 seeds, largest 0.00956. That is the expected outcome for untrained weights and says nothing about whether the metric would find a real barrier between two trained checkpoints. What is established is that the interpolation is evaluated and that the arithmetic finds a peak when one is present -- the latter tested against a synthetic curve in tests/test_metrics.py, not by any number in this file. Responsiveness: the most similar any differing pair gets at its least-affected layer is CKA 0.6396, against 1.0 for two copies of one model. READ THE RANGE, NOT THE MEDIAN. Every cell stores its per-seed values and reports min/median/max over the union of chunks."
 }
