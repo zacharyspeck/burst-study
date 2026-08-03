@@ -468,7 +468,10 @@ judgment call belonging to whoever runs it, not to this script.
 Changing it costs one flag: `--seed 1` selects different spans, and everything
 downstream regenerates reproducibly. Recorded here so the choice is a choice.
 
-### D20. Phase 5's two runs were folded into one
+### D22. Phase 5's two runs were folded into one
+
+*(Numbered D20 when written, renumbered to D22 on rebase: `probes/` landed on
+`origin/main` first and had already claimed D20 and D21.)*
 
 The plan owner approved staging the phase 5 results, then required two
 additions to the results file (an OPEN_QUESTION field on the distortion-factor
@@ -2112,6 +2115,61 @@ fault 6 needs in order to proceed and fail silently, which is the realistic
 hazard. The floor is tested directly against hand-built spectra instead, and
 the model-level near-degenerate case is tested for the silent disagreement it
 actually produces.
+
+### S56. `probes/determinism/model.py` uses `nn.Linear`; step 9 assumes `Conv1D`
+
+Noticed on rebase, not by looking for it: the determinism probe landed on
+`origin/main` while phase 5 was measuring, and it contains the first model
+definition this repository has ever had. It is explicitly a stand-in and says
+so — but it is also the only evidence available about what the study's own
+model will look like, so step 9 has to be read against it.
+
+**The topology matches exactly, so the symmetry drop list transfers unchanged.**
+Pre-LN blocks, fused QKV, tied embeddings, learned absolute positions, GELU in
+its tanh approximation, LayerNorm. Every premise D17–D19 rest on holds, so
+residual rotation, residual scaling and FFN scaling remain non-symmetries there
+for the same reasons.
+
+**The LAYOUT does not transfer, and everything in step 9 is built on it.**
+
+| | HuggingFace GPT-2 | `probes/determinism/model.py` |
+| --- | --- | --- |
+| projection type | `Conv1D` | `nn.Linear` |
+| `c_attn.weight` shape | `(768, 2304)` = (in, out) | `(2304, 768)` = (out, in) |
+| heads live in | **columns** | **rows** |
+| `attn.c_proj` head blocks in | **rows** | **columns** |
+| FFN neurons in `c_fc` | columns | rows |
+
+Every slice in `head_columns`, `head_rows_of_out_proj`, `AbsorbLayerNormGains`,
+`CanonicalizeHeadInternal`, `SortHeads` and `SortFFNNeurons` is chosen for the
+Conv1D convention. Applied to an `nn.Linear` model with no change, each would
+hit the wrong axis — and, as the module docstring says about exactly this case,
+would not crash.
+
+**The tripwire refuses it — but for the wrong reason, which is a real weakness.**
+Run against the probe's `GPT`, `validate_architecture` raises on its very first
+check: no `.transformer` attribute. Safety is intact, but the message says the
+model is not a GPT-2 LM head model, which invites someone to fix the attribute
+name and try again. The substantive objection — that every axis is transposed —
+sits behind two further checks it never reaches. **A tripwire that refuses for a
+superficial reason ahead of the real one still lets the reader draw the wrong
+conclusion about what needs to change.** Not fixed here; reordering those checks
+or making the layout check unconditional is a change to the tripwire's contract
+and wants deciding rather than doing quietly.
+
+**It confirms S42 and S48 from an independent source.** The probe's
+`_init_weights` zeroes every `nn.Linear` bias and leaves `nn.LayerNorm` at its
+default, so a freshly built study model has **gains exactly 1.0 and biases
+exactly 0.0** — verified directly, not inferred. That is precisely the
+configuration that hid two defects during this build, and S48's claim that the
+step-200 model sits near it stops being an argument about public GPT-2 and
+becomes an observation about the study's own code.
+
+Verified alongside: `parameter_count()` returns `124,439,808`, matching
+`model.expected_param_count`, and `lm_head.weight is wte.weight` is `True`. The
+obligation recorded under "Not yet enforced" — that the training loop must
+count parameters and fail on a mismatch — is discharged there for the first
+time.
 
 ### S55. STANDING RISK: metrics that are not the quantity they are named after
 
