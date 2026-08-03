@@ -124,3 +124,72 @@ seeds and three epsilons, and it understated the problem: at ten seeds the same
 step reaches `2189.9`. The earlier statement was not wrong about the cause,
 only about the size, and the difference was hidden by too few seeds. This is
 the third time in this build that widening a measurement changed a conclusion.
+
+
+---
+
+## D-2. The ruler's distortion is direction-dependent and cannot be divided out
+
+**Status: open. Raised 2026-08-02 by measurement F. Nothing changed.**
+
+### The decision
+
+Is a ruler acceptable when its distortion depends on the *direction* of the
+difference being measured, and the relevant direction cannot be known until
+there are trained checkpoints?
+
+### What was measured
+
+Real GPT-2, `eps=1e-6`, ten seeds, isotropic perturbation. Ratio of 1 means
+distance-neutral.
+
+| variant | median | min | max |
+| --- | --- | --- | --- |
+| shipped recipe | `0.92200` | `0.84828` | `1.71067` |
+| EMPTY control | `1.00000` | `1.00000` | `1.00000` |
+| without gain absorption | `1.00041` | `1.00039` | `1.00046` |
+
+Every other step removal leaves the numbers unchanged. The empty control
+returning exactly 1.0 rules out the measurement harness.
+
+### Why it happens
+
+Gain absorption multiplies weight rows by `gamma`. That preserves the function
+exactly -- it is a valid symmetry -- but it is not an isometry of parameter
+space. It shrinks directions where `gamma < 1` and stretches those where
+`gamma > 1`. GPT-2's gains span `0.042` to `17.4`.
+
+So the ratio is not noise and not instability. It is the correct answer for a
+map that genuinely scales directions differently, sampled by whichever random
+direction each seed happens to draw. That is why removing the step collapses
+the spread from `[0.85, 1.71]` to `[1.00039, 1.00046]`.
+
+### Why this is worse than a constant
+
+A constant factor could be divided out. **This one cannot**, because it depends
+on the direction of the difference. The study's real arm-vs-twin difference is
+not an isotropic random direction; it is whatever direction training moved the
+weights in. Until checkpoints exist, which value in `[0.85, 1.71]` applies to
+the study's actual measurement is unknown.
+
+### Options
+
+1. **Accept it**, documented as a stated range, on the grounds that the study's
+   headline is a *comparison between arms* rather than an absolute distance --
+   if every arm is distorted by a similar factor relative to its twin, the
+   ordering may survive even if the magnitudes do not. NOT MEASURED; this would
+   need checking once checkpoints exist.
+2. **Drop gain absorption too.** Ratio returns to `1.0004 +/- 7e-05`, which is
+   as close to neutral as anything measured in this build. Cost: LayerNorm gain
+   stops being quotiented, and it is a CONTINUOUS gauge -- so by the same
+   zero-gradient argument used in D-1, same-seed twins carry identical values
+   there and it cancels anyway. **This is the option most consistent with the
+   D-1 ruling**, and would leave a four-step recipe.
+3. **Measure the distortion along the real difference direction** once
+   checkpoints exist, and correct for it if it turns out stable. Defers the
+   decision rather than taking it.
+
+### What I would need from you
+
+A ruling. Option 2 is a further narrowing of what the ruler quotients and is
+therefore the same class of decision as D-1; I have not taken it.

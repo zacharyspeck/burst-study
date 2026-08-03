@@ -46,6 +46,7 @@ from canonicalize import (  # noqa: E402
     DEFAULT_RECIPE,
     FROZEN_AXES,
     TINY,
+    RETIRED_HEAD_INTERNAL_RECIPE,
     SORT_ONLY_RECIPE,
     AbsorbLayerNormGains,
     AlignFFNNeurons,
@@ -77,14 +78,19 @@ requires_scipy = pytest.mark.skipif(
 #: The six symmetries DEFAULT_RECIPE actually quotients out.
 #: residual_permutation is a CONFIRMED symmetry but is deliberately NOT here --
 #: see test_residual_permutation_is_deliberately_not_quotiented.
+#: head_internal_transform is a CONFIRMED symmetry and is deliberately NOT
+#: here -- see test_head_internal_transform_is_deliberately_not_quotiented.
 RECIPE_SYMMETRIES = (
     "layernorm_gain_rescale",
     "head_permutation",
-    "head_internal_transform",
     "ffn_neuron_permutation",
     "key_bias_shift",
     "value_bias_shift",
 )
+
+#: What the retired recipe additionally quotients. Kept so D-1's measurement
+#: stays reproducible.
+RETIRED_EXTRA_SYMMETRIES = ("head_internal_transform",)
 
 #: Round-trip agreement is exact arithmetic executed in float64. Anything above
 #: this is a real disagreement, not rounding. Measured baseline is ~1.5e-15.
@@ -178,6 +184,46 @@ def test_round_trip_agrees_for_each_recipe_symmetry(name):
     assert worst < ROUND_TRIP_TOL, (
         f"canon(M) and canon({name}(M)) disagree by {worst:.3e} at {tensor}; "
         "the recipe does not quotient this symmetry out")
+
+
+@requires_torch
+def test_head_internal_transform_is_deliberately_not_quotiented():
+    """The second confirmed symmetry the recipe deliberately leaves alone, and
+    the more consequential one. Recorded as a test so the cost stays visible.
+
+    Removed on D-1. Its distortion was not merely large but SEED-DEPENDENT --
+    3.09 / 1929 / 2450 at the same epsilon on three different draws. A ruler
+    wrong by a consistent factor can be corrected for; one that swings three
+    orders of magnitude by seed cannot be corrected for or reliably noticed.
+
+    The gauge it would have removed is CONTINUOUS, so the loss is exactly flat
+    along it, its gradient is exactly zero, and it never moves during training.
+    Two same-seed twins therefore carry the identical value there and it
+    cancels in their difference. That is the zero-gradient argument at its
+    strongest, and it is why this ruling differs from the FFN permutation one:
+    permutations are DISCRETE, no tangent direction exists, and the same
+    argument is weak there. Same argument, opposite strength, opposite ruling.
+
+    THE CONSEQUENCE, which belongs in the limitations and not in a footnote:
+    the ruler is valid for comparing models that SHARE AN INITIALIZATION, and
+    is NOT validated for comparing independently-initialized models.
+    """
+    worst, _, _ = round_trip_worst(["head_internal_transform"], seed=777)
+    assert worst > 1e-6, (
+        "the head-internal gauge now round-trips, which means something put "
+        "that step back into the shipped recipe. That reverses D-1 and needs "
+        "the seed-dependence measurement redone before it is trusted")
+
+
+@requires_torch
+def test_the_retired_recipe_still_quotients_the_head_internal_gauge():
+    """The retired variant has to remain runnable and correct, or D-1's
+    measurement stops being reproducible and option 4 stops being available."""
+    worst, _, _ = round_trip_worst(["head_internal_transform"], seed=777,
+                                   recipe=RETIRED_HEAD_INTERNAL_RECIPE)
+    assert worst < ROUND_TRIP_TOL, (
+        f"the retired head-internal recipe no longer round-trips ({worst:.3e}); "
+        "it is kept precisely so D-1 stays checkable")
 
 
 @requires_torch
@@ -294,7 +340,10 @@ def test_head_singular_values_come_out_sorted_descending():
     singular value's mass sits in the bias row.
     """
     model = fresh()
-    run_canonicalize(model, TINY)
+    # RETIRED recipe: this is a postcondition of the head-internal step, which
+    # the shipped recipe no longer runs. Kept because option 4 in D-1 would
+    # reinstate that step and this is the check it would need.
+    run_canonicalize(model, TINY, recipe=RETIRED_HEAD_INTERNAL_RECIPE)
     for block in model.transformer.h:
         c_attn = block.attn.c_attn
         for h in range(TINY.n_head):
@@ -320,29 +369,66 @@ def _reordered(indices):
 
 
 @requires_torch
-@pytest.mark.parametrize("label,order", [
-    ("head_internal before gain absorption", [1, 2, 3, 0, 4, 5]),
-    ("sort_heads before head_internal", [0, 1, 2, 4, 3, 5]),
-    ("zero b_V after head_internal", [0, 1, 3, 2, 4, 5]),
-    ("gain absorption last", [1, 2, 3, 4, 5, 0]),
-    ("fully reversed", [5, 4, 3, 2, 1, 0]),
-])
-def test_a_permuted_recipe_order_breaks_the_round_trip(label, order):
-    """Order is part of the definition of canonical form. Gain absorption
-    rewrites c_attn's rows and the head-internal step reads c_attn; the sort
-    steps compute keys from tensors the earlier steps rewrite. Running them in
-    the wrong order produces a different -- and not canonical -- form."""
-    worst, _, _ = round_trip_worst(RECIPE_SYMMETRIES, seed=777,
-                                   recipe=_reordered(order))
-    assert worst > ROUND_TRIP_TOL, (
-        f"recipe order '{label}' still round-trips at {worst:.3e}. Either "
-        "those steps are genuinely independent, or the round-trip test is "
-        "weaker than it looks -- and which one it is needs establishing "
-        "before the order is treated as free")
+def test_every_ordering_of_the_shipped_recipe_gives_the_same_canonical_form():
+    """MEASURED, AND IT REVERSES WHAT THE SIX-STEP RECIPE DID.
+
+    With the head-internal step in the recipe, five of six tested orderings
+    broke the round trip and order was genuinely part of the definition of
+    canonical form (S46). With that step removed, **all 120 orderings of the
+    five remaining steps give the same canonical form** -- 0 of 119
+    non-identity permutations break it. The order dependence was entirely that
+    one step.
+
+    THIS IS FIXTURE-DEPENDENT AND SHOULD NOT BE READ AS A STRUCTURAL PROOF.
+    Absorption rescales c_attn's rows, which does change the head sort key, so
+    the steps do not commute in the strict sense -- the sort simply comes out
+    in the same ORDER either way on a fixture with four well-separated heads.
+    On real GPT-2, with twelve heads and a measured head-sort margin of
+    3.452e-05, that could differ. The real-model check belongs in the
+    measurement script, not here.
+    """
+    import itertools
+
+    reference_worst, _, _ = round_trip_worst(RECIPE_SYMMETRIES, seed=777)
+    assert reference_worst < ROUND_TRIP_TOL
+
+    broke = []
+    for order in itertools.permutations(range(len(DEFAULT_RECIPE))):
+        if list(order) == list(range(len(DEFAULT_RECIPE))):
+            continue
+        worst, _, _ = round_trip_worst(RECIPE_SYMMETRIES, seed=777,
+                                       recipe=_reordered(order))
+        if worst > ROUND_TRIP_TOL:
+            broke.append((order, worst))
+    assert not broke, (
+        f"{len(broke)} of 119 orderings now break the round trip, e.g. "
+        f"{broke[:2]}. That reverses the measured result this test records, so "
+        "the recipe has acquired an order dependence it did not have and S46 "
+        "needs revisiting")
 
 
 @requires_torch
-def test_zeroing_the_key_bias_commutes_with_the_head_internal_step():
+def test_the_retired_recipe_still_depends_on_its_order():
+    """The companion. Order mattered because of the head-internal step, so the
+    retired recipe -- which still contains it -- must still be order-dependent.
+    If it were not, the explanation above would be wrong."""
+    correct, _, _ = round_trip_worst(
+        RECIPE_SYMMETRIES + RETIRED_EXTRA_SYMMETRIES, seed=777,
+        recipe=RETIRED_HEAD_INTERNAL_RECIPE)
+    assert correct < ROUND_TRIP_TOL
+
+    # head-internal moved before gain absorption
+    permuted = tuple(RETIRED_HEAD_INTERNAL_RECIPE[i] for i in (1, 2, 3, 0, 4, 5))
+    worst, _, _ = round_trip_worst(
+        RECIPE_SYMMETRIES + RETIRED_EXTRA_SYMMETRIES, seed=777, recipe=permuted)
+    assert worst > ROUND_TRIP_TOL, (
+        "the retired recipe is no longer order-dependent either, which means "
+        "the head-internal step is not the source of the order dependence and "
+        "the explanation recorded in the test above is wrong")
+
+
+@requires_torch
+def test_zeroing_the_key_bias_commutes_with_the_head_sort():
     """MEASURED INDEPENDENCE, recorded rather than glossed.
 
     This is the one permutation of DEFAULT_RECIPE that does NOT break the round
@@ -358,10 +444,9 @@ def test_zeroing_the_key_bias_commutes_with_the_head_internal_step():
     which is a numerical-quality argument, not a correctness one.
     """
     worst, _, _ = round_trip_worst(RECIPE_SYMMETRIES, seed=777,
-                                   recipe=_reordered([0, 2, 3, 1, 4, 5]))
+                                   recipe=_reordered([0, 2, 3, 1, 4]))
     assert worst < ROUND_TRIP_TOL, (
-        "zeroing b_K after the head-internal step now breaks the round trip. "
-        "That means the Q/K invariant has started depending on b_K, and the "
+        "zeroing b_K later in the recipe now breaks the round trip, so the "
         "recorded reason this ordering is free no longer holds")
 
 
@@ -377,25 +462,33 @@ def test_dropping_the_key_bias_step_entirely_does_break_the_round_trip():
 
 
 @requires_torch
-def test_the_default_recipe_is_the_expected_six_steps_in_order():
+def test_the_default_recipe_is_the_expected_five_steps_in_order():
     """Pins the recipe itself. Changing it changes the definition of canonical
     form for the whole study, and should be a deliberate, visible act."""
     assert [s.name for s in DEFAULT_RECIPE] == [
         "absorb_layernorm_gains",
         "zero_key_bias_gauge",
         "zero_value_bias_gauge",
-        "canonicalize_head_internal",
         "sort_heads",
         "align_ffn_neurons",
     ]
     assert [type(s) for s in DEFAULT_RECIPE] == [
         AbsorbLayerNormGains, ZeroKeyBiasGauge, ZeroValueBiasGauge,
-        CanonicalizeHeadInternal, SortHeads, AlignFFNNeurons,
+        SortHeads, AlignFFNNeurons,
     ]
+    assert not any(isinstance(s, CanonicalizeHeadInternal)
+                   for s in DEFAULT_RECIPE), (
+        "the head-internal step is back in the shipped recipe; it was removed "
+        "on D-1 because its distortion was seed-dependent by three orders of "
+        "magnitude, and reinstating it needs that measurement redone")
+    # Both retired variants stay runnable so their measurements stay checkable.
+    assert any(isinstance(s, CanonicalizeHeadInternal)
+               for s in RETIRED_HEAD_INTERNAL_RECIPE)
+    assert any(isinstance(s, CanonicalizeHeadInternal)
+               for s in SORT_ONLY_RECIPE)
     # The superseded recipe is retained so the measurement that retired it
     # stays reproducible. It is NOT the study's canonical form.
     assert [s.name for s in SORT_ONLY_RECIPE][-1] == "sort_ffn_neurons"
-    assert len(SORT_ONLY_RECIPE) == len(DEFAULT_RECIPE)
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,12 @@
+==============================================================================
+STALE -- MEASURED WITH THE SIX-STEP RECIPE, NOT THE SHIPPED FIVE-STEP ONE
+==============================================================================
+D-1 removed CanonicalizeHeadInternal. Every number below was taken
+before that. Regeneration was attempted four times and each run was
+killed by a task-duration limit. The shipped-recipe results that DO
+exist are in implementation-notes.md S62 and S64.
+Do not quote sections B, C, D or E as describing the shipped ruler.
+
 
 ==============================================================================
 STEP 9 -- CANONICALIZATION ERROR BAR

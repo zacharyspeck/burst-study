@@ -28,7 +28,7 @@ code, config, arm definition, or test was changed in writing it.
 ## 1. Where the repo stands
 
 The tree is clean and matches `origin/main`. 60 tracked files. Both suites
-pass: **281 passed / 157 skipped** in `.venv` (no torch), **438 passed** in
+pass: **281 passed / 155 skipped** in `.venv` (no torch), **436 passed** in
 `.venv-ml`. The skips are the optional-dependency tests and are the deliberate
 evidence that `burst/` needs no ML stack.
 

@@ -1768,7 +1768,15 @@ correct order is `1.511e-15`:
 | fully reversed | `4.880e-01` | breaks |
 | **zero `b_K` after head-internal** | **`1.511e-15`** | **still passes** |
 
-**Five of six break. One does not, and the reason is specific rather than
+**~~Five of six break.~~ SUPERSEDED BY S62 — the head-internal step was
+removed from the recipe on D-1, and with it the entire order dependence. All
+120 orderings of the five remaining steps now give the same canonical form;
+0 of 119 non-identity permutations break the round trip. The measurement below
+described the six-step recipe and is kept because it is what justified calling
+order load-bearing at the time, and because the retired recipe still behaves
+this way.**
+
+Five of six break. One does not, and the reason is specific rather than
 lucky:** the Q/K invariant this module forms is `[W_Q ; b_Q] W_K^T`, which
 never reads `b_K` at all. So zeroing `b_K` before or after the head-internal
 step produces the identical canonical form. The steps genuinely commute; the
@@ -2316,6 +2324,183 @@ worth recording given S55:
 Both are now tests with the reasoning in their docstrings rather than
 assumptions in mine.
 
+### S62. The head-internal step removed; why this ruling differs from the FFN one
+
+**D-1 ruled: option 1. `CanonicalizeHeadInternal` is out of `DEFAULT_RECIPE`.**
+It is retained as `RETIRED_HEAD_INTERNAL_RECIPE` so D-1's measurement stays
+reproducible and so option 4 — choosing the head basis jointly across the pair
+rather than independently per model — remains available without rebuilding it.
+
+#### The deciding measurement was the seed inconsistency, not the magnitude
+
+At `eps=1e-6` on three different draws: `3.09`, `1929`, `2450`. **A ruler wrong
+by a consistent factor can be corrected for; one that swings three orders of
+magnitude by seed cannot be corrected for or reliably noticed.** That is
+precisely the ground on which the FFN sort was retired, and it applies here
+unchanged. Without the step the ruler reads `0.907` flat across seven decades
+and every seed.
+
+#### Why this ruling and the FFN ruling are NOT inconsistent
+
+They rest on the same argument at opposite strengths, and the difference is the
+whole reason they came out differently. Recorded explicitly because two rulings
+that look contradictory invite someone to "fix" one of them later.
+
+- **The head-internal gauge is CONTINUOUS.** The loss is exactly flat along it,
+  so its gradient is exactly zero, so Adam's second moment is zero, so the
+  coordinate **never moves during training**. Two same-seed twins therefore
+  carry the identical value there and it cancels exactly in their difference.
+  That is the zero-gradient argument at its strongest, and it means quotienting
+  the gauge buys this study nothing while costing it a seed-dependent ruler.
+- **The FFN permutation is DISCRETE.** There is no tangent direction, so there
+  is no gradient to be zero, and the zero-gradient argument does not apply at
+  all — only a much weaker analogy about gradient descent not hopping between
+  orderings. Declining to bet on a weak analogy when the fix was free is a
+  different decision from relying on an exact identity.
+
+**Same argument, opposite strength, opposite ruling.**
+
+#### What the shipped ruler now quotients, and what it does not
+
+Quotients: LayerNorm gain, the key-bias gauge, the value-bias gauge, head
+permutation, and FFN permutation by alignment.
+
+Does **not** quotient: the GL(head_dim) gauge inside each head, and residual
+channel permutation.
+
+**THE CONSEQUENCE IS A REAL NARROWING OF REACH AND BELONGS IN THE LIMITATIONS.
+The ruler is valid for comparing models that SHARE AN INITIALIZATION. It is NOT
+validated for comparing independently-initialized models**, which would differ
+in exactly the two gauges it no longer removes.
+
+#### Side effects, measured
+
+- **The recipe is no longer order-dependent.** With the head-internal step in,
+  five of six tested orderings broke the round trip. With it out, **0 of 119
+  non-identity orderings break it.** S46 is struck in place accordingly. This
+  is fixture-dependent rather than a structural proof — absorption does change
+  the head sort key, the sort simply comes out in the same order anyway on four
+  well-separated heads.
+- **Canonicalization got 70x faster**, 14s to 0.2s on GPT-2, because the 144
+  per-head QR-plus-SVD pairs are gone.
+- **Three mutation faults stopped being caught by the shipped recipe** — see
+  S63. That is the correct consequence of removing the step they lived in, not
+  a hole, but it had to be checked rather than assumed.
+
+### S63. Removing a step and the coverage that went with it
+
+D-1's ruling raised a specific risk: if removing a step made an existing
+mutation fault stop being caught, that would mean the check had only ever
+worked *through* the removed step. Checked rather than assumed.
+
+**Faults 3, 5 and 6 all live inside `CanonicalizeHeadInternal`** — swapping the
+V/O factors, dropping the SVD sign convention, dropping the bias row. Against
+the shipped recipe they are now no-ops and catch nothing. That is correct:
+there is no longer a step for them to break. They are exercised against
+`RETIRED_HEAD_INTERNAL_RECIPE` instead, so that if option 4 ever reinstates the
+step its coverage already exists and is already known to work.
+
+**No fault targeting a still-shipped step was disarmed.**
+`test_removing_head_internal_did_not_silently_disarm_a_shipped_check` asserts
+that directly rather than leaving it to inspection.
+
+Coverage was rebalanced so every shipped step stays load-bearing. Two faults
+added:
+
+- **FAULT 7** zeroes `b_V` without adding `b_V @ W_O` back into
+  `attn.c_proj.bias`. `b_V` is gauge only *up to* that compensation, so
+  dropping it changes the function — caught by function preservation.
+- **FAULT 8** matches FFN neurons on the bias scalar instead of the whole
+  feature vector, reintroducing exactly the fragility that retired the sort.
+
+**FAULT 8 is not caught on the ordinary fixture, and that is the finding.**
+When the biases are well separated, scalar matching returns the identity and
+looks correct. It is only wrong under near-ties — which is precisely why the
+sort survived review until it was measured on a real model, and precisely the
+S48 lesson about small well-conditioned fixtures. It therefore gets a fixture
+with deliberately tied biases, plus a companion test recording that it is
+*invisible* on the generic one, so its absence from the caught-faults list
+cannot be misread as an oversight.
+
+### S64. The ruler's systematic factor is gain absorption -- and it is NOT flat
+
+The shipped recipe leaves a systematic factor on every distance it measures.
+Measurement F attributes it by removing each remaining step in turn, with an
+empty recipe as control.
+
+**Real GPT-2, eps=1e-6, ten seeds, isotropic:**
+
+| variant | median | min | max |
+| --- | --- | --- | --- |
+| shipped recipe | `0.92200` | `0.84828` | `1.71067` |
+| **EMPTY control** | **`1.00000`** | `1.00000` | `1.00000` |
+| **without gain absorption** | **`1.00041`** | `1.00039` | `1.00046` |
+| without key-bias gauge | `0.92204` | `0.84832` | `1.71069` |
+| without value-bias gauge | `0.92152` | `0.84775` | `1.71042` |
+| without head sort | `0.92200` | `0.84828` | `1.71067` |
+| without FFN alignment | `0.92200` | `0.84828` | `1.71067` |
+
+**The EMPTY control returning exactly 1.00000 on all ten seeds is the important
+row.** With no steps the ratio is 1 by construction, so the factor is in the
+ruler and not in the measurement harness.
+
+**Gain absorption is the entire source**, of the factor *and* of its spread.
+Remove it and the ratio is `1.0004` with a total spread of `7e-05`. Remove
+anything else and nothing changes.
+
+#### TWO CORRECTIONS TO WHAT I REPORTED EARLIER
+
+A four-seed probe reported this as "a flat 0.907". Ten seeds say otherwise on
+both counts:
+
+1. The median is **`0.922`**, not `0.907`.
+2. It is **NOT FLAT ACROSS SEEDS.** It ranges `0.848` to `1.711` -- a factor of
+   two, spanning contraction *and* inflation depending on the draw.
+
+**This is the fourth time a too-narrow measurement in this build produced a
+comfortable number that more seeds overturned.** It is logged against S55's
+pattern rather than separately.
+
+#### Why, and why this is different from the head-internal instability
+
+Absorbing a LayerNorm gain multiplies the following weight's rows by `gamma`.
+That is an exact rewrite of the *function*, which is what makes it a valid
+symmetry, but it is **not an isometry of parameter space**. It rescales
+coordinates: directions with `gamma < 1` shrink, directions with `gamma > 1`
+stretch. Real GPT-2's `ln_1` gains span `0.042` to `0.253` in block 0 while
+`ln_f` reaches `17.4`, so the map is strongly anisotropic.
+
+So the seed-to-seed variation here is **anisotropy, not instability**, and the
+distinction matters for how it should be judged:
+
+- The head-internal step gave *different answers for the same map* -- a near-
+  degenerate SVD basis rotating unpredictably. That is instability, and it is
+  what D-1 retired the step for.
+- Gain absorption gives *the correct answer for a map that genuinely scales
+  directions differently*. A random isotropic perturbation samples that
+  anisotropy differently on each seed. The map is deterministic; only the
+  direction being measured changes.
+
+The evidence for that reading is the control row: with gain absorption removed
+the spread collapses to `7e-05`, i.e. the variation is created by the rescaling
+rather than by any instability in the rest of the recipe.
+
+#### What this does and does not settle, and what it costs
+
+Settled: where the factor comes from, and that it is not a harness artefact.
+
+**Not settled, and it is worse than a constant would be: the distortion is
+DIRECTION-DEPENDENT, so it cannot be divided out.** A single multiplicative
+constant could be corrected for. A factor that is `0.85` for one difference
+direction and `1.71` for another cannot be, and the study's real arm-vs-twin
+difference is not an isotropic random direction -- it is whatever direction
+training actually moved the weights in. **Which value applies to the study's
+real comparison is unknown and unknowable until there are trained checkpoints
+to measure the direction of.**
+
+Whether that is acceptable is not mine to judge. It is recorded here and in
+`docs/decisions-pending.md`.
+
 ### S61. The S55 pattern one level up: mis-named experimental conditions
 
 S55 is about a *quantity* named for one thing and computed as another. The
@@ -2370,6 +2555,19 @@ should not be read as one.
 | **S49** | head sort key = weight-row column norms | the augmented spectrum, bias row included | non-monotonic; largest singular value looked smallest |
 | **S53** | FFN sort margin = max difference anywhere in the key tuple | the difference at the first DECIDING component | **59,000x** too optimistic |
 | **S48** | fixture "generic" | every Conv1D bias exactly 0.0 | made the affine invariant a no-op |
+| **D-1** | head-internal distortion = a flat 3.05 | seed-dependent, 3.09 to 2450 at one epsilon | measured at 3 seeds; 10 seeds reversed the conclusion |
+
+**FOURTH INSTANCE, and it belongs to this pattern rather than to a separate
+note.** D-1 is not a mis-named quantity but the same failure of a measurement
+that was too narrow to see its own error: a three-seed median reported the
+head-internal step's distortion as a benign constant, and ten seeds showed it
+swinging three orders of magnitude. **This is the fourth time in this build
+that widening a measurement changed a conclusion** — after S48 (a wider fixture
+changed a symmetry verdict), S53 (a wider margin definition changed a safety
+claim), and the FFN sort itself (more seeds changed a recipe). The common
+lesson is not about naming: **a measurement narrow enough to be cheap is
+usually narrow enough to be wrong, and the failure mode is always a
+comfortable-looking number.**
 
 **The shared shape.** In each case the code ran, the tests passed, and the
 number produced was plausible. Nothing crashed. What failed was that a
@@ -2870,17 +3068,17 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
 | `tests/test_canonicalize.py` | 72 |
-| `tests/test_canonicalize_recipe.py` | 47 |
+| `tests/test_canonicalize_recipe.py` | 45 |
 | `tests/test_canonicalize_mutations.py` | 16 |
 | `tests/test_canonicalize_diagnostics.py` | 10 |
-| **total** | **438** |
+| **total** | **436** |
 
-In the base environment (`.venv/`, no torch) the run is **281 passed, 157
-skipped**. In `.venv-ml/` it is **438 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **281 passed, 155
+skipped**. In `.venv-ml/` it is **436 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
-Step 9 added 145 of these across phases 0-5. Only 12 need no ML stack — the
+Step 9 added 143 of these across phases 0-5. Only 12 need no ML stack — the
 layout arithmetic for slicing the fused QKV tensor, the parameter-count
 identity, the tolerance registry, the pre-registration pins and the
 frozen-axis declaration. The rest genuinely need torch, because they measure

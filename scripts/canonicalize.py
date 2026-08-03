@@ -2059,7 +2059,28 @@ class AlignFFNNeurons(CanonStep):
 
 
 #: The recipe. ORDER IS PART OF THE DEFINITION -- see the module comment above.
+#:
+#: CanonicalizeHeadInternal IS DELIBERATELY ABSENT. It was removed on the
+#: measurement in D-1: its distortion was not merely large but seed-dependent,
+#: 3.09 / 1929 / 2450 at the same epsilon on three different draws. A ruler
+#: wrong by a consistent factor can be corrected for; one that swings three
+#: orders of magnitude by seed cannot be corrected for or reliably noticed.
+#: Removing it leaves the ruler flat at 0.907 across seven decades and every
+#: seed. See S62.
 DEFAULT_RECIPE: tuple = (
+    AbsorbLayerNormGains(),
+    ZeroKeyBiasGauge(),
+    ZeroValueBiasGauge(),
+    SortHeads(),
+    AlignFFNNeurons(),
+)
+
+#: NOT SHIPPED. The recipe as it stood before D-1, retained so that D-1's
+#: measurement stays reproducible and so option 4 -- choosing the head basis
+#: jointly across the pair rather than independently per model -- remains
+#: available without rebuilding the step. Every test that exercises
+#: CanonicalizeHeadInternal now runs against this, not against DEFAULT_RECIPE.
+RETIRED_HEAD_INTERNAL_RECIPE: tuple = (
     AbsorbLayerNormGains(),
     ZeroKeyBiasGauge(),
     ZeroValueBiasGauge(),
@@ -2068,10 +2089,10 @@ DEFAULT_RECIPE: tuple = (
     AlignFFNNeurons(),
 )
 
-#: The superseded recipe, kept so the comparison that retired it stays
-#: reproducible. NOT the study's canonical form. Retained deliberately rather
-#: than deleted: S54's measurement is only checkable if the losing variant is
-#: still runnable.
+#: NOT SHIPPED. The recipe as it stood before the FFN sort was replaced by
+#: matching, kept so S54's comparison stays reproducible. Retained deliberately
+#: rather than deleted: a measurement that retired a variant is only checkable
+#: if the losing variant is still runnable.
 SORT_ONLY_RECIPE: tuple = (
     AbsorbLayerNormGains(),
     ZeroKeyBiasGauge(),
@@ -2080,6 +2101,31 @@ SORT_ONLY_RECIPE: tuple = (
     SortHeads(),
     SortFFNNeurons(),
 )
+
+
+def head_condition_numbers(model, arch: ArchSpec = GPT2_124M) -> tuple:
+    """Condition number of every head's Q/K invariant, computed independently.
+
+    Standalone rather than read off a CanonReport, because the shipped recipe
+    no longer runs the head-internal step and therefore no longer produces
+    these. They remain a property of the MODEL and are still the right thing to
+    bucket heads by when attributing a distance measurement.
+    """
+    torch = _torch()
+    out = []
+    with torch.no_grad():
+        for block in model.transformer.h:
+            c_attn = block.attn.c_attn
+            for h in range(arch.n_head):
+                q = head_columns("q", h, arch)
+                k = head_columns("k", h, arch)
+                w_q = c_attn.weight[:, q].detach().double()
+                b_q = c_attn.bias[q].detach().double()
+                w_k = c_attn.weight[:, k].detach().double()
+                f_q = torch.cat([w_q, b_q.unsqueeze(0)], dim=0)
+                _, s, _ = _paired_svd(f_q, w_k)
+                out.append(float(s[0] / s[-1]))
+    return tuple(out)
 
 
 @dataclass

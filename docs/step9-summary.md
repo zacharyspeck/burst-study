@@ -52,16 +52,16 @@ gauge up to a compensation in `c_proj.bias`. Both are removed.
 
 ## What the recipe does
 
-Six steps, in an order that is **part of the definition** — five of six
-permuted orders break it, and the sixth is documented with the reason it
-commutes:
+Five steps. Order turned out **not** to matter: all 120 orderings give the
+same canonical form. It mattered when there were six — the sixth step is the
+one described under "what the ruler does not do" below, and it carried the
+entire order dependence with it when it was removed.
 
 1. absorb LayerNorm gains at `ln_1`/`ln_2` (not `ln_f` — tied embedding)
 2. zero the key-bias gauge
 3. zero the value-bias gauge, compensating in `c_proj.bias`
-4. canonicalize each head's GL(head_dim) freedom through its affine invariant
-5. sort heads
-6. **match** FFN neurons to a reference (not sort them — see below)
+4. sort heads
+5. **match** FFN neurons to a reference (not sort them — see below)
 
 **Canonical form is pairwise-relative.** Step 6 matches against a reference, so
 a model's canonical form is defined *against another model*. For this study
@@ -73,9 +73,35 @@ canonicalize(twin)                     # twin defines the frame
 canonicalize(arm, reference=twin)      # arm measured against it
 ```
 
-Residual channel permutation is a real symmetry and is **deliberately not**
-quotiented — same-seed twins do not spontaneously permute channels, so it buys
-nothing here. Two independently-initialised models would still differ by it.
+## What the ruler does NOT do, and the reach that costs
+
+Two confirmed symmetries are deliberately left alone.
+
+**Residual channel permutation.** Same-seed twins do not spontaneously permute
+channels, so quotienting it buys nothing here.
+
+**The GL(64) gauge inside each attention head.** This one was in the recipe and
+was removed, because its distortion was not merely large but *seed-dependent* —
+3.09, 1929 and 2450 at the same separation on three different random draws. A
+ruler wrong by a consistent factor can be corrected for; one that swings three
+orders of magnitude by seed cannot be corrected for or even reliably noticed.
+Removing it leaves the ruler flat.
+
+Why that ruling differs from the FFN one, since they can look contradictory:
+the head-internal gauge is **continuous**, so the loss is exactly flat along
+it, its gradient is exactly zero, and it never moves during training — two
+same-seed twins carry the identical value there and it cancels. That is the
+zero-gradient argument at full strength. A permutation is **discrete**: there
+is no tangent direction, no gradient to be zero, and only a weak analogy.
+Declining to bet on a weak analogy when the fix was free is a different
+decision from relying on an exact identity. Same argument, opposite strength,
+opposite ruling.
+
+**THE CONSEQUENCE IS A REAL NARROWING OF REACH.** The ruler is valid for
+comparing models that **share an initialization** — which is every comparison
+this study makes, arm against seed-matched twin. It is **not validated for
+comparing independently-initialized models**, which would differ in exactly the
+two gauges it no longer removes. That is a limitation, not a footnote.
 
 ## Why sorting was replaced by matching
 
@@ -102,15 +128,32 @@ gone, the ruler is not distance-neutral. Which end applies depends on how far a
 burst arm actually sits from its twin as a fraction of the parameter norm — and
 that quantity does not exist until models are trained.
 
-**2. The head-internal step has the same erratic property that retired the
-sort.** Measured at ten seeds: `3.26` at ε=1e-8 but `1929.3` at ε=1e-6, with a
-per-seed spread of `[2.83, 2450.5]`. Attribution run at four seeds: `3.07` /
-`2189.9` / `237.8`. Remove that one step and the ruler is
-`0.907` at *every* epsilon and *every* seed. Cause: the minimum singular gap on
-GPT-2 is `5.5e-06`, so a perturbation of that order **rotates** the SVD basis
-in the near-degenerate subspace. This is logged in
-`docs/decisions-pending.md` as **D-1** and is not decided. **The step is still
-in the recipe.**
+**2. RESOLVED — the head-internal step was removed.** It had the same erratic
+seed-dependent property that retired the FFN sort. See "what the ruler does
+NOT do" above. What replaces it as an open question is the item below.
+
+**2b. The ruler applies a direction-dependent distortion that cannot be
+divided out.** With the head-internal step gone, the remaining factor was
+traced to **gain absorption** — measurement F, with an empty-recipe control
+returning exactly 1.00000 on all ten seeds, so it is in the ruler and not the
+harness. Removing gain absorption returns the ratio to 1.0004 with a spread of
+7e-05; nothing else moves it.
+
+Absorbing a LayerNorm gain is an exact rewrite of the *function* but **not an
+isometry of parameter space** — it multiplies weight rows by γ, shrinking some
+directions and stretching others. GPT-2's gains span 0.042 to 17.4, so the map
+is strongly anisotropic.
+
+The measured effect on real GPT-2, ten seeds: median **0.922**, ranging
+**0.848 to 1.711**. That is contraction on some difference directions and
+inflation on others. It is *not* a constant, so it **cannot be corrected for**,
+and which value applies to the study's real arm-vs-twin comparison depends on
+which direction training actually moved the weights — unknowable until there
+are checkpoints. **Not accepted; recorded as open.**
+
+(An earlier four-seed probe reported this as "a flat 0.907". Both parts were
+wrong: the median is 0.922 and it is not flat. Fourth time in this build that
+too few seeds produced a comfortable number.)
 
 **3. Step 9 cannot currently be applied to the study's own model.**
 `probes/determinism/model.py` uses `nn.Linear`; step 9 is written entirely

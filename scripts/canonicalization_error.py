@@ -118,14 +118,20 @@ OPEN_QUESTION_DISTORTION_FACTOR = (
     "curve in this file at that epsilon."
 )
 
+#: What the SHIPPED recipe quotients. head_internal_transform is deliberately
+#: absent -- D-1 removed that step -- and is measured separately so its
+#: un-quotiented residual is visible rather than buried in the composed row.
 RECIPE_SYMMETRIES = (
     "layernorm_gain_rescale",
     "head_permutation",
-    "head_internal_transform",
     "ffn_neuron_permutation",
     "key_bias_shift",
     "value_bias_shift",
 )
+
+#: Confirmed symmetries the shipped recipe deliberately does NOT remove. Their
+#: residual is expected to be large; reporting it is the point.
+NOT_QUOTIENTED = ("head_internal_transform", "residual_permutation")
 
 
 # ---------------------------------------------------------------------------
@@ -281,12 +287,15 @@ def measure_symmetry_residual(build, arch, seeds, stream, recipe=None) -> dict:
     theta_norm = l2_norm(C.canonical_state_dict(frame))
 
     rows = {}
-    for name in RECIPE_SYMMETRIES + ("__composed__",):
+    for name in RECIPE_SYMMETRIES + NOT_QUOTIENTED + ("__composed__",):
         ratios, raws, canons = [], [], []
         for seed in seeds:
             plain = build()
             moved = copy.deepcopy(plain)
             names = RECIPE_SYMMETRIES if name == "__composed__" else (name,)
+            # NOT_QUOTIENTED entries are measured alone, and a large ratio
+            # there is the expected, documented cost of D-1 rather than a
+            # failure. The composed row uses only what the recipe removes.
             for sym_name in names:
                 C.symmetry_by_name(sym_name)().sample(moved, arch, seed).apply(
                     moved, arch)
@@ -385,7 +394,11 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream,
     ref_plain_sd = C.canonical_state_dict(reference)
     ref_report = C.canonicalize(reference, arch, recipe=recipe)
     ref_sd = C.canonical_state_dict(reference)
-    conditions = list(ref_report.head_conditions)
+    # Computed independently rather than read off the report: the shipped
+    # recipe no longer runs the head-internal step and therefore no longer
+    # produces these, but they are a property of the MODEL and are still the
+    # right thing to bucket heads by. Reading the report gave nan.
+    conditions = list(C.head_condition_numbers(reference, arch))
 
     # Split the heads by conditioning so a spike can be attributed. The
     # head-internal step inverts through this spectrum, so the worst-
@@ -670,6 +683,58 @@ def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
                  "correspondence there was always the identity; here it is "
                  "not, so a variant that cannot recover a permutation must "
                  "blow up by the full size of one."),
+        "variants": rows,
+    }
+
+
+def measure_step_contributions(build, arch, epsilons, seeds, stream) -> dict:
+    """Where the shipped ruler's flat 0.907 comes from.
+
+    0.907 is a 9% systematic CONTRACTION -- it makes two models look CLOSER
+    than they are. It is flat across seven decades and stable across every
+    seed, so it is not noise; it is a mechanism, and an unexplained systematic
+    factor in a ruler is not shippable.
+
+    Each remaining step is removed in turn. The EMPTY recipe is the control and
+    must return exactly 1.0: with no steps, canon(M) is M and the ratio is
+    ||M - (M+eps)|| / d_raw by construction. If the empty recipe does NOT
+    return 1.0, the factor is in the measurement harness rather than in the
+    ruler, which is a different and more serious problem.
+    """
+    import copy
+
+    variants = {"shipped_recipe": C.DEFAULT_RECIPE, "EMPTY_control": ()}
+    for step in C.DEFAULT_RECIPE:
+        variants[f"without_{step.name}"] = tuple(
+            s for s in C.DEFAULT_RECIPE if s is not step)
+
+    rows = {}
+    for label, recipe in variants.items():
+        reference = build()
+        C.canonicalize(reference, arch, recipe=recipe)
+        ref_sd = C.canonical_state_dict(reference)
+        cells = {}
+        for epsilon in epsilons:
+            ratios = []
+            for seed in seeds:
+                moved = build()
+                d_raw = perturb(moved, epsilon, "isotropic", seed)
+                C.canonicalize(moved, arch, recipe=recipe, reference=reference)
+                ratios.append(
+                    l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
+                del moved
+            cells[f"{epsilon:g}"] = statistics.median(ratios)
+        rows[label] = cells
+        print(f"    {label:<34} " + "  ".join(
+            f"eps={k}:{v:.6g}" for k, v in cells.items()),
+            file=stream, flush=True)
+        del reference, ref_sd
+
+    return {
+        "note": ("attribution of the shipped ruler's flat systematic factor. "
+                 "EMPTY_control must be exactly 1.0 -- with no steps the ratio "
+                 "is 1 by construction, so any deviation there would put the "
+                 "factor in the harness rather than the ruler."),
         "variants": rows,
     }
 
@@ -982,7 +1047,7 @@ def _build_parser() -> argparse.ArgumentParser:
                              "fast smoke test rather than a real measurement")
     parser.add_argument("--seeds", type=int, default=len(SEEDS))
     parser.add_argument(
-        "--sections", default="ABCDE",
+        "--sections", default="ABCDEF",
         help=("which measurements to run, e.g. DE. A subset MERGES into the "
               "existing results file rather than replacing it, so an "
               "expensive section does not have to be recomputed to correct a "
@@ -1017,11 +1082,11 @@ def main(argv=None) -> int:
     stem = REPORT_STEM + ("-tiny" if args.tiny else "")
     existing = {}
     prior = Path(args.reportdir) / f"{stem}.json"
-    if want != set("ABCDE") and prior.is_file():
+    if want != set("ABCDEF") and prior.is_file():
         existing = json.loads(prior.read_text(encoding="utf-8"))
         print(f"merging sections {sorted(want)} into {prior}", file=stream)
     residual = sweep = retired_sweep = dispersion = None
-    attribution = sort_margins = permuted = None
+    attribution = sort_margins = permuted = contributions = None
 
     print(f"model: {'TINY (smoke test)' if args.tiny else 'gpt2 124M'} | "
           f"{arch.n_layer}L {arch.n_head}H {arch.n_embd}D | "
@@ -1051,6 +1116,12 @@ def main(argv=None) -> int:
         attribution = measure_step_attribution(
             build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
         sort_margins = measure_sort_margins(build, arch, stream)
+
+    if "F" in want:
+        print(chr(10) + "F. step contributions  [attributing the flat factor]",
+              file=stream)
+        contributions = measure_step_contributions(
+            build, arch, (1e-8, 1e-6, 1e-4), seeds, stream)
 
     if "E" in want:
         print("\nE. permuted-model recovery", file=stream)
@@ -1085,6 +1156,7 @@ def main(argv=None) -> int:
         "step_attribution": attribution or existing.get("step_attribution"),
         "ffn_sort_margins": sort_margins or existing.get("ffn_sort_margins"),
         "permuted_model_recovery": permuted or existing.get("permuted_model_recovery"),
+        "step_contributions": contributions or existing.get("step_contributions"),
         "sections_refreshed_this_run": sorted(want),
     }
 

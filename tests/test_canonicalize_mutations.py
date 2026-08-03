@@ -42,11 +42,14 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import canonicalize  # noqa: E402
 from canonicalize import (  # noqa: E402
     DEFAULT_RECIPE,
+    RETIRED_HEAD_INTERNAL_RECIPE,
     TINY,
     AbsorbLayerNormGains,
+    AlignFFNNeurons,
     CanonicalizeError,
     CanonicalizeHeadInternal,
     SortHeads,
+    ZeroValueBiasGauge,
     _paired_svd,
     canonical_state_dict,
     canonicalize as run_canonicalize,
@@ -66,11 +69,12 @@ requires_torch = pytest.mark.skipif(
 RECIPE_SYMMETRIES = (
     "layernorm_gain_rescale",
     "head_permutation",
-    "head_internal_transform",
     "ffn_neuron_permutation",
     "key_bias_shift",
     "value_bias_shift",
 )
+#: The retired recipe additionally quotients this one.
+RETIRED_SYMMETRIES = RECIPE_SYMMETRIES + ("head_internal_transform",)
 
 #: Anything above this is a real disagreement. Baseline is ~1.5e-15.
 DETECTION_FLOOR = 1e-10
@@ -152,27 +156,104 @@ class DropsBiasRow(CanonicalizeHeadInternal):
         return w_q
 
 
+@dataclass
+class DropsValueBiasCompensation(canonicalize.ZeroValueBiasGauge):
+    """FAULT 7. Zeroes b_V without adding b_V @ W_O into c_proj.bias.
+
+    b_V is gauge only UP TO that compensation -- attention probabilities sum to
+    one, so shifting b_V shifts the head's output by exactly that constant, and
+    the constant has to land somewhere. Dropping it changes the function.
+    """
+
+    name: str = "FAULT7_zero_value_bias_without_compensation"
+
+    def run(self, model, arch, report, reference=None):
+        import torch
+        with torch.no_grad():
+            for block in model.transformer.h:
+                bias = block.attn.c_attn.bias
+                for h in range(arch.n_head):
+                    bias[canonicalize.head_columns("v", h, arch)] = 0.0
+
+
+@dataclass
+class AlignsOnAScalarOnly(canonicalize.AlignFFNNeurons):
+    """FAULT 8. Matches FFN neurons on the bias scalar instead of the whole
+    feature vector -- i.e. reintroduces exactly the fragility that retired the
+    sort, while still calling itself alignment."""
+
+    name: str = "FAULT8_align_ffn_on_a_scalar_only"
+
+    def run(self, model, arch, report, reference=None):
+        import torch
+        if reference is None:
+            report.ffn_orders = ()
+            report.aligned_to_reference = False
+            return
+        orders = []
+        with torch.no_grad():
+            for block, ref in zip(model.transformer.h,
+                                  reference.transformer.h):
+                mine = block.mlp.c_fc.bias.detach().double().unsqueeze(1)
+                theirs = ref.mlp.c_fc.bias.detach().double().unsqueeze(1)
+                order = canonicalize._assignment_order(mine, theirs,
+                                                       arch.n_inner)
+                orders.append(tuple(order))
+                if order != list(range(arch.n_inner)):
+                    canonicalize._apply_ffn_order(block.mlp, order)
+        report.ffn_orders = tuple(orders)
+        report.aligned_to_reference = True
+
+
 def _substitute(recipe, step_type, replacement):
     return tuple(replacement if type(step) is step_type else step
                  for step in recipe)
 
 
+#: Faults in steps the SHIPPED recipe still runs.
 FAULTY_RECIPES = {
     "FAULT1_row_axis": _substitute(DEFAULT_RECIPE, SortHeads, PermutesRowAxis()),
     "FAULT2_across_qkv": _substitute(DEFAULT_RECIPE, SortHeads,
                                      CrossesQKVBoundary()),
-    "FAULT3_swap_v_o": _substitute(DEFAULT_RECIPE, CanonicalizeHeadInternal,
-                                   SwapsValueAndOutputFactors()),
     "FAULT4_skip_gain_absorption": tuple(
         s for s in DEFAULT_RECIPE if not isinstance(s, AbsorbLayerNormGains)),
-    "FAULT5_no_sign_fix": _substitute(DEFAULT_RECIPE, CanonicalizeHeadInternal,
+    "FAULT7_value_bias_uncompensated": _substitute(
+        DEFAULT_RECIPE, ZeroValueBiasGauge, DropsValueBiasCompensation()),
+}
+
+#: Exercised separately, because it is invisible on a well-separated fixture --
+#: see test_matching_on_a_scalar_is_only_wrong_when_the_scalars_nearly_tie.
+NEAR_TIE_FAULTY_RECIPES = {
+    "FAULT8_align_on_a_scalar": _substitute(
+        DEFAULT_RECIPE, AlignFFNNeurons, AlignsOnAScalarOnly()),
+}
+
+#: Faults in the head-internal step, which the shipped recipe NO LONGER RUNS.
+#: They are exercised against the retired recipe instead. This split is itself
+#: the answer to "did removing a step stop any check working" -- see S63.
+RETIRED_FAULTY_RECIPES = {
+    "FAULT3_swap_v_o": _substitute(RETIRED_HEAD_INTERNAL_RECIPE,
+                                   CanonicalizeHeadInternal,
+                                   SwapsValueAndOutputFactors()),
+    "FAULT5_no_sign_fix": _substitute(RETIRED_HEAD_INTERNAL_RECIPE,
+                                      CanonicalizeHeadInternal,
                                       DropsSignConvention()),
 }
 
 #: Faults that change what the model computes.
-FUNCTION_BREAKING = ("FAULT1_row_axis", "FAULT2_across_qkv", "FAULT3_swap_v_o")
+FUNCTION_BREAKING = ("FAULT1_row_axis", "FAULT2_across_qkv",
+                     "FAULT7_value_bias_uncompensated")
 #: Faults that leave the model's behaviour untouched and only break canonicity.
-CANONICITY_BREAKING = ("FAULT4_skip_gain_absorption", "FAULT5_no_sign_fix")
+CANONICITY_BREAKING = ("FAULT4_skip_gain_absorption",)
+
+#: FAULT8 is NOT in either list, and that is the finding rather than an
+#: omission. Matching FFN neurons on a scalar instead of the whole feature
+#: vector is only wrong when two neurons have near-tied scalars -- on a fixture
+#: whose biases are well separated it returns the identity and looks correct.
+#: That is exactly why the retired SORT looked fine on small fixtures and
+#: inflated 560,000x on real GPT-2, so the fault gets a fixture built to expose
+#: it rather than being asserted against a generic one.
+NEEDS_NEAR_TIES = ("FAULT8_align_on_a_scalar",)
 
 
 # ---------------------------------------------------------------------------
@@ -360,11 +441,11 @@ def test_dropping_the_bias_row_fails_worse_on_a_near_degenerate_model():
     that subspace. The correct augmented recipe still round-trips there; the
     weights-only fault fails, and fails harder than on a generic model.
     """
-    recipe = _substitute(DEFAULT_RECIPE, CanonicalizeHeadInternal,
-                         DropsBiasRow())
+    recipe = _substitute(RETIRED_HEAD_INTERNAL_RECIPE,
+                         CanonicalizeHeadInternal, DropsBiasRow())
     build = canonicalize.build_degenerate_model
-    correct = round_trip(DEFAULT_RECIPE, names=["head_internal_transform"],
-                         build=build)
+    correct = round_trip(RETIRED_HEAD_INTERNAL_RECIPE,
+                         names=["head_internal_transform"], build=build)
     faulty = round_trip(recipe, names=["head_internal_transform"], build=build)
     assert correct < DETECTION_FLOOR, (
         f"the CORRECT recipe fails on the near-degenerate fixture "
@@ -431,3 +512,59 @@ def test_the_head_internal_step_refuses_a_spectrum_below_the_gap_floor():
     with pytest.raises(CanonicalizeError) as exc:
         step._check_spectrum(rank_starved, "Q/K")
     assert "rank deficient" in str(exc.value)
+
+
+@requires_torch
+def test_matching_on_a_scalar_is_only_wrong_when_the_scalars_nearly_tie():
+    """FAULT 8, and the reason it needs its own fixture.
+
+    Matching FFN neurons on the bias scalar alone reintroduces exactly the
+    fragility that retired the sort. But it is INVISIBLE on a fixture whose
+    biases are well separated -- it returns the identity and looks correct.
+    That invisibility is the whole lesson of S48 and of the sort's retirement:
+    a small well-conditioned fixture hides the failure.
+
+    So the biases are tied here on purpose. Scalar matching then cannot tell
+    the neurons apart and assigns arbitrarily; full-vector matching still
+    resolves them by everything else about the neuron.
+    """
+    import torch
+
+    def tied_bias_model():
+        model = canonicalize.build_tiny_model(seed=0)
+        with torch.no_grad():
+            for block in model.transformer.h:
+                block.mlp.c_fc.bias.fill_(0.25)     # every scalar identical
+        return model
+
+    faulty = _substitute(DEFAULT_RECIPE, AlignFFNNeurons, AlignsOnAScalarOnly())
+
+    good = round_trip(DEFAULT_RECIPE, names=["ffn_neuron_permutation"],
+                      build=tied_bias_model)
+    bad = round_trip(faulty, names=["ffn_neuron_permutation"],
+                     build=tied_bias_model)
+
+    assert good < DETECTION_FLOOR, (
+        f"full-vector matching failed on tied biases ({good:.3e}); it is "
+        "supposed to resolve them by the rest of the feature vector")
+    assert bad > DETECTION_FLOOR, (
+        f"scalar-only matching survived tied biases ({bad:.3e}); the fixture "
+        "is not actually tying them and the fault is not being exercised")
+
+
+@requires_torch
+def test_the_scalar_matching_fault_is_invisible_on_a_well_separated_fixture():
+    """The companion, and the more important half.
+
+    On the ordinary fixture the same fault is NOT caught. Recorded as a test so
+    that nobody reads its absence from the caught-faults list as an oversight:
+    a well-conditioned fixture cannot see this class of failure at all, which
+    is why the sort survived review until it was measured on a real model.
+    """
+    faulty = _substitute(DEFAULT_RECIPE, AlignFFNNeurons, AlignsOnAScalarOnly())
+    caught = (function_preservation(faulty) > 1e-10
+              or round_trip(faulty) > DETECTION_FLOOR)
+    assert not caught, (
+        "the scalar-matching fault is now caught on the generic fixture. That "
+        "is an improvement, but this test records that it was not -- update it "
+        "deliberately rather than letting the record drift")

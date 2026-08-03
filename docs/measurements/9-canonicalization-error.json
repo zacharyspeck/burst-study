@@ -26,7 +26,7 @@
     "sort_heads",
     "sort_ffn_neurons"
   ],
-  "recipe_note": "The SHIPPED recipe ends align_ffn_neurons and every headline number here describes it. Anything under a RETIRED key describes the superseded sort_ffn_neurons recipe, kept so the measurement that retired it stays reproducible. Those are NOT the study's ruler.",
+  "recipe_note": "The 'recipe' field above is the SIX-step recipe these numbers were measured with. The SHIPPED recipe is now five steps -- see STALENESS_WARNING.",
   "seeds": [
     11,
     22,
@@ -691,5 +691,6 @@
   },
   "sections_refreshed_this_run": [
     "0"
-  ]
+  ],
+  "STALENESS_WARNING": "THIS FILE IS NOT FULLY REGENERATED AGAINST THE SHIPPED RECIPE. The recipe changed on D-1: CanonicalizeHeadInternal was removed, leaving five steps. Every measurement in this file was taken with the SIX-step recipe that included it, and its headline numbers therefore describe a recipe that is no longer shipped. Regeneration was attempted four times and each run was killed by a task-duration limit before completing. What HAS been measured against the shipped five-step recipe, and is recorded in implementation-notes.md rather than here: section A (all five quotiented symmetries at 1e-14 or exactly 0; head_internal_transform now 5.319e-01 and residual_permutation 8.018e-01, both deliberately un-quotiented; composed 5.397e-17) and section F (the systematic factor attributed entirely to gain absorption, with an empty-recipe control at exactly 1.00000). Do not quote this file's B, C, D or E numbers as describing the shipped ruler."
 }
