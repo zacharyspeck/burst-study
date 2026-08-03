@@ -1,8 +1,19 @@
+==============================================================================
+PARTIALLY REGENERATED -- SECTIONS A AND F ARE CURRENT, B/C/D/E ARE NOT
+==============================================================================
+Shipped recipe is FOUR steps: zero key-bias gauge, zero value-bias
+gauge, sort heads, align FFN neurons.
 
-==============================================================================
-STEP 9 -- CANONICALIZATION ERROR BAR
-==============================================================================
-PROXY MODEL. See the LIMITATION field in the JSON.
+A and F were re-measured against it at ten seeds. B, C, D and E were
+measured with the six-step recipe and describe a ruler no longer
+shipped. A ~600s task-duration cap killed every regeneration attempt;
+one cell costs 4.8s and those sections need 11-26 minutes each.
+
+In section A, head_internal_transform (0.9997), layernorm_gain_rescale
+(1.754) and residual_permutation (0.9825) are symmetries the recipe
+DELIBERATELY does not quotient. A large residual there is the recorded
+cost of D-1 and D-2, not a failure. The composed row, 5.4e-17, covers
+only what the recipe does remove.
 
 ==============================================================================
 A. SYMMETRY RESIDUAL -- the ruler against itself

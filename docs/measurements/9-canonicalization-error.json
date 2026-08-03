@@ -821,5 +821,6 @@
   },
   "sections_refreshed_this_run": [
     "A"
-  ]
+  ],
+  "STALENESS_WARNING": "PARTIALLY REGENERATED. The shipped recipe is FOUR steps: zero the key-bias gauge, zero the value-bias gauge, sort heads, align FFN neurons. SECTIONS A AND F ARE CURRENT -- both re-measured against that recipe at ten seeds. SECTIONS B, C, D AND E ARE NOT; they were measured against a six-step recipe and describe a ruler that is no longer shipped. A task-duration cap of roughly 600s killed every attempt to regenerate them: one measurement cell costs 4.8s and those sections need 11 to 26 minutes each. Do NOT quote B, C, D or E as describing the shipped ruler. Section A's rows for head_internal_transform (0.9997), layernorm_gain_rescale (1.754) and residual_permutation (0.9825) are the symmetries the shipped recipe DELIBERATELY does not quotient -- a large residual there is the documented cost of D-1 and D-2, not a failure."
 }
