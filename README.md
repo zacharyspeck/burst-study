@@ -205,6 +205,7 @@ scripts/position_sweep.py            8b-ii: burst position + gradient diagnostic
 scripts/tune_arms.py                 8b-iii: tunes arms toward the median
 scripts/gradient_direction.py        8b-iv: pairwise gradient cosine + profiles
 scripts/canonicalize.py              step 9: symmetry canonicalization
+scripts/canonicalization_error.py    step 9: the ruler's own error bar
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
 bursts/scrambled_false.txt           fluent_false, word order broken

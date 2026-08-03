@@ -1572,6 +1572,31 @@ def _paired_svd(F, G, sign_fix: bool = True):
     return U, s, V
 
 
+def _lexicographic_margin(sorted_keys) -> float:
+    """Smallest margin that actually DECIDES an adjacent comparison.
+
+    A lexicographic sort is settled by the FIRST component where two keys
+    differ, so that component's difference is what a perturbation has to exceed
+    to flip the pair. Every other component is irrelevant however far apart it
+    is.
+
+    This was originally computed as the largest difference ANYWHERE in the key
+    tuple, which is not a margin at all -- it reported 8.792e-04 for GPT-2's
+    FFN keys whose true smallest deciding margin is 1.490e-08, a factor of
+    59,000 too optimistic, and it was the number being used to argue the sort
+    was safe. See S53.
+    """
+    worst = math.inf
+    for a, b in zip(sorted_keys, sorted_keys[1:]):
+        for x, y in zip(a, b):
+            if x != y:
+                worst = min(worst, abs(x - y))
+                break
+        else:
+            worst = 0.0          # identical on every component: an exact tie
+    return worst
+
+
 def _relative_gaps(s):
     """Consecutive singular-value gaps, relative to the largest.
 
@@ -1754,6 +1779,7 @@ class CanonicalizeHeadInternal(CanonStep):
         d, dh = arch.n_embd, arch.head_dim
         worst_gap = math.inf
         worst_cond = 0.0
+        per_head_cond = []
         with torch.no_grad():
             for block in model.transformer.h:
                 c_attn, c_proj = block.attn.c_attn, block.attn.c_proj
@@ -1771,7 +1797,9 @@ class CanonicalizeHeadInternal(CanonStep):
                     U, s, V = self._svd(F, w_k)
                     self._check_spectrum(s, "Q/K")
                     worst_gap = min(worst_gap, float(_relative_gaps(s).min()))
-                    worst_cond = max(worst_cond, float(s[0] / s[-1]))
+                    cond_qk = float(s[0] / s[-1])
+                    worst_cond = max(worst_cond, cond_qk)
+                    per_head_cond.append(cond_qk)
                     root = s.clamp_min(0).sqrt()
                     F_new = U * root.unsqueeze(0)
                     c_attn.weight[:, q] = F_new[:d, :]
@@ -1790,6 +1818,7 @@ class CanonicalizeHeadInternal(CanonStep):
                         V2 * root2.unsqueeze(0)).transpose(0, 1)
         report.min_singular_gap = worst_gap
         report.max_head_condition = worst_cond
+        report.head_conditions = tuple(per_head_cond)
 
     def _check_spectrum(self, s, which: str) -> None:
         torch = _torch()
@@ -1848,18 +1877,19 @@ class SortHeads(CanonStep):
     def run(self, model, arch, report):
         torch = _torch()
         smallest_margin = math.inf
+        orders = []
         with torch.no_grad():
             for block in model.transformer.h:
                 keys = [self._key(block, arch, h) for h in range(arch.n_head)]
                 order = sorted(range(arch.n_head), key=lambda h: keys[h])
-                ordered = [keys[h] for h in order]
-                for a, b in zip(ordered, ordered[1:]):
-                    smallest_margin = min(
-                        smallest_margin,
-                        max(abs(x - y) for x, y in zip(a, b)))
+                orders.append(tuple(order))
+                smallest_margin = min(
+                    smallest_margin,
+                    _lexicographic_margin([keys[h] for h in order]))
                 if order != list(range(arch.n_head)):
                     self._apply(block, arch, order)
         report.min_head_sort_margin = smallest_margin
+        report.head_orders = tuple(orders)
 
     @staticmethod
     def _key(block, arch, head) -> tuple:
@@ -1907,6 +1937,7 @@ class SortFFNNeurons(CanonStep):
     def run(self, model, arch, report):
         torch = _torch()
         smallest_margin = math.inf
+        orders = []
         with torch.no_grad():
             for block in model.transformer.h:
                 c_fc, c_proj = block.mlp.c_fc, block.mlp.c_proj
@@ -1916,21 +1947,21 @@ class SortFFNNeurons(CanonStep):
                 keys = list(zip(bias.tolist(), in_norm.tolist(),
                                 out_norm.tolist()))
                 order = sorted(range(arch.n_inner), key=lambda j: keys[j])
-                ordered = [keys[j] for j in order]
-                # Margin over the WHOLE key tuple, not just the primary
-                # component. Measuring only the primary reported a margin of
-                # exactly 0 on a fixture whose biases were all zero, which
-                # looked like a catastrophic near-tie when the sort had in fact
-                # fallen through to the secondary key and worked correctly.
-                for a, b in zip(ordered, ordered[1:]):
-                    smallest_margin = min(
-                        smallest_margin,
-                        max(abs(x - y) for x, y in zip(a, b)))
+                # The margin that DECIDES each comparison -- the first
+                # differing component -- not the largest difference anywhere in
+                # the tuple. See _lexicographic_margin and S53: the latter
+                # overstated this by a factor of 59,000 on real GPT-2 and was
+                # the number being used to argue the sort was safe.
+                smallest_margin = min(
+                    smallest_margin,
+                    _lexicographic_margin([keys[j] for j in order]))
+                orders.append(tuple(order))
                 idx = torch.tensor(order)
                 c_fc.weight.copy_(c_fc.weight[:, idx])
                 c_fc.bias.copy_(c_fc.bias[idx])
                 c_proj.weight.copy_(c_proj.weight[idx, :])
         report.min_ffn_sort_margin = smallest_margin
+        report.ffn_orders = tuple(orders)
 
 
 #: The recipe. ORDER IS PART OF THE DEFINITION -- see the module comment above.
@@ -1960,6 +1991,14 @@ class CanonReport:
     max_head_condition: float = 0.0
     min_head_sort_margin: float = math.inf
     min_ffn_sort_margin: float = math.inf
+    #: Per-layer condition number of every head's Q/K invariant, so a distance
+    #: measurement can be attributed to conditioning rather than guessed at.
+    head_conditions: tuple = ()
+    #: The orderings the two sort steps actually chose, per layer. Recorded so
+    #: that a disagreement between two canonicalizations can be COUNTED as an
+    #: order flip rather than inferred from the weights afterwards.
+    head_orders: tuple = ()
+    ffn_orders: tuple = ()
 
 
 def canonicalize(model, arch: ArchSpec = GPT2_124M, recipe: tuple = None,

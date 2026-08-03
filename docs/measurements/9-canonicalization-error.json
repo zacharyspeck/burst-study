@@ -1,0 +1,479 @@
+{
+  "task": "step 9 phase 5",
+  "LIMITATION": "EVERY NUMBER IN THIS FILE IS MEASURED ON FULLY-TRAINED PUBLIC GPT-2. The study's own model does not exist -- there is no training loop and no step-200 checkpoint. Two consequences. First, the comparison target for the epsilon sweep does not exist either: the study's seed-only noise floor requires trained models, so no epsilon here is calibrated to anything real and the ratio curve must be read as a shape, not against a threshold. Second, and more specific to this ruler, the study injects at step 200 -- roughly 52M tokens (256 x 1024 x 200) into a from-scratch run -- where LayerNorm gains have barely moved from exactly 1.0 and Conv1D biases from exactly 0.0. Public GPT-2 is nowhere near that state. Measurement C is the quantification of that gap and is the one to read before trusting A or B at the study's actual injection point. THESE NUMBERS MUST BE RE-MEASURED AGAINST A REAL STEP-200 CHECKPOINT ONCE TRAINING INFRASTRUCTURE EXISTS.",
+  "OPEN_QUESTION_distortion_factor": "THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND WHICH END APPLIES CANNOT BE KNOWN YET. Even with the FFN sort removed -- the step measurement D attributes essentially all of the inflation to -- this canonicalization is not distance-neutral. It scores 3.05 at eps=1e-8 and eps=1e-6, and 84.4 at eps=1e-4. So it roughly TRIPLES a small difference at the low end and inflates by more than eightyfold three decades up. 3.05 is not 1, and 84.4 is not 3.05. Which of them is operative depends on how far a burst arm actually sits from its seed-matched twin after training, expressed as a fraction of the parameter norm -- and that quantity does not exist until models are trained. A ruler whose distortion factor ranges over more than an order of magnitude depending on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here as an open question rather than as a footnote. Resolving it requires measuring the twin-vs-twin distance on real checkpoints and reading the curve in this file at that epsilon.",
+  "model": "gpt2 124M (public, fully trained) -- A PROXY, see LIMITATION",
+  "architecture": {
+    "n_layer": 12,
+    "n_head": 12,
+    "n_embd": 768,
+    "n_inner": 3072,
+    "parameters": 124439808
+  },
+  "recipe": [
+    "absorb_layernorm_gains",
+    "zero_key_bias_gauge",
+    "zero_value_bias_gauge",
+    "canonicalize_head_internal",
+    "sort_heads",
+    "sort_ffn_neurons"
+  ],
+  "seeds": [
+    11,
+    22,
+    33,
+    44,
+    55
+  ],
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "torch": "2.13.0+cpu"
+  },
+  "symmetry_residual": {
+    "note": "residual distance left after canonicalizing two models that are secretly the same model in different gauges. This is the ruler tested against ITSELF; measurement B is the one that tests the use case.",
+    "parameter_norm": 1216.020990743328,
+    "per_symmetry": {
+      "layernorm_gain_rescale": {
+        "d_raw_median": 412.7369208045939,
+        "d_canonical_median": 2.947520789501647e-11,
+        "d_canonical_max": 3.0384202823837076e-11,
+        "ratio_median": 7.147805294526557e-14,
+        "ratio_max": 7.361639168263837e-14
+      },
+      "head_permutation": {
+        "d_raw_median": 976.5973760912931,
+        "d_canonical_median": 1.1995996263876831e-14,
+        "d_canonical_max": 1.502712963703429e-14,
+        "ratio_median": 1.250059947157096e-17,
+        "ratio_max": 1.516566137594334e-17
+      },
+      "head_internal_transform": {
+        "d_raw_median": 1047.015699806436,
+        "d_canonical_median": 4.036526359016826e-11,
+        "d_canonical_max": 4.446758252948295e-11,
+        "ratio_median": 3.855268225455518e-14,
+        "ratio_max": 4.2481472368464925e-14
+      },
+      "ffn_neuron_permutation": {
+        "d_raw_median": 1350.9062362506913,
+        "d_canonical_median": 0.0,
+        "d_canonical_max": 0.0,
+        "ratio_median": 0.0,
+        "ratio_max": 0.0
+      },
+      "key_bias_shift": {
+        "d_raw_median": 96.2163476038084,
+        "d_canonical_median": 0.0,
+        "d_canonical_max": 0.0,
+        "ratio_median": 0.0,
+        "ratio_max": 0.0
+      },
+      "value_bias_shift": {
+        "d_raw_median": 341.7932953882741,
+        "d_canonical_median": 9.163469807533485e-14,
+        "d_canonical_max": 9.485563681897495e-14,
+        "ratio_median": 2.6900529716783253e-16,
+        "ratio_max": 2.7752339820247147e-16
+      },
+      "__composed__": {
+        "d_raw_median": 1842.417892800784,
+        "d_canonical_median": 4.399417292649367e-11,
+        "d_canonical_max": 4.543330335983908e-11,
+        "ratio_median": 2.3960709219516676e-14,
+        "ratio_max": 2.4588470712289058e-14
+      }
+    }
+  },
+  "epsilon_sweep": {
+    "note": "ratio = ||canon(M) - canon(M+eps)|| / ||M - (M+eps)||. Near 1 means canonicalization is distance-neutral on nearly identical models. Much above 1 means it INFLATES a small real difference, which would make step 9 a noise source whatever its algebra. Much below 1 means it is collapsing a genuine difference. All three are reported, none judged.",
+    "head_conditioning": {
+      "n_heads": 144,
+      "min": 2.6187617587462357,
+      "median": 5.509184578175246,
+      "max": 1103.8983966815724,
+      "worst_decile_indices": [
+        0,
+        24,
+        9,
+        2,
+        30,
+        11,
+        35,
+        16,
+        14,
+        15,
+        22,
+        31,
+        20,
+        21
+      ],
+      "note": "heads split by the condition number of their Q/K invariant so a spike in the ratio can be attributed to conditioning rather than guessed at"
+    },
+    "cells": {
+      "isotropic|1e-08": {
+        "shape": "isotropic",
+        "epsilon": 1e-08,
+        "ratio_min": 305840.38970955677,
+        "ratio_median": 740101.0288232934,
+        "ratio_max": 808844.6538006677,
+        "ratio_worst_conditioned_heads_median": 4.211354166919464,
+        "ratio_median_conditioned_heads_median": 5.539267653130584,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 10,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.47892803092112e-06,
+        "min_sort_margin_min": 1.3335638149314377e-11
+      },
+      "isotropic|1e-07": {
+        "shape": "isotropic",
+        "epsilon": 1e-07,
+        "ratio_min": 87147.80212817156,
+        "ratio_median": 93056.65381719591,
+        "ratio_max": 102519.0787699858,
+        "ratio_worst_conditioned_heads_median": 4.211361618415059,
+        "ratio_median_conditioned_heads_median": 5.539258607402961,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 18,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.47876533736025e-06,
+        "min_sort_margin_min": 1.3335632598199254e-10
+      },
+      "isotropic|1e-06": {
+        "shape": "isotropic",
+        "epsilon": 1e-06,
+        "ratio_min": 19841.770035193396,
+        "ratio_median": 23016.95815894718,
+        "ratio_max": 25985.845053904206,
+        "ratio_worst_conditioned_heads_median": 4.524929251840457,
+        "ratio_median_conditioned_heads_median": 5.539165032185449,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 50,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.477138419441668e-06,
+        "min_sort_margin_min": 3.857462127498934e-10
+      },
+      "isotropic|1e-05": {
+        "shape": "isotropic",
+        "epsilon": 1e-05,
+        "ratio_min": 8040.397918145087,
+        "ratio_median": 8339.907272605044,
+        "ratio_max": 8530.886677019374,
+        "ratio_worst_conditioned_heads_median": 1295.7607465690646,
+        "ratio_median_conditioned_heads_median": 5.538246663734382,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.46087102160644e-06,
+        "min_sort_margin_min": 1.1861887192973763e-09
+      },
+      "isotropic|0.0001": {
+        "shape": "isotropic",
+        "epsilon": 0.0001,
+        "ratio_min": 2430.6778454362166,
+        "ratio_median": 2447.8120048331016,
+        "ratio_max": 2499.5034353631345,
+        "ratio_worst_conditioned_heads_median": 202.92613396821457,
+        "ratio_median_conditioned_heads_median": 272.33246910382303,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 21,
+        "min_singular_gap_min": 5.298382485098231e-06,
+        "min_sort_margin_min": 2.6718446899387516e-10
+      },
+      "isotropic|0.001": {
+        "shape": "isotropic",
+        "epsilon": 0.001,
+        "ratio_min": 539.4592049449548,
+        "ratio_median": 540.8202890800231,
+        "ratio_max": 546.2573278829605,
+        "ratio_worst_conditioned_heads_median": 52.52371706104518,
+        "ratio_median_conditioned_heads_median": 93.3403146856914,
+        "head_order_flips_total": 1,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 376,
+        "min_singular_gap_min": 3.7028529851727034e-06,
+        "min_sort_margin_min": 3.815401189433132e-10
+      },
+      "isotropic|0.01": {
+        "shape": "isotropic",
+        "epsilon": 0.01,
+        "ratio_min": 66.95437205783644,
+        "ratio_median": 67.14222035266924,
+        "ratio_max": 67.28606317172701,
+        "ratio_worst_conditioned_heads_median": 16.86497032163857,
+        "ratio_median_conditioned_heads_median": 23.52815515530579,
+        "head_order_flips_total": 5,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 3348,
+        "min_singular_gap_min": 4.365621531994779e-06,
+        "min_sort_margin_min": 2.2931177304230665e-09
+      },
+      "per_tensor|1e-08": {
+        "shape": "per_tensor",
+        "epsilon": 1e-08,
+        "ratio_min": 305840.3897019496,
+        "ratio_median": 740101.0287953346,
+        "ratio_max": 808844.6539636045,
+        "ratio_worst_conditioned_heads_median": 4.754237839296899,
+        "ratio_median_conditioned_heads_median": 7.309446392922995,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 10,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.478921337045761e-06,
+        "min_sort_margin_min": 1.3821166433558574e-11
+      },
+      "per_tensor|1e-07": {
+        "shape": "per_tensor",
+        "epsilon": 1e-07,
+        "ratio_min": 87147.80213711543,
+        "ratio_median": 93056.65377365872,
+        "ratio_max": 98934.96334825282,
+        "ratio_worst_conditioned_heads_median": 4.754229838811647,
+        "ratio_median_conditioned_heads_median": 7.309458063569556,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 17,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.478698399208532e-06,
+        "min_sort_margin_min": 1.382115810688589e-10
+      },
+      "per_tensor|1e-06": {
+        "shape": "per_tensor",
+        "epsilon": 1e-06,
+        "ratio_min": 19176.81038613392,
+        "ratio_median": 22637.605143895104,
+        "ratio_max": 24905.23222215125,
+        "ratio_worst_conditioned_heads_median": 5.106960705212937,
+        "ratio_median_conditioned_heads_median": 7.309572460402411,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 50,
+        "sign_flips_total": 0,
+        "min_singular_gap_min": 5.476469080640395e-06,
+        "min_sort_margin_min": 3.6783143197993695e-10
+      },
+      "per_tensor|1e-05": {
+        "shape": "per_tensor",
+        "epsilon": 1e-05,
+        "ratio_min": 7776.351226278797,
+        "ratio_median": 8050.322856519848,
+        "ratio_max": 8194.027079940292,
+        "ratio_worst_conditioned_heads_median": 1153.6143499061604,
+        "ratio_median_conditioned_heads_median": 7.310716110860906,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 1,
+        "min_singular_gap_min": 5.454181914470367e-06,
+        "min_sort_margin_min": 2.4126964315307475e-10
+      },
+      "per_tensor|0.0001": {
+        "shape": "per_tensor",
+        "epsilon": 0.0001,
+        "ratio_min": 2364.5655179761393,
+        "ratio_median": 2376.177692084703,
+        "ratio_max": 2427.3884610871196,
+        "ratio_worst_conditioned_heads_median": 180.60686818101476,
+        "ratio_median_conditioned_heads_median": 289.67536470375853,
+        "head_order_flips_total": 0,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 35,
+        "min_singular_gap_min": 5.231936364177909e-06,
+        "min_sort_margin_min": 5.204152109250515e-10
+      },
+      "per_tensor|0.001": {
+        "shape": "per_tensor",
+        "epsilon": 0.001,
+        "ratio_min": 535.5130131703124,
+        "ratio_median": 536.4485491470381,
+        "ratio_max": 539.6809659649397,
+        "ratio_worst_conditioned_heads_median": 56.13458848608783,
+        "ratio_median_conditioned_heads_median": 109.03027633755447,
+        "head_order_flips_total": 3,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 651,
+        "min_singular_gap_min": 3.1141003465017706e-06,
+        "min_sort_margin_min": 1.2898000723016168e-10
+      },
+      "per_tensor|0.01": {
+        "shape": "per_tensor",
+        "epsilon": 0.01,
+        "ratio_min": 67.20742904472209,
+        "ratio_median": 67.32525144270906,
+        "ratio_max": 67.3899299999164,
+        "ratio_worst_conditioned_heads_median": 17.107394402378468,
+        "ratio_median_conditioned_heads_median": 28.363191162352873,
+        "head_order_flips_total": 5,
+        "ffn_order_flips_total": 60,
+        "sign_flips_total": 4647,
+        "min_singular_gap_min": 1.246259222372233e-05,
+        "min_sort_margin_min": 1.2641310220828927e-10
+      }
+    }
+  },
+  "gauge_dimensions": {
+    "head_internal_GL": 1179648,
+    "layernorm_gain": 18432,
+    "key_and_value_bias_shift": 18432,
+    "continuous_total": 1216512,
+    "model_parameters": 124439808,
+    "continuous_fraction_of_dimensions": 0.009775907079509476,
+    "discrete_group_log10_size": 112680.34154609338
+  },
+  "dispersion_sweep": {
+    "note": "t = 0 is exactly the initialization configuration (all gains 1.0, all Conv1D biases 0.0); t = 1 is public GPT-2. Weight matrices are GPT-2's at every level, so only the two swept families vary. THE STUDY INJECTS AT STEP 200, near the t = 0 end. Every conditioning number reported elsewhere in this file was measured at t = 1.",
+    "levels": {
+      "0": {
+        "min_layernorm_gain": 1.0,
+        "min_singular_gap": 1.3588396531011852e-05,
+        "max_head_condition": 784.0780141454513,
+        "median_head_condition": 6.051084154633246,
+        "min_head_sort_margin": 0.001902502009624385,
+        "min_ffn_sort_margin": 6.582227207729829e-09,
+        "refused": null
+      },
+      "0.01": {
+        "min_layernorm_gain": 0.9899974427552661,
+        "min_singular_gap": 2.695573351908445e-05,
+        "max_head_condition": 783.7298646538477,
+        "median_head_condition": 6.040596548869152,
+        "min_head_sort_margin": 0.004825623240449772,
+        "min_ffn_sort_margin": 1.49011611860414e-10,
+        "refused": null
+      },
+      "0.03": {
+        "min_layernorm_gain": 0.9699923282657983,
+        "min_singular_gap": 1.4706628383231852e-05,
+        "max_head_condition": 783.0309390968815,
+        "median_head_condition": 6.003095810132606,
+        "min_head_sort_margin": 0.008469231208575678,
+        "min_ffn_sort_margin": 4.470348353644016e-10,
+        "refused": null
+      },
+      "0.1": {
+        "min_layernorm_gain": 0.8999744275526609,
+        "min_singular_gap": 2.2642455444451932e-05,
+        "max_head_condition": 780.5683199510729,
+        "median_head_condition": 5.885305616493261,
+        "min_head_sort_margin": 0.001895044410165525,
+        "min_ffn_sort_margin": 1.4901161173030975e-09,
+        "refused": null
+      },
+      "0.2": {
+        "min_layernorm_gain": 0.7999488551053219,
+        "min_singular_gap": 3.303358493291461e-05,
+        "max_head_condition": 777.0887602597701,
+        "median_head_condition": 5.759890734726593,
+        "min_head_sort_margin": 0.004084897842190571,
+        "min_ffn_sort_margin": 2.980232234606195e-09,
+        "refused": null
+      },
+      "0.4": {
+        "min_layernorm_gain": 0.5998977102106438,
+        "min_singular_gap": 2.6300932866690575e-05,
+        "max_head_condition": 771.4449452466802,
+        "median_head_condition": 5.305215626167357,
+        "min_head_sort_margin": 0.009398498697473556,
+        "min_ffn_sort_margin": 5.96046446921239e-09,
+        "refused": null
+      },
+      "0.7": {
+        "min_layernorm_gain": 0.2998209928686265,
+        "min_singular_gap": 2.1953118192373143e-05,
+        "max_head_condition": 785.5666563621933,
+        "median_head_condition": 4.6731289211371045,
+        "min_head_sort_margin": 0.001395103868976122,
+        "min_ffn_sort_margin": 1.0430812824591129e-08,
+        "refused": null
+      },
+      "1": {
+        "min_layernorm_gain": 0.00025572447339072824,
+        "min_singular_gap": 5.478946107988301e-06,
+        "max_head_condition": 1103.8983966815724,
+        "median_head_condition": 5.509184578175246,
+        "min_head_sort_margin": 3.451531870490854e-05,
+        "min_ffn_sort_margin": 1.4901161193847656e-08,
+        "refused": null
+      }
+    },
+    "observed_at_t_equals_1": {
+      "layernorm_gain": {
+        "min": -0.00025572447339072824,
+        "median": 0.3011350631713867,
+        "max": 17.4193172454834,
+        "mean": 0.3795724718900571,
+        "std": 0.39912305395109066,
+        "fraction_within_1pct_of_init": 0.00020833333333333335
+      },
+      "conv1d_bias": {
+        "min": -5.3728837966918945,
+        "median": -0.029622836038470268,
+        "max": 3.8490679264068604,
+        "mean": -0.037439750171575484,
+        "std": 0.14564809450087848,
+        "fraction_within_1pct_of_init": 0.10710841049382716
+      },
+      "note": "initialization sets every gain to exactly 1.0 and every Conv1D bias to exactly 0.0; these are what a fully trained model looks like instead. The study injects at step 200, much nearer the initialization end."
+    }
+  },
+  "step_attribution": {
+    "note": "median ratio under an isotropic perturbation, with recipe steps removed one at a time, plus the Hungarian-matching route in place of sorting. Attributes the pooled ratio in measurement B to a specific step.",
+    "variants": {
+      "full_recipe": {
+        "1e-08": 808844.6537733669,
+        "1e-06": 23016.95815894718,
+        "0.0001": 2447.8120048331016
+      },
+      "without_ffn_sort": {
+        "1e-08": 3.0500720635618204,
+        "1e-06": 3.091071000606531,
+        "0.0001": 84.38388763466062
+      },
+      "without_head_sort": {
+        "1e-08": 808844.6537733669,
+        "1e-06": 23016.95815894718,
+        "0.0001": 2447.8120048331016
+      },
+      "without_either_sort": {
+        "1e-08": 3.0500720635618204,
+        "1e-06": 3.091071000606531,
+        "0.0001": 84.38388763466061
+      },
+      "hungarian_alignment": {
+        "1e-08": 3.0500720635618204,
+        "1e-06": 3.091071000606531,
+        "0.0001": 84.38388763466061
+      }
+    }
+  },
+  "ffn_sort_margins": {
+    "note": "FFN sort: the margin that DECIDES each adjacent comparison, i.e. the difference at the first differing key component. This is the quantity a perturbation must exceed to flip a pair. CanonReport previously reported the largest difference anywhere in the key tuple instead, which overstated it by a factor of about 59,000 -- see S53.",
+    "n_adjacent_pairs": 36852,
+    "percentiles": {
+      "0": 1.4901161193847656e-08,
+      "0.1": 1.2293457984924316e-07,
+      "1": 1.0170042514801025e-06,
+      "5": 5.09992241859436e-06,
+      "25": 2.9593706130981445e-05,
+      "50": 7.448345422744751e-05
+    }
+  },
+  "permuted_model_recovery": {
+    "note": "models that GENUINELY differ by an FFN neuron permutation, then perturbed by epsilon. d_raw is the epsilon alone, since the permutation is gauge. Measurement D could not separate 'no permutation step' from 'alignment' because the correct correspondence there was always the identity; here it is not, so a variant that cannot recover a permutation must blow up by the full size of one.",
+    "variants": {
+      "no_permutation_step": {
+        "1e-08": 68954452.92511757,
+        "1e-06": 689544.5291930469,
+        "0.0001": 6896.228898302518
+      },
+      "hungarian_alignment": {
+        "1e-08": 3.050072996813809,
+        "1e-06": 3.0910697060488417,
+        "0.0001": 84.38388758723882
+      },
+      "ffn_sort": {
+        "1e-08": 3.050072996813809,
+        "1e-06": 22150.35678129192,
+        "0.0001": 2447.0414602355536
+      }
+    }
+  }
+}
