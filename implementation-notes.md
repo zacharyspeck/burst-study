@@ -2635,6 +2635,56 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S73. A fourth instance of "named for one thing, computed as another" — and it was in the reasoning, not the code
+
+S49, S53 and S61 are all the same failure: a thing was **described** by what it
+was supposed to be and **was** something else, plausibly enough that nothing
+looked wrong. All three were in code. This one was in reasoning about code, and
+it is logged at Zach's instruction so the pattern's count stays honest.
+
+**The instance.** `bursts/context.txt` was described to me as non-corpus text,
+and therefore as making step 10's metrics accidentally safe from a memorisation
+confound. The basis for that was **what the file is about** — a passage on
+whether Kansas is flatter than a pancake, which does not read like scraped web
+text. `bursts/provenance.json` records it as **openwebtext document 73**.
+
+The file was identified by its content instead of by its record. That is the
+S49/S53/S61 shape exactly: a plausible reading of the thing itself, standing in
+for the thing's provenance, and no failure visible anywhere. Two more committed
+texts are in the same position — `scrambled-corpus` is document 104 and
+`pos-substituted` is document 193.
+
+**Zach raised it against himself.** Recording that rather than smoothing it out,
+because the count of this pattern is one of the few running measurements of how
+often this build gets fooled by something reasonable, and a count that quietly
+omits instances is worth less than no count.
+
+**The general rule, which is the part worth carrying:** a file's provenance is
+the record, never the content. `bursts/provenance.json` exists precisely so
+that "where did this text come from" has one answer, and reading the text
+instead is faster, feels sufficient, and is wrong.
+
+#### The consequence is sharper than the error
+
+All three text-using step 10 metrics — barrier, CKA, activation similarity —
+evaluate trained models on corpus documents. **They are safe only because the
+held-out slice is taken from the FRONT of the corpus.**
+
+That placement was chosen for a different reason: so the evaluation set would
+not be silently redefined by any future change to `expected_token_budget`. The
+memorisation exposure was not known at the time and played no part in it.
+
+**Back-placed, every one of those metrics would have been measuring
+memorisation while claiming to measure representation, and nothing would have
+looked different.** No number would have moved, no test would have failed, no
+banner would have changed. The metrics were saved by a layout choice made for
+an unrelated reason, not by a design that anticipated the problem.
+
+Which is the argument for `assert_heldout_disjoint_from_training` existing even
+though disjointness is structural: the next such choice may not be lucky, and a
+guarantee that rests on luck is worth converting into one that rests on a
+check.
+
 ### S72. Step 11 groundwork: the seed count, gate 1, and per-seed data order
 
 #### The seed count question, resolved before the ordering module was written

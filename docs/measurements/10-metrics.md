@@ -188,6 +188,13 @@ LIMITATION
   No trained model exists in this study and none will for weeks, so these are throwaway models built in process from pinned seeds and never written to disk.
   The consequence is not a caveat, it is the frame: this is a PLUMBING result showing that each metric responds to a difference, and it is not a measurement of anything about training.
   No number here should be quoted as a property of the study's models.
+  THE ACTIVATION METRICS REST ON A THIN BASIS.
+  CKA and activation similarity are computed over 1024 token positions drawn from a SINGLE DOCUMENT (bursts/context.txt), and for CKA those positions are the entire sample -- it is a statement about a sample of activations, and one document is a narrow one.
+  This is a limitation of the numbers in this file as they stand, not merely of a decision left untaken, and it is independent of which text is used.
+  The held-out corpus slice offers 10,240 sequences against this one, and would be the better basis.
+  The batch is deliberately NOT being changed: every number here is keyed to a batch identity, so a swap would make old and new numbers incomparable, and that is a change to make once against trained checkpoints rather than twice.
+  That text is ALSO corpus-derived -- bursts/context.txt is openwebtext document 73 -- so it is safe from a memorisation confound only because the held-out slice is taken from the FRONT of the corpus.
+  See cross-module obligation 1.
 
 ==============================================================================
 PROVENANCE

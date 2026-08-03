@@ -55,15 +55,51 @@ PAIR_EXPECTATION = {
     "independent": "far apart on L2, CKA and cosine",
 }
 
-LIMITATION = (
-    "EVERY NUMBER IN THIS FILE IS MEASURED ON JUNK CHECKPOINTS. No trained "
-    "model exists in this study and none will for weeks, so these are "
-    "throwaway models built in process from pinned seeds and never written to "
-    "disk. The consequence is not a caveat, it is the frame: this is a "
-    "PLUMBING result showing that each metric responds to a difference, and it "
-    "is not a measurement of anything about training. No number here should be "
-    "quoted as a property of the study's models."
-)
+def limitation(payload) -> str:
+    """The limitations, with the batch-dependent ones READ FROM THE BATCH.
+
+    Recomputed on every write rather than frozen into the payload at
+    measurement time: it is static text owned by this script plus facts derived
+    from the batch identity, so a stored copy could only ever go stale. The
+    same reasoning as PROVENANCE.
+    """
+    batch = payload.get("batch") or {}
+    n_tokens = batch.get("n_tokens")
+    source = batch.get("source", "an unrecorded batch")
+
+    text = (
+        "EVERY NUMBER IN THIS FILE IS MEASURED ON JUNK CHECKPOINTS. No trained "
+        "model exists in this study and none will for weeks, so these are "
+        "throwaway models built in process from pinned seeds and never written "
+        "to disk. The consequence is not a caveat, it is the frame: this is a "
+        "PLUMBING result showing that each metric responds to a difference, "
+        "and it is not a measurement of anything about training. No number "
+        "here should be quoted as a property of the study's models. "
+    )
+
+    if n_tokens:
+        text += (
+            f"THE ACTIVATION METRICS REST ON A THIN BASIS. CKA and activation "
+            f"similarity are computed over {n_tokens} token positions drawn "
+            f"from a SINGLE DOCUMENT ({source}), and for CKA those positions "
+            f"are the entire sample -- it is a statement about a sample of "
+            f"activations, and one document is a narrow one. This is a "
+            f"limitation of the numbers in this file as they stand, not merely "
+            f"of a decision left untaken, and it is independent of which text "
+            f"is used. The held-out corpus slice offers 10,240 sequences "
+            f"against this one, and would be the better basis. The batch is "
+            f"deliberately NOT being changed: every number here is keyed to a "
+            f"batch identity, so a swap would make old and new numbers "
+            f"incomparable, and that is a change to make once against trained "
+            f"checkpoints rather than twice. "
+        )
+        text += (
+            "That text is ALSO corpus-derived -- bursts/context.txt is "
+            "openwebtext document 73 -- so it is safe from a memorisation "
+            "confound only because the held-out slice is taken from the FRONT "
+            "of the corpus. See cross-module obligation 1."
+        )
+    return text
 
 
 def cannot_answer(payload) -> str:
@@ -586,6 +622,7 @@ def _write_report(payload, reportdir: Path, stem: str, stream) -> int:
     payload["barrier_noise_floor"] = barrier_noise_floor(payload)
     payload["barriers_above_noise"] = barriers_above_noise(payload)
     payload["CANNOT_ANSWER"] = cannot_answer(payload)
+    payload["LIMITATION"] = limitation(payload)
     payload["PROVENANCE"] = build_provenance(payload)
 
     reportdir.mkdir(parents=True, exist_ok=True)
@@ -701,7 +738,6 @@ def main(argv=None) -> int:
 
     payload = {
         "task": "step 10 first half -- layout-independent metrics",
-        "LIMITATION": LIMITATION,
         "model": ("TINY in-process smoke test" if args.tiny
                   else "GPT-2 124M shapes, JUNK weights (never trained)"),
         "cka_variant": MX.CKA_VARIANT,
