@@ -225,6 +225,8 @@ tests/test_canonicalize.py           72 tests (step 9: tripwire, symmetries)
 tests/test_canonicalize_recipe.py    47 tests (step 9: the canonical form)
 tests/test_canonicalize_mutations.py 16 tests (step 9: injected faults)
 tests/test_canonicalize_diagnostics.py 10 tests (step 9: S55 guard)
+docs/step9-summary.md                step 9 in two pages, for a reader
+docs/decisions-pending.md            decisions raised but NOT taken
 implementation-notes.md              decisions, assumptions, open questions
 ```
 
