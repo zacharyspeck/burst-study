@@ -203,8 +203,50 @@ _WHY_ROTARY_MATTERS = (
 )
 
 
+_WHY_LAYOUT_MATTERS = (
+    "transformers' Conv1D stores its weight as (in_features, out_features). "
+    "torch.nn.Linear stores the TRANSPOSE, (out_features, in_features). Every "
+    "axis in this module -- which columns of c_attn hold a head's queries, "
+    "which rows of attn.c_proj hold its output, which axis of c_fc indexes the "
+    "FFN's hidden neurons -- is chosen for the Conv1D convention.\n"
+    "Applied to an nn.Linear model unchanged, every one of those slices would "
+    "address the wrong axis. IT WOULD NOT CRASH. It would permute the residual "
+    "stream where it meant to permute heads, produce a model that still runs, "
+    "and report a weight-space distance that means nothing.\n"
+    "This is not fixable by renaming an attribute. Step 9 is Conv1D-only by "
+    "deliberate decision; a layout adapter is a known, open gap. See S58."
+)
+
+
 def _fail(message: str) -> None:
     raise CanonicalizeError(message)
+
+
+def _check_projection_layout(model, conv1d_type, where: str) -> None:
+    """Refuse a transposed weight layout BEFORE looking at any attribute path.
+
+    Runs first, and by scanning module names rather than walking a fixed path,
+    so that a model with different attribute naming still gets the layout
+    objection rather than a complaint about its attribute names. That ordering
+    is the point: the previous order refused an nn.Linear model on
+    "no .transformer attribute", which is true, adjacent to the real problem,
+    and misleading.
+    """
+    from torch import nn
+
+    suspects = [(name, module) for name, module in model.named_modules()
+                if name.rsplit(".", 1)[-1] in ("c_attn", "c_proj", "c_fc")]
+    if not suspects:
+        return          # nothing recognisable; later checks will say so
+    for name, module in suspects:
+        if isinstance(module, conv1d_type):
+            continue
+        if isinstance(module, nn.Linear):
+            _fail(f"{where}: {name} is a torch.nn.Linear with weight "
+                  f"{tuple(module.weight.shape)}, but this module requires a "
+                  f"transformers Conv1D.\n" + _WHY_LAYOUT_MATTERS)
+        _fail(f"{where}: {name} is a {type(module).__name__}, but this module "
+              f"requires a transformers Conv1D.\n" + _WHY_LAYOUT_MATTERS)
 
 
 def _check(condition, message: str) -> None:
@@ -235,6 +277,14 @@ def validate_architecture(model, expected: ArchSpec = GPT2_124M) -> ArchSpec:
         ) from exc
 
     where = type(model).__name__
+
+    # ---- STRUCTURAL LAYOUT FIRST, before any attribute path --------------
+    # Ordering is deliberate and was changed after this check refused a real
+    # nn.Linear model on "no .transformer attribute" and never reached here.
+    # That refusal was correct by accident of ordering rather than by design,
+    # and its message pointed at a rename when the real objection is that
+    # every axis is transposed. See S57.
+    _check_projection_layout(model, Conv1D, where)
 
     # ---- top-level shape -------------------------------------------------
     _check(hasattr(model, "transformer") and hasattr(model, "lm_head"),
@@ -1615,7 +1665,8 @@ class CanonStep:
 
     name: str = "unnamed"
 
-    def run(self, model, arch: ArchSpec, report: "CanonReport") -> None:
+    def run(self, model, arch: ArchSpec, report: "CanonReport",
+            reference=None) -> None:
         raise NotImplementedError
 
 
@@ -1642,7 +1693,7 @@ class AbsorbLayerNormGains(CanonStep):
     #: orders below anything observed rather than a value tuned to pass.
     min_gain: float = 1e-7
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         smallest = math.inf
         with torch.no_grad():
@@ -1685,7 +1736,7 @@ class ZeroKeyBiasGauge(CanonStep):
 
     name: str = "zero_key_bias_gauge"
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         with torch.no_grad():
             for block in model.transformer.h:
@@ -1710,7 +1761,7 @@ class ZeroValueBiasGauge(CanonStep):
 
     name: str = "zero_value_bias_gauge"
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         with torch.no_grad():
             for block in model.transformer.h:
@@ -1774,7 +1825,7 @@ class CanonicalizeHeadInternal(CanonStep):
         """Overridden by the sign-convention mutation fault."""
         return _paired_svd(F, G, sign_fix=True)
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         d, dh = arch.n_embd, arch.head_dim
         worst_gap = math.inf
@@ -1874,7 +1925,7 @@ class SortHeads(CanonStep):
         c_attn.bias.copy_(new_b)
         c_proj.weight.copy_(new_o)
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         smallest_margin = math.inf
         orders = []
@@ -1934,7 +1985,7 @@ class SortFFNNeurons(CanonStep):
 
     name: str = "sort_ffn_neurons"
 
-    def run(self, model, arch, report):
+    def run(self, model, arch, report, reference=None):
         torch = _torch()
         smallest_margin = math.inf
         orders = []
@@ -1964,8 +2015,64 @@ class SortFFNNeurons(CanonStep):
         report.ffn_orders = tuple(orders)
 
 
+@dataclass
+class AlignFFNNeurons(CanonStep):
+    """Match the FFN's hidden neurons onto a reference model's, not sort them.
+
+    REPLACED SortFFNNeurons IN DEFAULT_RECIPE ON MEASUREMENT, NOT ARGUMENT.
+    Sorting 3072 neurons on a scalar-first key gives 36,852 adjacent pairs
+    whose smallest deciding margin is 1.490e-08. A perturbation that flips one
+    pair makes two neurons exchange their full 1,537-coordinate vectors, so the
+    error is O(1) while the honest difference is O(epsilon).
+
+    The deciding reason was not the size of that inflation but its
+    inconsistency: on identical seeds at eps=1e-8 the sort measured 8.088e+05
+    in one setting and 3.05 in another, because whether it flips depends on
+    where the perturbation happens to land relative to the near-ties. An
+    inflation that appears on some seeds and not others can be neither
+    corrected for nor reliably noticed, which disqualifies it for an
+    instrument. See S54 and S59.
+
+    Matching on each neuron's whole feature vector, solved exactly with the
+    Hungarian algorithm, resolves a near tie by everything else about the
+    neuron. Measured: 3.05 / 3.091 / 84.38, identical to four figures to having
+    no permutation step at all when none is needed, and 6.895e+07 -> 3.05 when
+    a genuine permutation IS present.
+
+    CONSEQUENCE FOR WHAT CANONICAL FORM MEANS. It is now pairwise-relative: a
+    model's canonical form is defined against a reference, and for this study
+    the reference is the seed-matched twin. `reference=None` means "this model
+    defines the frame", which is how a reference is itself canonicalized.
+    """
+
+    name: str = "align_ffn_neurons"
+
+    def run(self, model, arch, report, reference=None):
+        if reference is None:
+            # This model IS the frame. Nothing to align against, and that is a
+            # legitimate call -- it is how the reference gets canonicalized.
+            report.ffn_orders = ()
+            report.aligned_to_reference = False
+            return
+        report.ffn_orders = align_ffn_neurons_to(model, reference, arch)
+        report.aligned_to_reference = True
+
+
 #: The recipe. ORDER IS PART OF THE DEFINITION -- see the module comment above.
 DEFAULT_RECIPE: tuple = (
+    AbsorbLayerNormGains(),
+    ZeroKeyBiasGauge(),
+    ZeroValueBiasGauge(),
+    CanonicalizeHeadInternal(),
+    SortHeads(),
+    AlignFFNNeurons(),
+)
+
+#: The superseded recipe, kept so the comparison that retired it stays
+#: reproducible. NOT the study's canonical form. Retained deliberately rather
+#: than deleted: S54's measurement is only checkable if the losing variant is
+#: still runnable.
+SORT_ONLY_RECIPE: tuple = (
     AbsorbLayerNormGains(),
     ZeroKeyBiasGauge(),
     ZeroValueBiasGauge(),
@@ -1991,6 +2098,10 @@ class CanonReport:
     max_head_condition: float = 0.0
     min_head_sort_margin: float = math.inf
     min_ffn_sort_margin: float = math.inf
+    #: False when this model defined the frame rather than being aligned to
+    #: one. Canonical form is pairwise-relative now, so which of the two
+    #: happened is part of the record.
+    aligned_to_reference: bool = False
     #: Per-layer condition number of every head's Q/K invariant, so a distance
     #: measurement can be attributed to conditioning rather than guessed at.
     head_conditions: tuple = ()
@@ -2002,8 +2113,24 @@ class CanonReport:
 
 
 def canonicalize(model, arch: ArchSpec = GPT2_124M, recipe: tuple = None,
-                 validate: bool = True) -> CanonReport:
+                 validate: bool = True, reference=None) -> CanonReport:
     """Rewrite `model` in place into its canonical form.
+
+    CANONICAL FORM IS PAIRWISE-RELATIVE. Since the FFN permutation is fixed by
+    matching rather than sorting (see AlignFFNNeurons), a model's canonical
+    form is defined against a `reference`. For this study the reference is the
+    run's seed-matched twin, which is also the only model every comparison is
+    ever made against -- so the relativity costs nothing that was being used.
+
+    `reference=None` means "this model defines the frame". That is how a
+    reference is itself canonicalized, and it is the required first half of the
+    protocol:
+
+        canonicalize(twin)                        # twin defines the frame
+        canonicalize(arm, reference=twin)         # arm measured against it
+
+    The reference must ALREADY be canonicalized when it is passed in, or the
+    matching is against a model still in an arbitrary gauge.
 
     Runs the tripwire first unless explicitly told not to. Returns a report of
     the fragility diagnostics; the model itself is mutated.
@@ -2011,9 +2138,11 @@ def canonicalize(model, arch: ArchSpec = GPT2_124M, recipe: tuple = None,
     recipe = DEFAULT_RECIPE if recipe is None else recipe
     if validate:
         validate_architecture(model, arch)
+        if reference is not None:
+            validate_architecture(reference, arch)
     report = CanonReport(steps=tuple(s.name for s in recipe))
     for step in recipe:
-        step.run(model, arch, report)
+        step.run(model, arch, report, reference=reference)
     return report
 
 
@@ -2166,17 +2295,52 @@ def _scipy_lsa():
     return linear_sum_assignment
 
 
-def align_permutations_to(model, reference, arch: ArchSpec = GPT2_124M
-                          ) -> AlignReport:
-    """Permute `model`'s heads and FFN neurons to best match `reference`.
+def _assignment_order(features, ref_features, n_items: int) -> list:
+    """Hungarian matching of `features` rows onto `ref_features` rows.
 
-    Matching is on the whole feature vector for each head or neuron, solved
-    exactly with the Hungarian algorithm rather than greedily, so a near tie
-    between two heads is resolved by everything else about them instead of by
-    whichever scalar happened to be larger.
+    Returns `order` where `order[j]` is the index in `model` that becomes
+    position `j`, i.e. the same convention SortHeads._apply consumes.
+
+    Solved exactly rather than greedily. That is the whole difference from
+    sorting: a near tie between two items is resolved by everything else about
+    them instead of by whichever scalar happened to be marginally larger.
     """
-    torch = _torch()
     linear_sum_assignment = _scipy_lsa()
+    cost = -(features @ ref_features.transpose(0, 1)).cpu().numpy()
+    rows, cols = linear_sum_assignment(cost)
+    order = [0] * n_items
+    for r, c in zip(rows.tolist(), cols.tolist()):
+        order[c] = r
+    return order
+
+
+def _apply_ffn_order(mlp, order) -> None:
+    torch = _torch()
+    idx = torch.tensor(order)
+    mlp.c_fc.weight.copy_(mlp.c_fc.weight[:, idx])
+    mlp.c_fc.bias.copy_(mlp.c_fc.bias[idx])
+    mlp.c_proj.weight.copy_(mlp.c_proj.weight[idx, :])
+
+
+def align_ffn_neurons_to(model, reference, arch: ArchSpec = GPT2_124M) -> tuple:
+    """Match `model`'s FFN neurons onto `reference`'s. Returns the orders."""
+    torch = _torch()
+    orders = []
+    with torch.no_grad():
+        for block, ref in zip(model.transformer.h, reference.transformer.h):
+            order = _assignment_order(_ffn_features(block.mlp),
+                                      _ffn_features(ref.mlp), arch.n_inner)
+            orders.append(tuple(order))
+            if order != list(range(arch.n_inner)):
+                _apply_ffn_order(block.mlp, order)
+    return tuple(orders)
+
+
+def align_permutations_to(model, reference, arch: ArchSpec = GPT2_124M,
+                          *, heads: bool = True, ffn: bool = True
+                          ) -> AlignReport:
+    """Permute `model`'s heads and FFN neurons to best match `reference`."""
+    torch = _torch()
     validate_architecture(model, arch)
     validate_architecture(reference, arch)
 
@@ -2184,33 +2348,19 @@ def align_permutations_to(model, reference, arch: ArchSpec = GPT2_124M
     margin = math.inf
     with torch.no_grad():
         for block, ref in zip(model.transformer.h, reference.transformer.h):
-            feats = _head_features(block, arch)
-            ref_feats = _head_features(ref, arch)
-            cost = -(feats @ ref_feats.transpose(0, 1)).cpu().numpy()
-            rows, cols = linear_sum_assignment(cost)
-            # order[j] = which of model's heads becomes head j
-            order = [0] * arch.n_head
-            for r, c in zip(rows.tolist(), cols.tolist()):
-                order[c] = r
-            head_perms.append(tuple(order))
-            chosen = float(sum(cost[r, c] for r, c in zip(rows, cols)))
-            margin = min(margin, abs(chosen))
-            if order != list(range(arch.n_head)):
-                SortHeads()._apply(block, arch, order)
-
-            fc, ref_fc = block.mlp, ref.mlp
-            nf = _ffn_features(fc)
-            ref_nf = _ffn_features(ref_fc)
-            cost = -(nf @ ref_nf.transpose(0, 1)).cpu().numpy()
-            rows, cols = linear_sum_assignment(cost)
-            order = [0] * arch.n_inner
-            for r, c in zip(rows.tolist(), cols.tolist()):
-                order[c] = r
-            ffn_perms.append(tuple(order))
-            idx = torch.tensor(order)
-            fc.c_fc.weight.copy_(fc.c_fc.weight[:, idx])
-            fc.c_fc.bias.copy_(fc.c_fc.bias[idx])
-            fc.c_proj.weight.copy_(fc.c_proj.weight[idx, :])
+            if heads:
+                order = _assignment_order(_head_features(block, arch),
+                                          _head_features(ref, arch),
+                                          arch.n_head)
+                head_perms.append(tuple(order))
+                if order != list(range(arch.n_head)):
+                    SortHeads()._apply(block, arch, order)
+            if ffn:
+                order = _assignment_order(_ffn_features(block.mlp),
+                                          _ffn_features(ref.mlp), arch.n_inner)
+                ffn_perms.append(tuple(order))
+                if order != list(range(arch.n_inner)):
+                    _apply_ffn_order(block.mlp, order)
 
     return AlignReport(head_permutations=tuple(head_perms),
                        ffn_permutations=tuple(ffn_perms),

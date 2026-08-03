@@ -46,7 +46,9 @@ from canonicalize import (  # noqa: E402
     DEFAULT_RECIPE,
     FROZEN_AXES,
     TINY,
+    SORT_ONLY_RECIPE,
     AbsorbLayerNormGains,
+    AlignFFNNeurons,
     CanonicalizeError,
     CanonicalizeHeadInternal,
     SortFFNNeurons,
@@ -103,11 +105,30 @@ def scrambled(names, seed):
     return model
 
 
-def round_trip_worst(names, seed, recipe=None):
-    """Worst per-tensor disagreement between canon(M) and canon(sigma(M))."""
+def frame(recipe=None):
+    """A canonicalized model that DEFINES the frame.
+
+    Canonical form is pairwise-relative since the FFN permutation is fixed by
+    matching rather than sorting, so every comparison needs a reference. This
+    is the required first half of the protocol: `reference=None` means "this
+    model defines the frame", which is how the reference itself gets
+    canonicalized.
+    """
+    reference = fresh()
+    run_canonicalize(reference, TINY, recipe=recipe)
+    return reference
+
+
+def round_trip_worst(names, seed, recipe=None, reference=None):
+    """Worst per-tensor disagreement between canon(M) and canon(sigma(M)).
+
+    Both sides are canonicalized against the SAME reference, which is what
+    makes the comparison meaningful now that the form is pairwise-relative.
+    """
+    reference = frame(recipe) if reference is None else reference
     a, b = fresh(), scrambled(names, seed)
-    run_canonicalize(a, TINY, recipe=recipe)
-    run_canonicalize(b, TINY, recipe=recipe)
+    run_canonicalize(a, TINY, recipe=recipe, reference=reference)
+    run_canonicalize(b, TINY, recipe=recipe, reference=reference)
     return state_dict_difference(canonical_state_dict(a), canonical_state_dict(b))
 
 
@@ -134,10 +155,11 @@ def test_canonicalization_is_idempotent():
     """Canonicalizing an already-canonical model must be a no-op. If it is not,
     the 'canonical form' is not a fixed point and the round trip only appears
     to work because both sides move the same way."""
+    reference = frame()
     model = fresh()
-    run_canonicalize(model, TINY)
+    run_canonicalize(model, TINY, reference=reference)
     once = canonical_state_dict(model)
-    run_canonicalize(model, TINY)
+    run_canonicalize(model, TINY, reference=reference)
     worst, name, _ = state_dict_difference(once, canonical_state_dict(model))
     assert worst < ROUND_TRIP_TOL, (
         f"a second canonicalization moved {name} by {worst:.3e}; canonical "
@@ -364,12 +386,16 @@ def test_the_default_recipe_is_the_expected_six_steps_in_order():
         "zero_value_bias_gauge",
         "canonicalize_head_internal",
         "sort_heads",
-        "sort_ffn_neurons",
+        "align_ffn_neurons",
     ]
     assert [type(s) for s in DEFAULT_RECIPE] == [
         AbsorbLayerNormGains, ZeroKeyBiasGauge, ZeroValueBiasGauge,
-        CanonicalizeHeadInternal, SortHeads, SortFFNNeurons,
+        CanonicalizeHeadInternal, SortHeads, AlignFFNNeurons,
     ]
+    # The superseded recipe is retained so the measurement that retired it
+    # stays reproducible. It is NOT the study's canonical form.
+    assert [s.name for s in SORT_ONLY_RECIPE][-1] == "sort_ffn_neurons"
+    assert len(SORT_ONLY_RECIPE) == len(DEFAULT_RECIPE)
 
 
 # ---------------------------------------------------------------------------
@@ -547,12 +573,14 @@ def test_the_recipe_actually_moves_real_gpt2(real_gpt2_f64):
 def test_composition_round_trip_holds_on_real_gpt2(real_gpt2_f64):
     """The headline check on the real model: every recipe symmetry at once."""
     arch = canonicalize.GPT2_124M
+    reference = copy.deepcopy(real_gpt2_f64)
+    run_canonicalize(reference, arch)
     a = copy.deepcopy(real_gpt2_f64)
     b = copy.deepcopy(real_gpt2_f64)
     for name in RECIPE_SYMMETRIES:
         symmetry_by_name(name)().sample(b, arch, 101).apply(b, arch)
-    run_canonicalize(a, arch)
-    run_canonicalize(b, arch)
+    run_canonicalize(a, arch, reference=reference)
+    run_canonicalize(b, arch, reference=reference)
     worst, tensor, _ = state_dict_difference(
         canonical_state_dict(a), canonical_state_dict(b))
     assert worst < 1e-9, (
@@ -567,6 +595,141 @@ def test_the_frozen_axes_and_tie_survive_on_real_gpt2(real_gpt2_f64):
     run_canonicalize(model, canonicalize.GPT2_124M)
     assert_frozen_axes_unchanged(before, canonical_state_dict(model))
     assert_embedding_tie_preserved(model)
+
+
+# ---------------------------------------------------------------------------
+# 9. THE ALIGNMENT CHANGE -- canonical form is now pairwise-relative
+#
+# SortFFNNeurons was replaced by AlignFFNNeurons on measurement. The deciding
+# reason was not the size of the sort's inflation but its INCONSISTENCY: on
+# identical seeds at eps=1e-8 it measured 8.088e+05 in one setting and 3.05 in
+# another, because whether it flips depends on where a perturbation happens to
+# land relative to the near-ties. An inflation that appears on some seeds and
+# not others can be neither corrected for nor reliably noticed.
+# ---------------------------------------------------------------------------
+
+
+@requires_torch
+@requires_scipy
+def test_a_genuine_ffn_permutation_is_recovered_by_the_recipe():
+    """The case that decided the ruling.
+
+    An epsilon perturbation reorders nothing, so a variant that simply omits
+    the permutation step scores the same as one that recovers correctly --
+    which is why the earlier comparison could not separate them. Here the two
+    models genuinely differ by a permutation, and only a variant that recovers
+    it can round-trip.
+    """
+    reference = frame()
+    worst, tensor, _ = round_trip_worst(["ffn_neuron_permutation"], seed=4242,
+                                        reference=reference)
+    assert worst < ROUND_TRIP_TOL, (
+        f"a genuine FFN permutation was not recovered: {worst:.3e} at {tensor}")
+
+
+@requires_torch
+@requires_scipy
+def test_omitting_the_permutation_step_fails_on_a_genuine_permutation():
+    """The companion, and the reason the step is not simply dropped.
+
+    Measured on real GPT-2: 6.895e+07 at eps=1e-8, scaling as 1/eps, which is
+    the signature of a constant absolute error -- the full unremoved
+    permutation at 0.69 x ||theta||.
+    """
+    no_perm = tuple(s for s in DEFAULT_RECIPE
+                    if not isinstance(s, (AlignFFNNeurons, SortFFNNeurons)))
+    worst, _, _ = round_trip_worst(["ffn_neuron_permutation"], seed=4242,
+                                   recipe=no_perm)
+    assert worst > 1e-3, (
+        "omitting the permutation step still round-trips on a model that "
+        "genuinely differs by a permutation, so the step is doing nothing")
+
+
+@requires_torch
+def test_a_reference_of_none_means_this_model_defines_the_frame():
+    """Half the protocol. A reference has to be canonicalized somehow, and it
+    cannot be aligned to itself before it exists."""
+    reference = fresh()
+    report = run_canonicalize(reference, TINY)
+    assert report.aligned_to_reference is False
+    assert report.ffn_orders == ()
+
+    model = fresh()
+    report = run_canonicalize(model, TINY, reference=reference)
+    assert report.aligned_to_reference is True
+    assert len(report.ffn_orders) == TINY.n_layer
+
+
+@requires_torch
+@requires_scipy
+def test_the_superseded_sort_recipe_is_retained_and_still_runs():
+    """Kept so the measurement that retired it stays reproducible. It is NOT
+    the study's canonical form, and this test does not claim it is -- only that
+    it is still executable, which is what makes S54 checkable."""
+    reference = frame(SORT_ONLY_RECIPE)
+    worst, _, _ = round_trip_worst(["ffn_neuron_permutation"], seed=4242,
+                                   recipe=SORT_ONLY_RECIPE, reference=reference)
+    assert worst < ROUND_TRIP_TOL, (
+        "the retained sort recipe no longer round-trips at all; it is kept as "
+        "a reproducible comparison and has to remain runnable")
+
+
+@requires_torch
+@requires_scipy
+def test_the_round_trip_is_insensitive_to_the_reference_being_canonical():
+    """A prediction of mine that was wrong, kept as a test because the reason
+    is worth pinning.
+
+    I expected aligning to an un-canonicalized reference to break the round
+    trip. It does not, and cannot: both models are put through the same five
+    preceding steps, so by the time matching runs they differ only by the
+    permutation, and matching BOTH against the same target -- however
+    arbitrary that target's own gauge -- lands them in the same place.
+
+    So the round-trip property is robust to getting the reference protocol
+    wrong. What the protocol requirement is actually for is COMPARABILITY, and
+    that is the test below, not this one.
+    """
+    raw_reference = fresh()          # deliberately NOT canonicalized
+    a, b = fresh(), scrambled(["ffn_neuron_permutation"], 4242)
+    run_canonicalize(a, TINY, reference=raw_reference)
+    run_canonicalize(b, TINY, reference=raw_reference)
+    worst, _, _ = state_dict_difference(canonical_state_dict(a),
+                                        canonical_state_dict(b))
+    assert worst < ROUND_TRIP_TOL, (
+        f"round trip broke at {worst:.3e} when the reference was not "
+        "canonicalized; the insensitivity recorded here no longer holds")
+
+
+@requires_torch
+@requires_scipy
+def test_the_canonical_form_genuinely_depends_on_which_reference_is_used():
+    """What "pairwise-relative" actually means, asserted rather than described.
+
+    The same model canonicalized against two different references comes out
+    differently, because the FFN ordering is inherited from whichever reference
+    it was matched to. That is the cost of the alignment change and the reason
+    the protocol requires the reference to be the canonicalized twin: it must
+    be the SAME object every comparison is made against.
+
+    The two references must genuinely differ IN THEIR NEURON ORDERING for this
+    to say anything -- two references that are the same model in different
+    gauges both match to the identity and give the same answer, which is a
+    mistake this test made once.
+    """
+    reference_a = frame()
+    reference_b = scrambled(["ffn_neuron_permutation"], 4242)
+    run_canonicalize(reference_b, TINY)      # its own frame, permuted ordering
+
+    a, b = fresh(), fresh()
+    run_canonicalize(a, TINY, reference=reference_a)
+    run_canonicalize(b, TINY, reference=reference_b)
+    worst, _, _ = state_dict_difference(canonical_state_dict(a),
+                                        canonical_state_dict(b))
+    assert worst > ROUND_TRIP_TOL, (
+        "canonicalizing against two references with different neuron orderings "
+        "gave the same answer, so the form is not actually reference-relative "
+        "and the protocol requirement is decorative")
 
 
 @requires_torch

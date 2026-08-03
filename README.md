@@ -66,13 +66,13 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `279 passed, 141 skipped`, then the resolved config printed, exit
+Expected: `279 passed, 149 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
 are still undecided; see [`--launch`](#--launch).
 
-The 141 skips are the tests that need torch or `transformers`, which the install
+The 149 skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -221,8 +221,8 @@ tests/test_config.py                 172 tests (still v3, deliberately)
 tests/test_burst_match.py            43 tests
 tests/test_make_bursts.py            45 tests
 tests/test_sequence_assembly.py      33 tests (splice, seeds, regeneration)
-tests/test_canonicalize.py           70 tests (step 9: tripwire, symmetries)
-tests/test_canonicalize_recipe.py    41 tests (step 9: the canonical form)
+tests/test_canonicalize.py           72 tests (step 9: tripwire, symmetries)
+tests/test_canonicalize_recipe.py    47 tests (step 9: the canonical form)
 tests/test_canonicalize_mutations.py 16 tests (step 9: injected faults)
 implementation-notes.md              decisions, assumptions, open questions
 ```

@@ -1839,7 +1839,35 @@ Real GPT-2's biases reach `1.34` (`c_attn`), `2.68` (`attn.c_proj`), `0.75`
 (`c_fc`) and `1.48` (`mlp.c_proj`). `build_tiny_model()` now draws every bias
 in the model, and the fixture-genericity test covers them.
 
-#### Two instances make it a pattern, and the pattern is a STUDY limitation
+#### This is the study's own model at initialization, not an analogy
+
+**Upgraded after `probes/determinism/model.py` landed.** When this note was
+first written the argument ran through public GPT-2 and a test fixture, and the
+claim that the study's model would sit near the same configuration was an
+inference. It is now an observation about committed code.
+
+`probes/determinism/model.py` is the first model definition this repository has
+contained. Its `_init_weights` zeroes every `nn.Linear` bias and leaves
+`nn.LayerNorm` at its default, so a freshly constructed study model has
+**LayerNorm gains exactly 1.0 and every projection bias exactly 0.0** —
+verified directly, not inferred. That is precisely the configuration that hid
+two independent defects during this build.
+
+**The study injects at step 200**, roughly 52M tokens (256 x 1024 x 200) into a
+from-scratch run. So the configuration that made a broken canonicalizer pass
+every test is not a property of public GPT-2, and not an artefact of a test
+fixture — **it is a property of this study's own model, a short distance from
+where the ruler will actually be applied.**
+
+The consequence for the phase 5 deliverable is that the gain-and-bias
+dispersion sweep is **the study's own risk profile, not an analogy**. Its `t=0`
+end is literally what `probes/determinism/model.py` constructs; its `t=1` end is
+public GPT-2, which is where every conditioning number in phases 2 and 3 was
+measured. Reading the sweep is reading how far those numbers can be trusted at
+the injection point, and the measured answer is: the FFN deciding margin is
+about two orders of magnitude smaller at the initialization end.
+
+#### Two instances make it a pattern
 
 This is the **second** independent case, after S42's LayerNorm gains, where a
 freshly constructed model would have let a broken thing pass every test in the
@@ -2170,6 +2198,123 @@ Verified alongside: `parameter_count()` returns `124,439,808`, matching
 obligation recorded under "Not yet enforced" — that the training loop must
 count parameters and fail on a mismatch — is discharged there for the first
 time.
+
+### S57. Tripwire contract changed: layout is checked before attribute paths
+
+**This is a deliberate change to `validate_architecture`'s contract**, made
+because the previous ordering was right by accident.
+
+Run against `probes/determinism/model.py`'s `GPT`, the old order refused on its
+very first check — no `.transformer` attribute. The refusal was correct and the
+model was rejected, so nothing unsafe happened. But the *message* said the
+model was not a GPT-2 LM head model, which invites someone to rename an
+attribute and try again, when the real objection is that **every axis is
+transposed**. That objection sat behind two further checks the code never
+reached.
+
+That is the exact failure shape S55 describes: a check reporting something
+plausible and adjacent to the real problem. Being refused for the wrong reason
+still lets the reader draw the wrong conclusion about what needs to change.
+
+**New order:** `_check_projection_layout` runs first, before any attribute
+path is walked. It scans `named_modules()` for anything named `c_attn`,
+`c_proj` or `c_fc` and checks its type, so a model with different attribute
+naming still gets the layout objection. The error names the transposition
+explicitly, names which module it found, and says in terms that renaming an
+attribute will not fix it and that the failure would be silent.
+
+Pinned by `test_the_layout_check_runs_before_any_attribute_path_check`, which
+feeds it a stand-in that fails *both* checks and asserts the first line is the
+layout objection — so the ordering cannot silently revert.
+
+### S58. KNOWN GAP: step 9 cannot be applied to the study's own model
+
+`probes/determinism/model.py` uses `nn.Linear`; step 9 is written entirely
+against `transformers` `Conv1D`. The layouts are transposes of each other, so
+every slice in the module — which columns of `c_attn` hold a head's queries,
+which rows of `attn.c_proj` hold its output, which axis of `c_fc` indexes the
+FFN's hidden neurons — addresses the wrong axis on such a model.
+
+**Step 9 stays Conv1D-only. A layout adapter has NOT been built, and that is a
+decision rather than an oversight.** Whether the study trains the `nn.Linear`
+model or an HF-layout one is undecided, and it became a live question only when
+a real model definition first appeared in the repository. Building an adapter
+now would commit the study to supporting both layouts, which is scope nobody
+has agreed to.
+
+So the position is: the tripwire refuses anything that is not Conv1D, loudly
+and for the right reason (S57), and this note records that the refusal
+currently includes the study's own stand-in model. **That is the gap. It is
+open, it is deliberate, and it is waiting on a decision about which layout the
+study trains** — not on someone noticing it.
+
+What does transfer, if the decision goes the other way: the symmetry drop list
+(D17–D19) depends only on LayerNorm, GELU, embedding tying and
+learned-absolute positions, all of which the probe's model shares. An adapter
+would be a change of axis conventions, not a re-derivation of which symmetries
+are real.
+
+### S59. The FFN sort was replaced by matching, on inconsistency not magnitude
+
+`SortFFNNeurons` is out of `DEFAULT_RECIPE`; `AlignFFNNeurons` is in.
+
+**The deciding reason was not the size of the sort's inflation.** A large but
+consistent distortion could be characterised and lived with. What disqualified
+the sort is that its inflation is **seed-dependent**: at `eps=1e-8` with
+identical seeds it measured `8.088e+05` in measurement D and `3.05` in
+measurement E, because whether a near-tie flips depends on where the
+perturbation happens to land. An inflation that appears on some seeds and not
+others can be neither corrected for nor reliably noticed — which is
+disqualifying for an instrument in a way that mere magnitude is not.
+
+Matching was chosen over simply dropping the step because measurement E showed
+they are not equivalent: with a genuine permutation present, dropping the step
+scores `6.895e+07` while matching scores `3.05`. Alignment is the only variant
+that is correct when a permutation exists and neutral when one does not, and it
+costs nothing, so there is no reason to bet on the zero-gradient argument for
+discrete symmetries holding — that bet stays an argument until checkpoints
+exist.
+
+**CANONICAL FORM IS NOW PAIRWISE-RELATIVE.** A model's canonical form is
+defined against a reference, and for this study the reference is the run's
+seed-matched twin — which is also the only model any comparison is ever made
+against, so the relativity costs nothing that was being used. The protocol:
+
+```python
+canonicalize(twin)                     # reference=None: twin defines the frame
+canonicalize(arm, reference=twin)      # arm measured against it
+```
+
+`SORT_ONLY_RECIPE` retains the superseded variant so the measurement that
+retired it stays reproducible. It is not the study's canonical form and a test
+says so.
+
+**`docs/measurements/9-canonicalization-error.{json,md}` PREDATES THIS CHANGE
+and has not been regenerated.** Its `recipe` field records
+`sort_ffn_neurons`, so the file is self-describing rather than wrong — but its
+headline number, the `740,101` ratio at `eps=1e-8`, describes the superseded
+recipe and NOT `DEFAULT_RECIPE`. Measurement D in that same file gives the
+figure the current recipe should produce (`3.05` / `3.091` / `84.38`), which is
+why the change was made. Regenerating it is a ~45-minute run and has not been
+done; anyone reading the headline number without reading the `recipe` field
+will draw the wrong conclusion about the shipped ruler.
+
+**Two predictions of mine were wrong here and the tests caught both**, which is
+worth recording given S55:
+
+1. I expected aligning to an *un-canonicalized* reference to break the round
+   trip. It does not, and cannot: both models pass through the same five
+   preceding steps, so they differ only by the permutation, and matching both
+   against the same target lands them in the same place however arbitrary that
+   target's gauge. The round-trip property is robust to getting the protocol
+   wrong; what the protocol is for is comparability.
+2. I then wrote a test asserting the form depends on which reference is used,
+   and it failed — because both my references derived from the same model, so
+   matching returned the identity either way. It only demonstrates anything
+   when the two references genuinely differ in their neuron ordering.
+
+Both are now tests with the reasoning in their docstrings rather than
+assumptions in mine.
 
 ### S55. STANDING RISK: metrics that are not the quantity they are named after
 
@@ -2634,17 +2779,17 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_burst_match.py` | 43 |
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
-| `tests/test_canonicalize.py` | 70 |
-| `tests/test_canonicalize_recipe.py` | 41 |
+| `tests/test_canonicalize.py` | 72 |
+| `tests/test_canonicalize_recipe.py` | 47 |
 | `tests/test_canonicalize_mutations.py` | 16 |
-| **total** | **420** |
+| **total** | **428** |
 
-In the base environment (`.venv/`, no torch) the run is **279 passed, 141
-skipped**. In `.venv-ml/` it is **420 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **279 passed, 149
+skipped**. In `.venv-ml/` it is **428 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
-Step 9 added 127 of these across phases 0-4. Only 12 need no ML stack — the
+Step 9 added 135 of these across phases 0-5. Only 12 need no ML stack — the
 layout arithmetic for slicing the fused QKV tensor, the parameter-count
 identity, the tolerance registry, the pre-registration pins and the
 frozen-axis declaration. The rest genuinely need torch, because they measure

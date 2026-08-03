@@ -199,14 +199,23 @@ def function_preservation(recipe, build=None):
 
 
 def round_trip(recipe, names=RECIPE_SYMMETRIES, seed=777, build=None):
-    """Worst round-trip disagreement over `names`. inf if the recipe raised."""
+    """Worst round-trip disagreement over `names`. inf if the recipe raised.
+
+    Both sides are canonicalized against the same frame, since canonical form
+    is pairwise-relative now that the FFN permutation is fixed by matching.
+    """
+    try:
+        reference = fresh(build)
+        run_canonicalize(reference, TINY, recipe=recipe)
+    except CanonicalizeError:
+        return float("inf")
     worst = 0.0
     for name in names:
         a, b = fresh(build), fresh(build)
         symmetry_by_name(name)().sample(b, TINY, seed).apply(b, TINY)
         try:
-            run_canonicalize(a, TINY, recipe=recipe)
-            run_canonicalize(b, TINY, recipe=recipe)
+            run_canonicalize(a, TINY, recipe=recipe, reference=reference)
+            run_canonicalize(b, TINY, recipe=recipe, reference=reference)
         except CanonicalizeError:
             return float("inf")
         value, _, _ = state_dict_difference(canonical_state_dict(a),
@@ -316,11 +325,13 @@ def test_dropping_the_bias_row_fails_the_round_trip_on_a_generic_model():
     """
     recipe = _substitute(DEFAULT_RECIPE, CanonicalizeHeadInternal,
                          DropsBiasRow())
+    reference = fresh()
+    run_canonicalize(reference, TINY, recipe=recipe)
     a, b = fresh(), fresh()
     symmetry_by_name("head_internal_transform")().sample(b, TINY, 777).apply(
         b, TINY)
-    run_canonicalize(a, TINY, recipe=recipe)
-    run_canonicalize(b, TINY, recipe=recipe)
+    run_canonicalize(a, TINY, recipe=recipe, reference=reference)
+    run_canonicalize(b, TINY, recipe=recipe, reference=reference)
     worst, tensor, per_tensor = state_dict_difference(
         canonical_state_dict(a), canonical_state_dict(b))
 
