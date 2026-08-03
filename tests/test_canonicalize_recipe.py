@@ -46,6 +46,7 @@ from canonicalize import (  # noqa: E402
     DEFAULT_RECIPE,
     FROZEN_AXES,
     TINY,
+    RETIRED_GAIN_ABSORPTION_RECIPE,
     RETIRED_HEAD_INTERNAL_RECIPE,
     SORT_ONLY_RECIPE,
     AbsorbLayerNormGains,
@@ -81,7 +82,6 @@ requires_scipy = pytest.mark.skipif(
 #: head_internal_transform is a CONFIRMED symmetry and is deliberately NOT
 #: here -- see test_head_internal_transform_is_deliberately_not_quotiented.
 RECIPE_SYMMETRIES = (
-    "layernorm_gain_rescale",
     "head_permutation",
     "ffn_neuron_permutation",
     "key_bias_shift",
@@ -90,7 +90,8 @@ RECIPE_SYMMETRIES = (
 
 #: What the retired recipe additionally quotients. Kept so D-1's measurement
 #: stays reproducible.
-RETIRED_EXTRA_SYMMETRIES = ("head_internal_transform",)
+RETIRED_EXTRA_SYMMETRIES = ("head_internal_transform",
+                            "layernorm_gain_rescale")
 
 #: Round-trip agreement is exact arithmetic executed in float64. Anything above
 #: this is a real disagreement, not rounding. Measured baseline is ~1.5e-15.
@@ -303,8 +304,10 @@ def test_each_step_postcondition_actually_holds():
     for i, block in enumerate(model.transformer.h):
         for ln_name in ("ln_1", "ln_2"):
             gain = getattr(block, ln_name).weight
-            assert torch.allclose(gain, torch.ones_like(gain)), (
-                f"block {i} {ln_name} gain is not all-ones after absorption")
+            assert not torch.allclose(gain, torch.ones_like(gain)), (
+                f"block {i} {ln_name} gain was forced to all-ones; gain "
+                "absorption was removed from the shipped recipe on D-2 and "
+                "should no longer be touching this")
         bias = block.attn.c_attn.bias
         for h in range(TINY.n_head):
             k = canonicalize.head_columns("k", h, TINY)
@@ -322,7 +325,9 @@ def test_ln_f_gain_is_deliberately_not_absorbed():
 
     model = fresh()
     before = model.transformer.ln_f.weight.detach().clone()
-    run_canonicalize(model, TINY)
+    # RETIRED recipe: gain absorption is no longer shipped, so this is a
+    # postcondition of a retired step. Kept because D-2 option 3 could revisit.
+    run_canonicalize(model, TINY, recipe=RETIRED_GAIN_ABSORPTION_RECIPE)
     assert torch.equal(before, model.transformer.ln_f.weight), (
         "ln_f's gain was modified; that can only have been done by folding it "
         "into lm_head, which is the tied embedding")
@@ -444,7 +449,7 @@ def test_zeroing_the_key_bias_commutes_with_the_head_sort():
     which is a numerical-quality argument, not a correctness one.
     """
     worst, _, _ = round_trip_worst(RECIPE_SYMMETRIES, seed=777,
-                                   recipe=_reordered([0, 2, 3, 1, 4]))
+                                   recipe=_reordered([1, 2, 0, 3]))
     assert worst < ROUND_TRIP_TOL, (
         "zeroing b_K later in the recipe now breaks the round trip, so the "
         "recorded reason this ordering is free no longer holds")
@@ -462,20 +467,23 @@ def test_dropping_the_key_bias_step_entirely_does_break_the_round_trip():
 
 
 @requires_torch
-def test_the_default_recipe_is_the_expected_five_steps_in_order():
+def test_the_default_recipe_is_the_expected_four_steps_in_order():
     """Pins the recipe itself. Changing it changes the definition of canonical
     form for the whole study, and should be a deliberate, visible act."""
     assert [s.name for s in DEFAULT_RECIPE] == [
-        "absorb_layernorm_gains",
         "zero_key_bias_gauge",
         "zero_value_bias_gauge",
         "sort_heads",
         "align_ffn_neurons",
     ]
     assert [type(s) for s in DEFAULT_RECIPE] == [
-        AbsorbLayerNormGains, ZeroKeyBiasGauge, ZeroValueBiasGauge,
-        SortHeads, AlignFFNNeurons,
+        ZeroKeyBiasGauge, ZeroValueBiasGauge, SortHeads, AlignFFNNeurons,
     ]
+    assert not any(isinstance(s, AbsorbLayerNormGains)
+                   for s in DEFAULT_RECIPE), (
+        "gain absorption is back in the shipped recipe; it was removed on D-2 "
+        "because it is not an isometry of parameter space and its distortion "
+        "depends on the DIRECTION of the difference being measured")
     assert not any(isinstance(s, CanonicalizeHeadInternal)
                    for s in DEFAULT_RECIPE), (
         "the head-internal step is back in the shipped recipe; it was removed "
@@ -486,6 +494,8 @@ def test_the_default_recipe_is_the_expected_five_steps_in_order():
                for s in RETIRED_HEAD_INTERNAL_RECIPE)
     assert any(isinstance(s, CanonicalizeHeadInternal)
                for s in SORT_ONLY_RECIPE)
+    assert any(isinstance(s, AbsorbLayerNormGains)
+               for s in RETIRED_GAIN_ABSORPTION_RECIPE)
     # The superseded recipe is retained so the measurement that retired it
     # stays reproducible. It is NOT the study's canonical form.
     assert [s.name for s in SORT_ONLY_RECIPE][-1] == "sort_ffn_neurons"

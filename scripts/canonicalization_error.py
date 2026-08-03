@@ -122,7 +122,6 @@ OPEN_QUESTION_DISTORTION_FACTOR = (
 #: absent -- D-1 removed that step -- and is measured separately so its
 #: un-quotiented residual is visible rather than buried in the composed row.
 RECIPE_SYMMETRIES = (
-    "layernorm_gain_rescale",
     "head_permutation",
     "ffn_neuron_permutation",
     "key_bias_shift",
@@ -130,8 +129,11 @@ RECIPE_SYMMETRIES = (
 )
 
 #: Confirmed symmetries the shipped recipe deliberately does NOT remove. Their
-#: residual is expected to be large; reporting it is the point.
-NOT_QUOTIENTED = ("head_internal_transform", "residual_permutation")
+#: residual is expected to be large; reporting it is the point. Three of the
+#: four candidate symmetries that survived the mathematics were retired for
+#: instability or direction-dependence -- see S62, S65.
+NOT_QUOTIENTED = ("head_internal_transform", "layernorm_gain_rescale",
+                  "residual_permutation")
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +186,46 @@ def head_slice_distance(sd_a: dict, sd_b: dict, layer: int, head: int,
 # ---------------------------------------------------------------------------
 
 
+#: Cache of unit perturbation directions, keyed by (shape, seed).
+#:
+#: EXACT, NOT AN APPROXIMATION. The direction is drawn from a generator seeded
+#: only by `seed`, so it is identical for every epsilon -- epsilon only scales
+#: it. Redrawing per epsilon was 3.77s of an 8.80s measurement cell, 43% of the
+#: total, spent recomputing a tensor that was bit-identical to the last one.
+_DIRECTION_CACHE: dict = {}
+_THETA_NORM_CACHE: dict = {}
+
+
+def _unit_direction(model, shape: str, seed: int):
+    """A unit-norm perturbation direction, cached per (shape, seed)."""
+    import torch
+
+    key = (shape, seed)
+    if key in _DIRECTION_CACHE:
+        return _DIRECTION_CACHE[key]
+
+    gen = torch.Generator().manual_seed(seed)
+    params = [p for _, p in model.named_parameters()]
+    if shape == "isotropic":
+        draws = [torch.randn(p.shape, generator=gen, dtype=torch.float64)
+                 for p in params]
+        norm = math.sqrt(sum(float(d.pow(2).sum()) for d in draws))
+        direction = [d / norm for d in draws]
+    elif shape == "per_tensor":
+        direction = []
+        for p in params:
+            d = torch.randn(p.shape, generator=gen, dtype=torch.float64)
+            dn = float(d.pow(2).sum()) ** 0.5
+            pn = float(p.detach().double().pow(2).sum()) ** 0.5
+            direction.append(d * (pn / dn) if dn and pn else d * 0.0)
+        norm = math.sqrt(sum(float(d.pow(2).sum()) for d in direction))
+        direction = [d / norm for d in direction]
+    else:
+        raise C.CanonicalizeError(f"unknown perturbation shape {shape!r}")
+    _DIRECTION_CACHE[key] = direction
+    return direction
+
+
 def perturb(model, epsilon: float, shape: str, seed: int) -> float:
     """Move the model by a relative distance of `epsilon`. Returns d_raw.
 
@@ -202,29 +244,16 @@ def perturb(model, epsilon: float, shape: str, seed: int) -> float:
     """
     import torch
 
-    gen = torch.Generator().manual_seed(seed)
-    params = [p for _, p in model.named_parameters()]
-    theta_norm = math.sqrt(sum(float(p.detach().double().pow(2).sum())
-                               for p in params))
-    target = epsilon * theta_norm
+    if "theta" not in _THETA_NORM_CACHE:
+        _THETA_NORM_CACHE["theta"] = math.sqrt(
+            sum(float(p.detach().double().pow(2).sum())
+                for _, p in model.named_parameters()))
+    target = epsilon * _THETA_NORM_CACHE["theta"]
 
+    direction = _unit_direction(model, shape, seed)
     with torch.no_grad():
-        if shape == "isotropic":
-            draws = [torch.randn(p.shape, generator=gen, dtype=torch.float64)
-                     for p in params]
-            norm = math.sqrt(sum(float(d.pow(2).sum()) for d in draws))
-            for p, d in zip(params, draws):
-                p.add_((d * (target / norm)).to(dtype=p.dtype))
-        elif shape == "per_tensor":
-            for p in params:
-                d = torch.randn(p.shape, generator=gen, dtype=torch.float64)
-                dn = float(d.pow(2).sum()) ** 0.5
-                pn = float(p.detach().double().pow(2).sum()) ** 0.5
-                if dn == 0 or pn == 0:
-                    continue
-                p.add_((d * (epsilon * pn / dn)).to(dtype=p.dtype))
-        else:
-            raise C.CanonicalizeError(f"unknown perturbation shape {shape!r}")
+        for p, d in zip((q for _, q in model.named_parameters()), direction):
+            p.add_((d * target).to(dtype=p.dtype))
     return target
 
 
@@ -385,11 +414,12 @@ def _sign_flips(sd_a, sd_b, arch) -> int:
 
 
 def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream,
-                          recipe=None) -> dict:
+                          recipe=None, prior=None) -> dict:
     """Does canonicalization inflate the distance between two NEARLY IDENTICAL
     models? That is the question the study actually asks of this ruler."""
     import copy
 
+    prior_cells = (prior or {}).get("cells")
     reference = build()
     ref_plain_sd = C.canonical_state_dict(reference)
     ref_report = C.canonicalize(reference, arch, recipe=recipe)
@@ -456,8 +486,19 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream,
                                    report.min_ffn_sort_margin))
                 del moved, moved_sd, moved_plain_sd
 
+            by_seed = dict(zip([str(s) for s in seeds], ratios))
+            prior_cell = (prior_cells or {}).get(key, {})
+            merged = dict(prior_cell.get("ratio_by_seed", {})
+                          if isinstance(prior_cell, dict) else {})
+            merged.update(by_seed)
+            ratios = [merged[k] for k in sorted(merged, key=int)]
             spread = (max(ratios) / min(ratios)) if min(ratios) > 0 else float("inf")
             results[key] = {
+                # Per-seed values are stored so a section can be measured in
+                # chunks and merged. Ten seeds is mandatory (S55: four times a
+                # low-seed number was overturned), and ten seeds does not fit
+                # the observed task-duration cap for every section.
+                "ratio_by_seed": merged,
                 "shape": shape, "epsilon": epsilon,
                 "n_seeds": len(ratios),
                 # Seed stability. The retired sort's inflation was
@@ -687,7 +728,8 @@ def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
     }
 
 
-def measure_step_contributions(build, arch, epsilons, seeds, stream) -> dict:
+def measure_step_contributions(build, arch, epsilons, seeds, stream,
+                               prior=None) -> dict:
     """Where the shipped ruler's flat 0.907 comes from.
 
     0.907 is a 9% systematic CONTRACTION -- it makes two models look CLOSER
@@ -723,10 +765,24 @@ def measure_step_contributions(build, arch, epsilons, seeds, stream) -> dict:
                 ratios.append(
                     l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
                 del moved
-            cells[f"{epsilon:g}"] = statistics.median(ratios)
+            by_seed = dict(zip([str(s) for s in seeds], ratios))
+            prior_cell = (prior or {}).get("variants", {}).get(label, {})
+            prior_cell = prior_cell.get(f"{epsilon:g}") if isinstance(
+                prior_cell, dict) else None
+            # Tolerate the pre-chunking format, where a cell was a bare float.
+            merged = dict(prior_cell.get("by_seed", {})
+                          if isinstance(prior_cell, dict) else {})
+            merged.update(by_seed)
+            vals = [merged[k] for k in sorted(merged, key=int)]
+            cells[f"{epsilon:g}"] = {
+                "by_seed": merged, "n_seeds": len(vals),
+                "min": min(vals), "median": statistics.median(vals),
+                "max": max(vals)}
         rows[label] = cells
         print(f"    {label:<34} " + "  ".join(
-            f"eps={k}:{v:.6g}" for k, v in cells.items()),
+            f"eps={k}: n={v['n_seeds']} "
+            f"[{v['min']:.5f}, {v['median']:.5f}, {v['max']:.5f}]"
+            for k, v in cells.items()),
             file=stream, flush=True)
         del reference, ref_sd
 
@@ -1003,6 +1059,22 @@ def format_report(payload) -> str:
         lines.append(f"{label:<24}" + "".join(f"{cells[k]:>16.4f}"
                                               for k in eps_keys))
 
+    contrib = payload.get("step_contributions")
+    if contrib:
+        lines += ["", rule,
+                  "F. STEP CONTRIBUTIONS -- where the systematic factor comes from",
+                  rule,
+                  "Each remaining step removed in turn. The EMPTY control must",
+                  "return exactly 1.0: with no steps the ratio is 1 by",
+                  "construction, so any deviation there would put the factor in",
+                  "the harness rather than the ruler.",
+                  "",
+                  f"{'variant':<36}{'n':>4}{'min':>11}{'median':>11}{'max':>11}"]
+        for label, cells in contrib["variants"].items():
+            for eps, c in cells.items():
+                lines.append(f"{label:<36}{c['n_seeds']:>4}{c['min']:>11.5f}"
+                             f"{c['median']:>11.5f}{c['max']:>11.5f}")
+
     margins = payload["ffn_sort_margins"]
     lines += ["", thin,
               "FFN sort: the margin that DECIDES each adjacent comparison",
@@ -1047,6 +1119,13 @@ def _build_parser() -> argparse.ArgumentParser:
                              "fast smoke test rather than a real measurement")
     parser.add_argument("--seeds", type=int, default=len(SEEDS))
     parser.add_argument(
+        "--seed-window", default=None, metavar="A:B",
+        help=("run only seeds[A:B] and MERGE the per-seed results into what is "
+              "already in the file. Ten seeds is mandatory and ten seeds does "
+              "not fit the observed task-duration cap for every section, so "
+              "chunking by seed is how a section gets to ten without a single "
+              "run long enough to be killed."))
+    parser.add_argument(
         "--sections", default="ABCDEF",
         help=("which measurements to run, e.g. DE. A subset MERGES into the "
               "existing results file rather than replacing it, so an "
@@ -1078,6 +1157,9 @@ def main(argv=None) -> int:
             return copy.deepcopy(source)
 
     seeds = SEEDS[:args.seeds]
+    if args.seed_window:
+        a, b = (int(x) if x else None for x in args.seed_window.split(":"))
+        seeds = seeds[a:b]
     want = set(args.sections.upper())
     stem = REPORT_STEM + ("-tiny" if args.tiny else "")
     existing = {}
@@ -1100,7 +1182,8 @@ def main(argv=None) -> int:
     if "B" in want:
         print("\nB. epsilon sweep", file=stream)
         sweep = measure_epsilon_sweep(build, arch, EPSILONS, SHAPES, seeds, stream,
-                                      recipe=C.DEFAULT_RECIPE)
+                                      recipe=C.DEFAULT_RECIPE,
+                                      prior=existing.get("epsilon_sweep"))
 
         print(chr(10) + 'B-retired. epsilon sweep  [RETIRED sort recipe]', file=stream)
         retired_sweep = measure_epsilon_sweep(
@@ -1121,7 +1204,8 @@ def main(argv=None) -> int:
         print(chr(10) + "F. step contributions  [attributing the flat factor]",
               file=stream)
         contributions = measure_step_contributions(
-            build, arch, (1e-8, 1e-6, 1e-4), seeds, stream)
+            build, arch, (1e-6,), seeds, stream,
+            prior=existing.get("step_contributions"))
 
     if "E" in want:
         print("\nE. permuted-model recovery", file=stream)

@@ -42,6 +42,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import canonicalize  # noqa: E402
 from canonicalize import (  # noqa: E402
     DEFAULT_RECIPE,
+    RETIRED_GAIN_ABSORPTION_RECIPE,
     RETIRED_HEAD_INTERNAL_RECIPE,
     TINY,
     AbsorbLayerNormGains,
@@ -49,6 +50,7 @@ from canonicalize import (  # noqa: E402
     CanonicalizeError,
     CanonicalizeHeadInternal,
     SortHeads,
+    ZeroKeyBiasGauge,
     ZeroValueBiasGauge,
     _paired_svd,
     canonical_state_dict,
@@ -67,14 +69,14 @@ requires_torch = pytest.mark.skipif(
 )
 
 RECIPE_SYMMETRIES = (
-    "layernorm_gain_rescale",
     "head_permutation",
     "ffn_neuron_permutation",
     "key_bias_shift",
     "value_bias_shift",
 )
-#: The retired recipe additionally quotients this one.
-RETIRED_SYMMETRIES = RECIPE_SYMMETRIES + ("head_internal_transform",)
+#: What the retired recipes additionally quotient.
+RETIRED_SYMMETRIES = RECIPE_SYMMETRIES + ("head_internal_transform",
+                                          "layernorm_gain_rescale")
 
 #: Anything above this is a real disagreement. Baseline is ~1.5e-15.
 DETECTION_FLOOR = 1e-10
@@ -215,10 +217,10 @@ FAULTY_RECIPES = {
     "FAULT1_row_axis": _substitute(DEFAULT_RECIPE, SortHeads, PermutesRowAxis()),
     "FAULT2_across_qkv": _substitute(DEFAULT_RECIPE, SortHeads,
                                      CrossesQKVBoundary()),
-    "FAULT4_skip_gain_absorption": tuple(
-        s for s in DEFAULT_RECIPE if not isinstance(s, AbsorbLayerNormGains)),
     "FAULT7_value_bias_uncompensated": _substitute(
         DEFAULT_RECIPE, ZeroValueBiasGauge, DropsValueBiasCompensation()),
+    "FAULT9_skip_key_bias_gauge": tuple(
+        s for s in DEFAULT_RECIPE if not isinstance(s, ZeroKeyBiasGauge)),
 }
 
 #: Exercised separately, because it is invisible on a well-separated fixture --
@@ -238,13 +240,19 @@ RETIRED_FAULTY_RECIPES = {
     "FAULT5_no_sign_fix": _substitute(RETIRED_HEAD_INTERNAL_RECIPE,
                                       CanonicalizeHeadInternal,
                                       DropsSignConvention()),
+    # FAULT4 moved here on D-2: gain absorption is no longer shipped, so
+    # skipping it is a no-op against DEFAULT_RECIPE. Same reasoning as
+    # FAULT3/5 -- see S63, and S66 for the second instance of it.
+    "FAULT4_skip_gain_absorption": tuple(
+        s for s in RETIRED_GAIN_ABSORPTION_RECIPE
+        if not isinstance(s, AbsorbLayerNormGains)),
 }
 
 #: Faults that change what the model computes.
 FUNCTION_BREAKING = ("FAULT1_row_axis", "FAULT2_across_qkv",
                      "FAULT7_value_bias_uncompensated")
 #: Faults that leave the model's behaviour untouched and only break canonicity.
-CANONICITY_BREAKING = ("FAULT4_skip_gain_absorption",)
+CANONICITY_BREAKING = ("FAULT9_skip_key_bias_gauge",)
 
 #: FAULT8 is NOT in either list, and that is the finding rather than an
 #: omission. Matching FFN neurons on a scalar instead of the whole feature
@@ -371,13 +379,13 @@ def test_canonicity_faults_pass_function_preservation_and_fail_round_trip(label)
 
 
 @requires_torch
-def test_skipping_gain_absorption_is_caught_specifically_by_the_gain_symmetry():
-    """Fault 4, narrowed. It must fail on the LayerNorm gain symmetry in
-    particular -- that is the gauge the skipped step exists to remove."""
-    recipe = FAULTY_RECIPES["FAULT4_skip_gain_absorption"]
-    broke = round_trip(recipe, names=["layernorm_gain_rescale"])
+def test_skipping_the_key_bias_gauge_is_caught_by_the_key_bias_symmetry():
+    """Fault 9, narrowed. It must fail on the key-bias symmetry in particular
+    -- that is the gauge the skipped step exists to remove."""
+    recipe = FAULTY_RECIPES["FAULT9_skip_key_bias_gauge"]
+    broke = round_trip(recipe, names=["key_bias_shift"])
     assert broke > DETECTION_FLOOR, (
-        f"skipping gain absorption still round-trips under a gain rescale "
+        f"skipping the key-bias gauge still round-trips under a key-bias shift "
         f"({broke:.3e}); the step is doing nothing")
 
 

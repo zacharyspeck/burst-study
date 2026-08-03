@@ -21,6 +21,36 @@ distance reflects a real difference. **If it is subtly wrong it will not crash
 — it will produce plausible numbers forever.** Most of the design below exists
 because of that.
 
+## THE FINDING, before anything else
+
+**Between two models that share an initialization, there is very little gauge
+to remove — and every step that tried to remove more introduced more distortion
+than it eliminated.**
+
+Seven transformations were tested against real GPT-2. Three failed the
+mathematics outright. Four were genuine symmetries, and two more were found
+that nobody had listed. Then **three of those survivors were retired**, each on
+measurement rather than argument, because each made the ruler worse than no
+ruler:
+
+| retired | why | measured |
+| --- | --- | --- |
+| FFN sort | seed-dependent inflation | up to 5.6e+05 |
+| head-internal | seed-dependent instability | up to 2450 |
+| gain absorption | direction-dependent distortion | 0.848 to 1.711 |
+
+What ships is bias-gauge removal plus permutation alignment. **An empty recipe
+— doing nothing at all — scores exactly 1.00000 on all ten seeds. The shipped
+recipe scores 1.00041.** The gap between those two numbers is the entire value
+canonicalization adds for this study's comparison.
+
+That is not a failed implementation. It is what the zero-gradient argument
+predicts: the continuous gauges have exactly zero gradient, never move during
+training, and therefore already cancel between same-seed twins without help.
+A ruler for *independently*-initialized models would need every retired step
+and would inherit their distortions. A ruler for same-seed twins needs almost
+none of it.
+
 ## What a "symmetry" is, and which ones GPT-2 actually has
 
 A symmetry is a relabelling that leaves the output unchanged. Whether a given
@@ -52,16 +82,14 @@ gauge up to a compensation in `c_proj.bias`. Both are removed.
 
 ## What the recipe does
 
-Five steps. Order turned out **not** to matter: all 120 orderings give the
-same canonical form. It mattered when there were six — the sixth step is the
-one described under "what the ruler does not do" below, and it carried the
-entire order dependence with it when it was removed.
+Four steps. Order turned out **not** to matter — every ordering gives the same
+canonical form. It mattered when the head-internal step was still in; that step
+carried the entire order dependence with it when it was removed.
 
-1. absorb LayerNorm gains at `ln_1`/`ln_2` (not `ln_f` — tied embedding)
-2. zero the key-bias gauge
-3. zero the value-bias gauge, compensating in `c_proj.bias`
-4. sort heads
-5. **match** FFN neurons to a reference (not sort them — see below)
+1. zero the key-bias gauge
+2. zero the value-bias gauge, compensating in `c_proj.bias`
+3. sort heads
+4. **match** FFN neurons to a reference (not sort them — see below)
 
 **Canonical form is pairwise-relative.** Step 6 matches against a reference, so
 a model's canonical form is defined *against another model*. For this study
@@ -132,28 +160,10 @@ that quantity does not exist until models are trained.
 seed-dependent property that retired the FFN sort. See "what the ruler does
 NOT do" above. What replaces it as an open question is the item below.
 
-**2b. The ruler applies a direction-dependent distortion that cannot be
-divided out.** With the head-internal step gone, the remaining factor was
-traced to **gain absorption** — measurement F, with an empty-recipe control
-returning exactly 1.00000 on all ten seeds, so it is in the ruler and not the
-harness. Removing gain absorption returns the ratio to 1.0004 with a spread of
-7e-05; nothing else moves it.
-
-Absorbing a LayerNorm gain is an exact rewrite of the *function* but **not an
-isometry of parameter space** — it multiplies weight rows by γ, shrinking some
-directions and stretching others. GPT-2's gains span 0.042 to 17.4, so the map
-is strongly anisotropic.
-
-The measured effect on real GPT-2, ten seeds: median **0.922**, ranging
-**0.848 to 1.711**. That is contraction on some difference directions and
-inflation on others. It is *not* a constant, so it **cannot be corrected for**,
-and which value applies to the study's real arm-vs-twin comparison depends on
-which direction training actually moved the weights — unknowable until there
-are checkpoints. **Not accepted; recorded as open.**
-
-(An earlier four-seed probe reported this as "a flat 0.907". Both parts were
-wrong: the median is 0.922 and it is not flat. Fourth time in this build that
-too few seeds produced a comfortable number.)
+**2b. RESOLVED — gain absorption was removed.** It was the source of the
+direction-dependent distortion (0.848 to 1.711). Removing it took the ruler to
+**1.00041 [1.00039, 1.00046]** across ten seeds — distance-neutral to four
+decimal places. See "the finding" at the top.
 
 **3. Step 9 cannot currently be applied to the study's own model.**
 `probes/determinism/model.py` uses `nn.Linear`; step 9 is written entirely

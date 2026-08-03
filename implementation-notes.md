@@ -2501,6 +2501,96 @@ to measure the direction of.**
 Whether that is acceptable is not mine to judge. It is recorded here and in
 `docs/decisions-pending.md`.
 
+### S65. Gain absorption removed; the deciding property was direction-dependence
+
+**D-2 ruled: option 2.** `AbsorbLayerNormGains` is out of `DEFAULT_RECIPE`,
+retained as `RETIRED_GAIN_ABSORPTION_RECIPE`. The shipped recipe is four steps:
+zero the key-bias gauge, zero the value-bias gauge, sort heads, align FFN
+neurons.
+
+#### The reason, and it is not magnitude
+
+Absorbing a LayerNorm gain is an exact rewrite of the *function* -- a valid
+symmetry -- but **not an isometry of parameter space**. It multiplies weight
+rows by `gamma`, shrinking directions where `gamma < 1` and stretching those
+where `gamma > 1`. GPT-2's gains span `0.042` to `17.4`.
+
+**A constant distortion divides out. A direction-dependent one does not** --
+and the arm-vs-twin difference is not an isotropic random direction, it is
+whatever the burst pushed. So the distortion would depend on the very thing the
+study is trying to measure. That is the deciding property, not the size.
+
+Same zero-gradient argument as D-1, and stronger here: the gain gauge is
+continuous, its gradient is exactly zero, it never moves during training, so
+same-seed twins carry identical values there and it cancels. There was nothing
+for the step to remove in this study's comparison.
+
+#### Measured, real GPT-2, ten seeds, eps=1e-6, min / median / max
+
+| variant | min | median | max |
+| --- | --- | --- | --- |
+| **shipped (four steps)** | **1.00039** | **1.00041** | **1.00046** |
+| EMPTY control | 1.00000 | 1.00000 | 1.00000 |
+| without key-bias gauge | 1.00043 | 1.00045 | 1.00049 |
+| without value-bias gauge | 0.99996 | 0.99996 | 0.99996 |
+| without head sort | 1.00039 | 1.00041 | 1.00046 |
+| without FFN alignment | 1.00039 | 1.00041 | 1.00046 |
+
+Before the removal the same measurement read `0.922` with a range of
+`[0.848, 1.711]`. **The ruler is now distance-neutral to four decimal places
+with a total spread of `7e-05` across ten seeds.**
+
+### S66. THE FINDING: there was very little gauge to remove
+
+This is the honest outcome of the build and it should not be read as failure,
+nor rescued by re-adding steps.
+
+Seven candidate transformations were tested against real GPT-2. The trajectory:
+
+- **Three failed the mathematics outright** -- residual rotation (LayerNorm's
+  per-channel gain, incurable at `ln_f` because of embedding tying), residual
+  scaling (tying supplies `c` where `1/c` is needed), FFN scaling (GELU is not
+  positively homogeneous). D17-D19.
+- **Four were genuine symmetries.** Two additional ones were then found that
+  nobody had listed -- the key-bias and value-bias gauges.
+- **Three of the survivors were then retired**, each on measurement rather than
+  argument: the FFN sort for seed-dependent inflation up to `5.6e+05` (S54),
+  the head-internal step for seed-dependent instability up to `2450` (S62),
+  gain absorption for direction-dependent distortion spanning `0.848` to
+  `1.711` (S65).
+
+What ships is bias-gauge removal plus permutation alignment.
+
+**Every step that tried to remove more gauge introduced more distortion than it
+eliminated.** The empty-recipe control scores exactly `1.00000` on all ten
+seeds; the shipped four-step recipe scores `1.00041`. The distance between
+those two numbers is the total value canonicalization adds on a pair of models
+that share an initialization -- and it is small because **between such models
+there was very little gauge to remove in the first place.**
+
+That is consistent with the zero-gradient argument rather than a surprise: the
+continuous gauges have exactly zero gradient, never move during training, and
+therefore cancel between same-seed twins without any help. The only gauges that
+could plausibly differ are the discrete ones, and gradient descent does not hop
+between orderings either.
+
+**This is a real result about canonicalization on transformers, not a failed
+implementation.** A ruler for independently-initialized models would need every
+retired step and would inherit their distortions; a ruler for same-seed twins
+needs almost none of it.
+
+### S63b / S66-note. Second instance of a removed step taking coverage with it
+
+D-2 repeats what S63 recorded for D-1: **FAULT 4, skipping gain absorption, is
+now a no-op against the shipped recipe** because there is no such step to skip.
+It moved to `RETIRED_FAULTY_RECIPES` alongside faults 3 and 5.
+
+Its role -- a canonicity-breaking fault that passes function preservation and is
+caught only by the round trip -- is taken over by **FAULT 9, skipping the
+key-bias gauge**, so the shipped recipe still has a fault of that class.
+`test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
+this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
+
 ### S61. The S55 pattern one level up: mis-named experimental conditions
 
 S55 is about a *quantity* named for one thing and computed as another. The
@@ -3068,17 +3158,17 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
 | `tests/test_canonicalize.py` | 72 |
-| `tests/test_canonicalize_recipe.py` | 45 |
+| `tests/test_canonicalize_recipe.py` | 44 |
 | `tests/test_canonicalize_mutations.py` | 16 |
 | `tests/test_canonicalize_diagnostics.py` | 10 |
-| **total** | **436** |
+| **total** | **435** |
 
-In the base environment (`.venv/`, no torch) the run is **281 passed, 155
-skipped**. In `.venv-ml/` it is **436 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **281 passed, 154
+skipped**. In `.venv-ml/` it is **435 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
-Step 9 added 143 of these across phases 0-5. Only 12 need no ML stack — the
+Step 9 added 142 of these across phases 0-5. Only 12 need no ML stack — the
 layout arithmetic for slicing the fused QKV tensor, the parameter-count
 identity, the tolerance registry, the pre-registration pins and the
 frozen-axis declaration. The rest genuinely need torch, because they measure

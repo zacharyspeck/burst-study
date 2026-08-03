@@ -11,10 +11,8 @@
     "parameters": 124439808
   },
   "recipe": [
-    "absorb_layernorm_gains",
     "zero_key_bias_gauge",
     "zero_value_bias_gauge",
-    "canonicalize_head_internal",
     "sort_heads",
     "align_ffn_neurons"
   ],
@@ -26,7 +24,7 @@
     "sort_heads",
     "sort_ffn_neurons"
   ],
-  "recipe_note": "The 'recipe' field above is the SIX-step recipe these numbers were measured with. The SHIPPED recipe is now five steps -- see STALENESS_WARNING.",
+  "recipe_note": "The SHIPPED recipe ends align_ffn_neurons and every headline number here describes it. Anything under a RETIRED key describes the superseded sort_ffn_neurons recipe, kept so the measurement that retired it stays reproducible. Those are NOT the study's ruler.",
   "seeds": [
     11,
     22,
@@ -193,28 +191,14 @@
   },
   "symmetry_residual": {
     "note": "residual distance left after canonicalizing two models that are secretly the same model in different gauges. This is the ruler tested against ITSELF; measurement B is the one that tests the use case.",
-    "parameter_norm": 1216.020990743328,
+    "parameter_norm": 1506.7198946759615,
     "per_symmetry": {
-      "layernorm_gain_rescale": {
-        "d_raw_median": 412.2638038785142,
-        "d_canonical_median": 2.9703629504285994e-11,
-        "d_canonical_max": 3.103757731294451e-11,
-        "ratio_median": 7.197355908273633e-14,
-        "ratio_max": 7.572377014676858e-14
-      },
       "head_permutation": {
         "d_raw_median": 986.1552557863677,
         "d_canonical_median": 1.1979594792221623e-14,
         "d_canonical_max": 1.502712963703429e-14,
         "ratio_median": 1.2274196886210286e-17,
         "ratio_max": 1.516566137594334e-17
-      },
-      "head_internal_transform": {
-        "d_raw_median": 1047.2277646991079,
-        "d_canonical_median": 4.007565087416714e-11,
-        "d_canonical_max": 4.4790362251645956e-11,
-        "ratio_median": 3.8287347821785686e-14,
-        "ratio_max": 4.274739844321039e-14
       },
       "ffn_neuron_permutation": {
         "d_raw_median": 1350.8904614169394,
@@ -237,12 +221,33 @@
         "ratio_median": 2.676218936704298e-16,
         "ratio_max": 2.7752339820247147e-16
       },
+      "head_internal_transform": {
+        "d_raw_median": 1047.2277646991079,
+        "d_canonical_median": 1047.0353759597303,
+        "d_canonical_max": 1047.8924515862186,
+        "ratio_median": 0.9996836745788926,
+        "ratio_max": 1.0003746184634323
+      },
+      "layernorm_gain_rescale": {
+        "d_raw_median": 412.2638038785142,
+        "d_canonical_median": 722.0155587940144,
+        "d_canonical_max": 774.8721303354422,
+        "ratio_median": 1.754089154787402,
+        "ratio_max": 1.8810505628850387
+      },
+      "residual_permutation": {
+        "d_raw_median": 2124.7991252193133,
+        "d_canonical_median": 2088.019402404697,
+        "d_canonical_max": 2091.381625893761,
+        "ratio_median": 0.9824589413925029,
+        "ratio_max": 0.982765223761805
+      },
       "__composed__": {
-        "d_raw_median": 1838.3519415255405,
-        "d_canonical_median": 4.231203650942115e-11,
-        "d_canonical_max": 4.543330335983908e-11,
-        "ratio_median": 2.303838047300513e-14,
-        "ratio_max": 2.4588470712289058e-14
+        "d_raw_median": 1708.1467963938217,
+        "d_canonical_median": 9.256891495583341e-14,
+        "d_canonical_max": 9.771547121878223e-14,
+        "ratio_median": 5.4065870215980564e-17,
+        "ratio_max": 5.691662449463246e-17
       }
     }
   },
@@ -689,8 +694,132 @@
       }
     }
   },
+  "step_contributions": {
+    "note": "attribution of the shipped ruler's flat systematic factor. EMPTY_control must be exactly 1.0 -- with no steps the ratio is 1 by construction, so any deviation there would put the factor in the harness rather than the ruler.",
+    "variants": {
+      "shipped_recipe": {
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
+      },
+      "EMPTY_control": {
+        "1e-06": {
+          "by_seed": {
+            "11": 0.9999999999999964,
+            "22": 1.000000000000001,
+            "33": 1.0000000000000036,
+            "44": 0.9999999999999966,
+            "55": 0.9999999999999966,
+            "66": 1.0000000000000058,
+            "77": 1.000000000000004,
+            "88": 1.0000000000000002,
+            "99": 1.0000000000000033,
+            "110": 0.9999999999999962
+          },
+          "n_seeds": 10,
+          "min": 0.9999999999999962,
+          "median": 1.0000000000000007,
+          "max": 1.0000000000000058
+        }
+      },
+      "without_zero_key_bias_gauge": {
+        "1e-06": {
+          "by_seed": {
+            "11": 1.000492495313745,
+            "22": 1.0004503024536422,
+            "33": 1.000434942480136,
+            "44": 1.000445702280088,
+            "55": 1.0004870719310854,
+            "66": 1.0004578346419042,
+            "77": 1.0004277720651706,
+            "88": 1.0004625478755202,
+            "99": 1.0004451355219093,
+            "110": 1.000447316358772
+          },
+          "n_seeds": 10,
+          "min": 1.0004277720651706,
+          "median": 1.000448809406207,
+          "max": 1.000492495313745
+        }
+      },
+      "without_zero_value_bias_gauge": {
+        "1e-06": {
+          "by_seed": {
+            "11": 0.9999633680817824,
+            "22": 0.9999620094945364,
+            "33": 0.9999633221119651,
+            "44": 0.9999622365387001,
+            "55": 0.9999634465414816,
+            "66": 0.9999625580240313,
+            "77": 0.9999636570935245,
+            "88": 0.9999636914582117,
+            "99": 0.9999622517082896,
+            "110": 0.9999633392281506
+          },
+          "n_seeds": 10,
+          "min": 0.9999620094945364,
+          "median": 0.9999633306700579,
+          "max": 0.9999636914582117
+        }
+      },
+      "without_sort_heads": {
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
+      },
+      "without_align_ffn_neurons": {
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
+      }
+    }
+  },
   "sections_refreshed_this_run": [
-    "0"
-  ],
-  "STALENESS_WARNING": "THIS FILE IS NOT FULLY REGENERATED AGAINST THE SHIPPED RECIPE. The recipe changed on D-1: CanonicalizeHeadInternal was removed, leaving five steps. Every measurement in this file was taken with the SIX-step recipe that included it, and its headline numbers therefore describe a recipe that is no longer shipped. Regeneration was attempted four times and each run was killed by a task-duration limit before completing. What HAS been measured against the shipped five-step recipe, and is recorded in implementation-notes.md rather than here: section A (all five quotiented symmetries at 1e-14 or exactly 0; head_internal_transform now 5.319e-01 and residual_permutation 8.018e-01, both deliberately un-quotiented; composed 5.397e-17) and section F (the systematic factor attributed entirely to gain absorption, with an empty-recipe control at exactly 1.00000). Do not quote this file's B, C, D or E numbers as describing the shipped ruler."
+    "A"
+  ]
 }

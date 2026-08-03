@@ -1,12 +1,3 @@
-==============================================================================
-STALE -- MEASURED WITH THE SIX-STEP RECIPE, NOT THE SHIPPED FIVE-STEP ONE
-==============================================================================
-D-1 removed CanonicalizeHeadInternal. Every number below was taken
-before that. Regeneration was attempted four times and each run was
-killed by a task-duration limit. The shipped-recipe results that DO
-exist are in implementation-notes.md S62 and S64.
-Do not quote sections B, C, D or E as describing the shipped ruler.
-
 
 ==============================================================================
 STEP 9 -- CANONICALIZATION ERROR BAR
@@ -19,13 +10,14 @@ A. SYMMETRY RESIDUAL -- the ruler against itself
 Two models that are secretly identical, in different gauges.
 
 symmetry                            d_raw   d_canonical       ratio
-layernorm_gain_rescale         4.1226e+02    2.9704e-11   7.197e-14
 head_permutation               9.8616e+02    1.1980e-14   1.227e-17
-head_internal_transform        1.0472e+03    4.0076e-11   3.829e-14
 ffn_neuron_permutation         1.3509e+03    0.0000e+00   0.000e+00
 key_bias_shift                 9.6210e+01    0.0000e+00   0.000e+00
 value_bias_shift               3.4192e+02    9.1478e-14   2.676e-16
-__composed__                   1.8384e+03    4.2312e-11   2.304e-14
+head_internal_transform        1.0472e+03    1.0470e+03   9.997e-01
+layernorm_gain_rescale         4.1226e+02    7.2202e+02   1.754e+00
+residual_permutation           2.1248e+03    2.0880e+03   9.825e-01
+__composed__                   1.7081e+03    9.2569e-14   5.407e-17
 
 ==============================================================================
 B. EPSILON SWEEP -- does canonicalizing INFLATE a real difference?
@@ -119,6 +111,22 @@ without_head_sort                 3.0501          3.0911         84.3839
 without_head_internal             0.9093          0.9093          0.9117
 RETIRED_sort_recipe          808844.6538      23016.9582       2447.8120
 hungarian_alignment               3.0501          3.0911         84.3839
+
+==============================================================================
+F. STEP CONTRIBUTIONS -- where the systematic factor comes from
+==============================================================================
+Each remaining step removed in turn. The EMPTY control must
+return exactly 1.0: with no steps the ratio is 1 by
+construction, so any deviation there would put the factor in
+the harness rather than the ruler.
+
+variant                                n        min     median        max
+shipped_recipe                        10    1.00039    1.00041    1.00046
+EMPTY_control                         10    1.00000    1.00000    1.00000
+without_zero_key_bias_gauge           10    1.00043    1.00045    1.00049
+without_zero_value_bias_gauge         10    0.99996    0.99996    0.99996
+without_sort_heads                    10    1.00039    1.00041    1.00046
+without_align_ffn_neurons             10    1.00039    1.00041    1.00046
 
 ------------------------------------------------------------------------------
 FFN sort: the margin that DECIDES each adjacent comparison

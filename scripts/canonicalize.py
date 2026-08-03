@@ -2058,16 +2058,35 @@ class AlignFFNNeurons(CanonStep):
         report.aligned_to_reference = True
 
 
-#: The recipe. ORDER IS PART OF THE DEFINITION -- see the module comment above.
+#: The recipe.
 #:
-#: CanonicalizeHeadInternal IS DELIBERATELY ABSENT. It was removed on the
-#: measurement in D-1: its distortion was not merely large but seed-dependent,
-#: 3.09 / 1929 / 2450 at the same epsilon on three different draws. A ruler
-#: wrong by a consistent factor can be corrected for; one that swings three
-#: orders of magnitude by seed cannot be corrected for or reliably noticed.
-#: Removing it leaves the ruler flat at 0.907 across seven decades and every
-#: seed. See S62.
+#: TWO STEPS ARE DELIBERATELY ABSENT, both removed on measurement.
+#:
+#: CanonicalizeHeadInternal (D-1): its distortion was seed-dependent, 3.09 /
+#: 1929 / 2450 at one epsilon on three draws. Instability, not anisotropy.
+#:
+#: AbsorbLayerNormGains (D-2): it is an exact rewrite of the function but NOT
+#: an isometry of parameter space, so it shrinks some directions and stretches
+#: others -- measured 0.848 to 1.711 on real GPT-2 at ten seeds. The deciding
+#: property was DIRECTION-DEPENDENCE, not magnitude: a constant distortion
+#: divides out, a direction-dependent one does not, and the arm-vs-twin
+#: difference is not an isotropic random direction -- it is whatever the burst
+#: pushed. The distortion would therefore depend on the very thing the study is
+#: trying to measure.
+#:
+#: Both gauges are CONTINUOUS, so their gradients are exactly zero, so they
+#: never move during training, so same-seed twins carry identical values there
+#: and they cancel in the difference. There was nothing for either step to
+#: remove in this study's comparison. See S62, S65.
 DEFAULT_RECIPE: tuple = (
+    ZeroKeyBiasGauge(),
+    ZeroValueBiasGauge(),
+    SortHeads(),
+    AlignFFNNeurons(),
+)
+
+#: NOT SHIPPED. Retained so D-2's measurement stays reproducible.
+RETIRED_GAIN_ABSORPTION_RECIPE: tuple = (
     AbsorbLayerNormGains(),
     ZeroKeyBiasGauge(),
     ZeroValueBiasGauge(),
