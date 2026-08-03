@@ -1,7 +1,6 @@
 {
   "task": "step 9 phase 5",
   "LIMITATION": "EVERY NUMBER IN THIS FILE IS MEASURED ON FULLY-TRAINED PUBLIC GPT-2. The study's own model does not exist -- there is no training loop and no step-200 checkpoint. Two consequences. First, the comparison target for the epsilon sweep does not exist either: the study's seed-only noise floor requires trained models, so no epsilon here is calibrated to anything real and the ratio curve must be read as a shape, not against a threshold. Second, and more specific to this ruler, the study injects at step 200 -- roughly 52M tokens (256 x 1024 x 200) into a from-scratch run -- where LayerNorm gains have barely moved from exactly 1.0 and Conv1D biases from exactly 0.0. Public GPT-2 is nowhere near that state. Measurement C is the quantification of that gap and is the one to read before trusting A or B at the study's actual injection point. THESE NUMBERS MUST BE RE-MEASURED AGAINST A REAL STEP-200 CHECKPOINT ONCE TRAINING INFRASTRUCTURE EXISTS.",
-  "OPEN_QUESTION_distortion_factor": "THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND WHICH END APPLIES CANNOT BE KNOWN YET. Even with the FFN sort removed -- the step measurement D attributes essentially all of the inflation to -- this canonicalization is not distance-neutral. It scores 3.05 at eps=1e-8 and eps=1e-6, and 84.4 at eps=1e-4. So it roughly TRIPLES a small difference at the low end and inflates by more than eightyfold three decades up. 3.05 is not 1, and 84.4 is not 3.05. Which of them is operative depends on how far a burst arm actually sits from its seed-matched twin after training, expressed as a fraction of the parameter norm -- and that quantity does not exist until models are trained. A ruler whose distortion factor ranges over more than an order of magnitude depending on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here as an open question rather than as a footnote. Resolving it requires measuring the twin-vs-twin distance on real checkpoints and reading the curve in this file at that epsilon.",
   "model": "gpt2 124M (public, fully trained) -- A PROXY, see LIMITATION",
   "architecture": {
     "n_layer": 12,
@@ -192,8 +191,34 @@
   "symmetry_residual": {
     "note": "residual distance left after canonicalizing two models that are secretly the same model in different gauges. This is the ruler tested against ITSELF; measurement B is the one that tests the use case.",
     "parameter_norm": 1506.7198946759615,
+    "n_seeds": 10,
+    "seeds": [
+      11,
+      22,
+      33,
+      44,
+      55,
+      66,
+      77,
+      88,
+      99,
+      110
+    ],
     "per_symmetry": {
       "head_permutation": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 986.1552557863677,
         "d_canonical_median": 1.1979594792221623e-14,
         "d_canonical_max": 1.502712963703429e-14,
@@ -201,6 +226,19 @@
         "ratio_max": 1.516566137594334e-17
       },
       "ffn_neuron_permutation": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 1350.8904614169394,
         "d_canonical_median": 0.0,
         "d_canonical_max": 0.0,
@@ -208,6 +246,19 @@
         "ratio_max": 0.0
       },
       "key_bias_shift": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 96.2097881766085,
         "d_canonical_median": 0.0,
         "d_canonical_max": 0.0,
@@ -215,6 +266,19 @@
         "ratio_max": 0.0
       },
       "value_bias_shift": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 341.9202172337907,
         "d_canonical_median": 9.147845424260686e-14,
         "d_canonical_max": 9.485563681897495e-14,
@@ -222,6 +286,19 @@
         "ratio_max": 2.7752339820247147e-16
       },
       "head_internal_transform": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 1047.2277646991079,
         "d_canonical_median": 1047.0353759597303,
         "d_canonical_max": 1047.8924515862186,
@@ -229,6 +306,19 @@
         "ratio_max": 1.0003746184634323
       },
       "layernorm_gain_rescale": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 412.2638038785142,
         "d_canonical_median": 722.0155587940144,
         "d_canonical_max": 774.8721303354422,
@@ -236,6 +326,19 @@
         "ratio_max": 1.8810505628850387
       },
       "residual_permutation": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 2124.7991252193133,
         "d_canonical_median": 2088.019402404697,
         "d_canonical_max": 2091.381625893761,
@@ -243,6 +346,19 @@
         "ratio_max": 0.982765223761805
       },
       "__composed__": {
+        "n_seeds": 10,
+        "seeds": [
+          11,
+          22,
+          33,
+          44,
+          55,
+          66,
+          77,
+          88,
+          99,
+          110
+        ],
         "d_raw_median": 1708.1467963938217,
         "d_canonical_median": 9.256891495583341e-14,
         "d_canonical_max": 9.771547121878223e-14,
@@ -255,265 +371,447 @@
     "note": "ratio = ||canon(M) - canon(M+eps)|| / ||M - (M+eps)||. Near 1 means canonicalization is distance-neutral on nearly identical models. Much above 1 means it INFLATES a small real difference, which would make step 9 a noise source whatever its algebra. Much below 1 means it is collapsing a genuine difference. All three are reported, none judged.",
     "head_conditioning": {
       "n_heads": 144,
-      "min": 2.6187617587462357,
-      "median": 5.509184578175246,
-      "max": 1103.8983966815724,
+      "min": 2.874483439582757,
+      "median": 6.113001934694495,
+      "max": 806.0413438485332,
       "worst_decile_indices": [
-        0,
-        24,
-        9,
+        33,
+        28,
+        100,
+        106,
+        26,
         2,
-        30,
-        11,
-        35,
-        16,
-        14,
+        25,
+        13,
+        12,
+        17,
         15,
-        22,
-        31,
-        20,
-        21
+        24,
+        14,
+        16
       ],
       "note": "heads split by the condition number of their Q/K invariant so a spike in the ratio can be attributed to conditioning rather than guessed at"
     },
     "cells": {
       "isotropic|1e-08": {
+        "ratio_by_seed": {
+          "11": 1.0004558814408036,
+          "22": 1.00041232903932,
+          "33": 1.0003982805383,
+          "44": 1.000407955636649,
+          "55": 1.0004505362786056,
+          "66": 1.0004204098108698,
+          "77": 1.0003914446771915,
+          "88": 1.0004262561029105,
+          "99": 1.0004074040458324,
+          "110": 1.00041067197603
+        },
         "shape": "isotropic",
         "epsilon": 1e-08,
         "n_seeds": 10,
-        "ratio_stdev": 0.2151435800162087,
-        "ratio_max_over_min": 1.232330942085118,
-        "ratio_min": 2.829469691460706,
-        "ratio_median": 3.262902232611717,
-        "ratio_max": 3.48684305047906,
-        "ratio_worst_conditioned_heads_median": 4.715592768808788,
-        "ratio_median_conditioned_heads_median": 5.644028489794028,
+        "ratio_stdev": 2.097753341085173e-05,
+        "ratio_max_over_min": 1.0000644115500537,
+        "ratio_min": 1.0003914446771915,
+        "ratio_median": 1.000411500507675,
+        "ratio_max": 1.0004558814408036,
+        "ratio_worst_conditioned_heads_median": 0.999872511196315,
+        "ratio_median_conditioned_heads_median": 0.999633732842573,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.47892803092112e-06,
-        "min_sort_margin_min": 3.451420507127878e-05
+        "min_basis_alignment_cos": 0.9999999999999978,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00018303725081558753
       },
       "isotropic|1e-07": {
+        "ratio_by_seed": {
+          "11": 1.000455881437473,
+          "22": 1.0004123290389841,
+          "33": 1.0003982805399474,
+          "44": 1.0004079556374836,
+          "55": 1.0004505362786547,
+          "66": 1.0004204098103808,
+          "77": 1.000391444676108,
+          "88": 1.0004262561063448,
+          "99": 1.0004074040435798,
+          "110": 1.0004106719760841
+        },
         "shape": "isotropic",
         "epsilon": 1e-07,
         "n_seeds": 10,
-        "ratio_stdev": 0.21513834797550527,
-        "ratio_max_over_min": 1.2323313834504244,
-        "ratio_min": 2.829473942157642,
-        "ratio_median": 3.2629036591009566,
-        "ratio_max": 3.486849537576053,
-        "ratio_worst_conditioned_heads_median": 4.715638186566187,
-        "ratio_median_conditioned_heads_median": 5.644031783075015,
+        "ratio_stdev": 2.097753296628161e-05,
+        "ratio_max_over_min": 1.0000644115478077,
+        "ratio_min": 1.000391444676108,
+        "ratio_median": 1.0004115005075342,
+        "ratio_max": 1.000455881437473,
+        "ratio_worst_conditioned_heads_median": 0.9998725111900681,
+        "ratio_median_conditioned_heads_median": 0.9996337328457771,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.47876533736025e-06,
-        "min_sort_margin_min": 3.450418241479625e-05
+        "min_basis_alignment_cos": 0.9999999999999442,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00018293849563555398
       },
       "isotropic|1e-06": {
+        "ratio_by_seed": {
+          "11": 1.0004558814283586,
+          "22": 1.0004123290483449,
+          "33": 1.0003982805385183,
+          "44": 1.000407955643189,
+          "55": 1.0004505362687166,
+          "66": 1.00042040980096,
+          "77": 1.000391444699088,
+          "88": 1.0004262561210153,
+          "99": 1.0004074040264581,
+          "110": 1.0004106719791575
+        },
         "shape": "isotropic",
         "epsilon": 1e-06,
         "n_seeds": 10,
-        "ratio_stdev": 1191.1334568039936,
-        "ratio_max_over_min": 866.0624486542422,
-        "ratio_min": 2.8295160991511614,
-        "ratio_median": 1929.2840773236276,
-        "ratio_max": 2450.5376413374543,
-        "ratio_worst_conditioned_heads_median": 4.93167074295738,
-        "ratio_median_conditioned_heads_median": 5.644066940985921,
+        "ratio_stdev": 2.0977527114631836e-05,
+        "ratio_max_over_min": 1.0000644115157242,
+        "ratio_min": 1.000391444699088,
+        "ratio_median": 1.000411500513751,
+        "ratio_max": 1.0004558814283586,
+        "ratio_worst_conditioned_heads_median": 0.9998725111903121,
+        "ratio_median_conditioned_heads_median": 0.9996337328453633,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.477138419441668e-06,
-        "min_sort_margin_min": 3.4403955551542964e-05
+        "min_basis_alignment_cos": 0.9999999999943361,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.0001819509432579025
       },
       "isotropic|1e-05": {
+        "ratio_by_seed": {
+          "11": 1.0004558813372326,
+          "22": 1.000412329142083,
+          "33": 1.0003982805232179,
+          "44": 1.0004079556999768,
+          "55": 1.000450536169515,
+          "66": 1.0004204097047946,
+          "77": 1.000391444932486,
+          "88": 1.0004262562708324,
+          "99": 1.0004074038551978,
+          "110": 1.0004106720116905
+        },
         "shape": "isotropic",
         "epsilon": 1e-05,
         "n_seeds": 10,
-        "ratio_stdev": 159.57654299852,
-        "ratio_max_over_min": 153.87766279510097,
-        "ratio_min": 3.090989535969046,
-        "ratio_median": 278.48861835010007,
-        "ratio_max": 475.63424551903046,
-        "ratio_worst_conditioned_heads_median": 651.0262044893778,
-        "ratio_median_conditioned_heads_median": 5.753283163911805,
+        "ratio_stdev": 2.09774682831144e-05,
+        "ratio_max_over_min": 1.0000644111913122,
+        "ratio_min": 1.000391444932486,
+        "ratio_median": 1.0004115005768868,
+        "ratio_max": 1.0004558813372326,
+        "ratio_worst_conditioned_heads_median": 0.9998725111902902,
+        "ratio_median_conditioned_heads_median": 0.9996337328453277,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.46087102160644e-06,
-        "min_sort_margin_min": 3.340165908705117e-05
+        "min_basis_alignment_cos": 0.9999999994335214,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00017207536437169324
       },
       "isotropic|0.0001": {
+        "ratio_by_seed": {
+          "11": 1.0004558804303516,
+          "22": 1.000412330084166,
+          "33": 1.0003982803747027,
+          "44": 1.0004079562725607,
+          "55": 1.0004505351820163,
+          "66": 1.0004204087477806,
+          "77": 1.0003914472712991,
+          "88": 1.0004262577739078,
+          "99": 1.000407402147244,
+          "110": 1.0004106723414292
+        },
         "shape": "isotropic",
         "epsilon": 0.0001,
         "n_seeds": 10,
-        "ratio_stdev": 17.37407618608382,
-        "ratio_max_over_min": 1.7431384270162669,
-        "ratio_min": 71.71205340775819,
-        "ratio_median": 91.29104588334755,
-        "ratio_max": 125.00403597530614,
-        "ratio_worst_conditioned_heads_median": 204.41780281951566,
-        "ratio_median_conditioned_heads_median": 280.2209094288098,
+        "ratio_stdev": 2.097687993105901e-05,
+        "ratio_max_over_min": 1.0000644079467376,
+        "ratio_min": 1.0003914472712991,
+        "ratio_median": 1.0004115012127976,
+        "ratio_max": 1.0004558804303516,
+        "ratio_worst_conditioned_heads_median": 0.999872511190291,
+        "ratio_median_conditioned_heads_median": 0.9996337328453297,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 47,
-        "min_singular_gap_min": 5.298382485098231e-06,
-        "min_sort_margin_min": 2.3375909404599327e-05
+        "sign_flips_total": 0,
+        "min_basis_alignment_cos": 0.9999999433524437,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 7.331406332333756e-05
       },
       "isotropic|0.001": {
+        "ratio_by_seed": {
+          "11": 83.98913180935736,
+          "22": 1.0004123399696572,
+          "33": 1.0003982793469515,
+          "44": 83.9890794939367,
+          "55": 83.98906240183845,
+          "66": 1.0004203996522016,
+          "77": 83.98912084790707,
+          "88": 1.0004262732737044,
+          "99": 1.0004073855295412,
+          "110": 1.000410676108693
+        },
         "shape": "isotropic",
         "epsilon": 0.001,
         "n_seeds": 10,
-        "ratio_stdev": 3.463944396682555,
-        "ratio_max_over_min": 1.2789960448478297,
-        "ratio_min": 34.05065869628696,
-        "ratio_median": 36.770690781346275,
-        "ratio_max": 43.55065779701438,
-        "ratio_worst_conditioned_heads_median": 52.30919474513901,
-        "ratio_median_conditioned_heads_median": 86.80811454693944,
-        "head_order_flips_total": 4,
+        "ratio_stdev": 42.85517321449632,
+        "ratio_max_over_min": 83.95569399038202,
+        "ratio_min": 1.0003982793469515,
+        "ratio_median": 1.0004233364629531,
+        "ratio_max": 83.98913180935736,
+        "ratio_worst_conditioned_heads_median": 0.9998725111902917,
+        "ratio_median_conditioned_heads_median": 0.9996337328453292,
+        "head_order_flips_total": 1,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 882,
-        "min_singular_gap_min": 3.7028529851727034e-06,
-        "min_sort_margin_min": 1.97257279617169e-05
+        "sign_flips_total": 66,
+        "min_basis_alignment_cos": 0.00015625321680102879,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 8.563783718784634e-05
       },
       "isotropic|0.01": {
+        "ratio_by_seed": {
+          "11": 10.912891499982857,
+          "22": 1.0004124852924703,
+          "33": 1.0003983148127242,
+          "44": 10.912938342897373,
+          "55": 8.457640674014158,
+          "66": 8.457689489243416,
+          "77": 8.457692466351528,
+          "88": 8.457636281038981,
+          "99": 1.000407265534702,
+          "110": 1.000410760769348
+        },
         "shape": "isotropic",
         "epsilon": 0.01,
         "n_seeds": 10,
-        "ratio_stdev": 0.32296938795175967,
-        "ratio_max_over_min": 1.0761070082558808,
-        "ratio_min": 11.116683734288575,
-        "ratio_median": 11.359970268431248,
-        "ratio_max": 11.96274127503209,
-        "ratio_worst_conditioned_heads_median": 17.286192091366086,
-        "ratio_median_conditioned_heads_median": 23.784210150584542,
-        "head_order_flips_total": 11,
+        "ratio_stdev": 4.376781589621441,
+        "ratio_max_over_min": 10.908593288604537,
+        "ratio_min": 1.0003983148127242,
+        "ratio_median": 8.457638477526569,
+        "ratio_max": 10.912938342897373,
+        "ratio_worst_conditioned_heads_median": 0.9998725111902916,
+        "ratio_median_conditioned_heads_median": 0.9996337328453293,
+        "head_order_flips_total": 3,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 6801,
-        "min_singular_gap_min": 4.003097386584083e-06,
-        "min_sort_margin_min": 0.0001298321924680934
+        "sign_flips_total": 196,
+        "min_basis_alignment_cos": 4.6453014615807415e-05,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.0007176572333271736
       },
       "per_tensor|1e-08": {
+        "ratio_by_seed": {
+          "11": 1.000553851570321,
+          "22": 1.0005294986272169,
+          "33": 1.0005035472500652,
+          "44": 1.000536334662554,
+          "55": 1.0006179038677843,
+          "66": 1.0005469312139617,
+          "77": 1.000483073729757,
+          "88": 1.0005339391832022,
+          "99": 1.0005199278428762,
+          "110": 1.0005220008593554
+        },
         "shape": "per_tensor",
         "epsilon": 1e-08,
         "n_seeds": 10,
-        "ratio_stdev": 0.2949342826164224,
-        "ratio_max_over_min": 1.2606855604372946,
-        "ratio_min": 3.7444786415138385,
-        "ratio_median": 4.140924275993731,
-        "ratio_max": 4.720610154722353,
-        "ratio_worst_conditioned_heads_median": 5.331988258523854,
-        "ratio_median_conditioned_heads_median": 7.350942664965918,
+        "ratio_stdev": 3.572242448043081e-05,
+        "ratio_max_over_min": 1.0001347650365784,
+        "ratio_min": 1.000483073729757,
+        "ratio_median": 1.0005317189052096,
+        "ratio_max": 1.0006179038677843,
+        "ratio_worst_conditioned_heads_median": 0.9996567738836994,
+        "ratio_median_conditioned_heads_median": 0.9994284654192206,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.478921337045761e-06,
-        "min_sort_margin_min": 3.451332919501837e-05
+        "min_basis_alignment_cos": 0.9999999999999972,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00018303773237882126
       },
       "per_tensor|1e-07": {
+        "ratio_by_seed": {
+          "11": 1.0005538515671537,
+          "22": 1.0005294986283775,
+          "33": 1.0005035472526975,
+          "44": 1.0005363346651424,
+          "55": 1.000617903869052,
+          "66": 1.0005469312130184,
+          "77": 1.0004830737316608,
+          "88": 1.000533939179862,
+          "99": 1.000519927838777,
+          "110": 1.000522000860271
+        },
         "shape": "per_tensor",
         "epsilon": 1e-07,
         "n_seeds": 10,
-        "ratio_stdev": 0.2948783439487967,
-        "ratio_max_over_min": 1.2606430878564387,
-        "ratio_min": 3.7444780049682636,
-        "ratio_median": 4.140951843529825,
-        "ratio_max": 4.720450314593709,
-        "ratio_worst_conditioned_heads_median": 5.3320791568060955,
-        "ratio_median_conditioned_heads_median": 7.350934549861405,
+        "ratio_stdev": 3.572242417762985e-05,
+        "ratio_max_over_min": 1.0001347650359422,
+        "ratio_min": 1.0004830737316608,
+        "ratio_median": 1.0005317189041198,
+        "ratio_max": 1.000617903869052,
+        "ratio_worst_conditioned_heads_median": 0.9996567738867175,
+        "ratio_median_conditioned_heads_median": 0.9994284654144775,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.478698399208532e-06,
-        "min_sort_margin_min": 3.4495423592240115e-05
+        "min_basis_alignment_cos": 0.9999999999999393,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00018294331125368046
       },
       "per_tensor|1e-06": {
+        "ratio_by_seed": {
+          "11": 1.0005538515449166,
+          "22": 1.0005294986475268,
+          "33": 1.00050354725428,
+          "44": 1.00053633467552,
+          "55": 1.000617903865196,
+          "66": 1.0005469311808948,
+          "77": 1.0004830737646355,
+          "88": 1.0005339391865578,
+          "99": 1.0005199278094263,
+          "110": 1.00052200086151
+        },
         "shape": "per_tensor",
         "epsilon": 1e-06,
         "n_seeds": 10,
-        "ratio_stdev": 1348.5324384364244,
-        "ratio_max_over_min": 781.0499759798681,
-        "ratio_min": 3.993159807973914,
-        "ratio_median": 1929.2853279204814,
-        "ratio_max": 3118.8573721018,
-        "ratio_worst_conditioned_heads_median": 6.51832881911827,
-        "ratio_median_conditioned_heads_median": 7.350849210572237,
+        "ratio_stdev": 3.572241621138287e-05,
+        "ratio_max_over_min": 1.0001347649991248,
+        "ratio_min": 1.0004830737646355,
+        "ratio_median": 1.0005317189170424,
+        "ratio_max": 1.000617903865196,
+        "ratio_worst_conditioned_heads_median": 0.9996567738868465,
+        "ratio_median_conditioned_heads_median": 0.9994284654142397,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
         "sign_flips_total": 0,
-        "min_singular_gap_min": 5.476469080640395e-06,
-        "min_sort_margin_min": 3.4316367449438445e-05
+        "min_basis_alignment_cos": 0.9999999999938973,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.00018199909945693094
       },
       "per_tensor|1e-05": {
+        "ratio_by_seed": {
+          "11": 1.0005538513210517,
+          "22": 1.0005294988380944,
+          "33": 1.000503547268452,
+          "44": 1.000536334780028,
+          "55": 1.0006179038255916,
+          "66": 1.0005469308601094,
+          "77": 1.0004830740968773,
+          "88": 1.00053393925359,
+          "99": 1.0005199275177667,
+          "110": 1.0005220008754014
+        },
         "shape": "per_tensor",
         "epsilon": 1e-05,
         "n_seeds": 10,
-        "ratio_stdev": 161.23569360685207,
-        "ratio_max_over_min": 114.71671833607651,
-        "ratio_min": 4.146209012355991,
-        "ratio_median": 324.19815635938653,
-        "ratio_max": 475.63949143294417,
-        "ratio_worst_conditioned_heads_median": 580.4860435082852,
-        "ratio_median_conditioned_heads_median": 7.4685873242481255,
+        "ratio_stdev": 3.5722335841405644e-05,
+        "ratio_max_over_min": 1.0001347646274137,
+        "ratio_min": 1.0004830740968773,
+        "ratio_median": 1.000531719045842,
+        "ratio_max": 1.0006179038255916,
+        "ratio_worst_conditioned_heads_median": 0.9996567738869221,
+        "ratio_median_conditioned_heads_median": 0.9994284654142992,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 1,
-        "min_singular_gap_min": 5.454181914470367e-06,
-        "min_sort_margin_min": 3.2525795690130366e-05
+        "sign_flips_total": 0,
+        "min_basis_alignment_cos": 0.9999999993896456,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.0001725569312842623
       },
       "per_tensor|0.0001": {
+        "ratio_by_seed": {
+          "11": 1.0005538490876247,
+          "22": 1.0005295007487982,
+          "33": 1.0005035474151875,
+          "44": 1.0005363358302792,
+          "55": 1.0006179034346678,
+          "66": 1.00054692765762,
+          "77": 1.0004830774245108,
+          "88": 1.0005339399294302,
+          "99": 1.0005199246063736,
+          "110": 1.0005220010199765
+        },
         "shape": "per_tensor",
         "epsilon": 0.0001,
         "n_seeds": 10,
-        "ratio_stdev": 23.854746664677396,
-        "ratio_max_over_min": 2.0175654396400557,
-        "ratio_min": 76.2669375835321,
-        "ratio_median": 109.51558368099231,
-        "ratio_max": 153.87353745571963,
-        "ratio_worst_conditioned_heads_median": 193.85872089872552,
-        "ratio_median_conditioned_heads_median": 328.6573731087683,
+        "ratio_stdev": 3.57215321857133e-05,
+        "ratio_max_over_min": 1.0001347609102036,
+        "ratio_min": 1.0004830774245108,
+        "ratio_median": 1.0005317203391142,
+        "ratio_max": 1.0006179034346678,
+        "ratio_worst_conditioned_heads_median": 0.9996567738869199,
+        "ratio_median_conditioned_heads_median": 0.9994284654142997,
         "head_order_flips_total": 0,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 74,
-        "min_singular_gap_min": 5.231936364177909e-06,
-        "min_sort_margin_min": 1.4619036785123996e-05
+        "sign_flips_total": 0,
+        "min_basis_alignment_cos": 0.9999999389648112,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 7.813022520331003e-05
       },
       "per_tensor|0.001": {
+        "ratio_by_seed": {
+          "11": 83.98912872788436,
+          "22": 1.0005295203719846,
+          "33": 1.0005035494033838,
+          "44": 83.98905863930761,
+          "55": 83.9890341375404,
+          "66": 1.0005468961654396,
+          "77": 83.98911471179281,
+          "88": 1.000533947222161,
+          "99": 1.0005198960094235,
+          "110": 1.0005220030006703
+        },
         "shape": "per_tensor",
         "epsilon": 0.001,
         "n_seeds": 10,
-        "ratio_stdev": 4.824388674962052,
-        "ratio_max_over_min": 1.3288322035094429,
-        "ratio_min": 42.328269142264304,
-        "ratio_median": 47.20072917159386,
-        "ratio_max": 56.247167155055834,
-        "ratio_worst_conditioned_heads_median": 52.916047428189096,
-        "ratio_median_conditioned_heads_median": 107.70244074748234,
-        "head_order_flips_total": 7,
+        "ratio_stdev": 42.85510711876388,
+        "ratio_max_over_min": 83.94685733795589,
+        "ratio_min": 1.0005035494033838,
+        "ratio_median": 1.0005404216938003,
+        "ratio_max": 83.98912872788436,
+        "ratio_worst_conditioned_heads_median": 0.9996567738869193,
+        "ratio_median_conditioned_heads_median": 0.9994284654142994,
+        "head_order_flips_total": 1,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 1369,
-        "min_singular_gap_min": 3.1141003465017706e-06,
-        "min_sort_margin_min": 6.476624769025108e-05
+        "sign_flips_total": 66,
+        "min_basis_alignment_cos": 0.00015963578932585689,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 8.794783093613034e-05
       },
       "per_tensor|0.01": {
+        "ratio_by_seed": {
+          "11": 10.91290726480734,
+          "22": 1.0005297682187497,
+          "33": 1.0005036213724936,
+          "44": 10.912936008839996,
+          "55": 8.457630434043788,
+          "66": 8.457684708173105,
+          "77": 8.457696141213878,
+          "88": 8.457623510078143,
+          "99": 1.0005196617385836,
+          "110": 1.000522076301323
+        },
         "shape": "per_tensor",
         "epsilon": 0.01,
         "n_seeds": 10,
-        "ratio_stdev": 0.295181590201036,
-        "ratio_max_over_min": 1.0569210103500746,
-        "ratio_min": 12.83406659705104,
-        "ratio_median": 12.993519978399242,
-        "ratio_max": 13.564594634655327,
-        "ratio_worst_conditioned_heads_median": 17.092615737700136,
-        "ratio_median_conditioned_heads_median": 28.62607434918863,
-        "head_order_flips_total": 12,
+        "ratio_stdev": 4.376725492661485,
+        "ratio_max_over_min": 10.907442787532943,
+        "ratio_min": 1.0005036213724936,
+        "ratio_median": 8.457626972060964,
+        "ratio_max": 10.912936008839996,
+        "ratio_worst_conditioned_heads_median": 0.9996567738869194,
+        "ratio_median_conditioned_heads_median": 0.9994284654142993,
+        "head_order_flips_total": 3,
         "ffn_order_flips_total": 0,
-        "sign_flips_total": 9428,
-        "min_singular_gap_min": 7.665296552881037e-06,
-        "min_sort_margin_min": 0.00031455087925591485
+        "sign_flips_total": 196,
+        "min_basis_alignment_cos": 5.2122844693412276e-05,
+        "min_singular_gap_min": Infinity,
+        "min_sort_margin_min": 0.0006691585049249937
       }
     }
   },
@@ -626,34 +924,144 @@
     "note": "median ratio under an isotropic perturbation, with recipe steps removed one at a time, plus the Hungarian-matching route in place of sorting. Attributes the pooled ratio in measurement B to a specific step.",
     "variants": {
       "shipped_recipe": {
-        "1e-08": 3.0500720635618204,
-        "1e-06": 3.091071000606531,
-        "0.0001": 84.38388763466062
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
       },
       "without_ffn_permutation": {
-        "1e-08": 3.0500720635618204,
-        "1e-06": 3.091071000606531,
-        "0.0001": 84.38388763466062
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
       },
       "without_head_sort": {
-        "1e-08": 3.0500720635618204,
-        "1e-06": 3.091071000606531,
-        "0.0001": 84.38388763466061
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
       },
-      "without_head_internal": {
-        "1e-08": 0.909301821701357,
-        "1e-06": 0.9093249134092203,
-        "0.0001": 0.9117044636911512
+      "RETIRED_gain_absorption": {
+        "1e-06": {
+          "by_seed": {
+            "11": 0.9538757912986681,
+            "22": 0.8793014164175645,
+            "33": 0.9093249134092201,
+            "44": 0.8482790693723471,
+            "55": 1.1425519287047023,
+            "66": 0.9346767379458278,
+            "77": 1.7106677749198416,
+            "88": 1.0228296356601037,
+            "99": 0.9066451827292091,
+            "110": 0.871742306555786
+          },
+          "n_seeds": 10,
+          "min": 0.8482790693723471,
+          "median": 0.922000825677524,
+          "max": 1.7106677749198416
+        }
+      },
+      "RETIRED_head_internal": {
+        "1e-06": {
+          "by_seed": {
+            "11": 2450.5371611231335,
+            "22": 3.091071000586433,
+            "33": 2.829516099220944,
+            "44": 1929.2836914746408,
+            "55": 2450.537422653137,
+            "66": 2450.5374843155664,
+            "77": 1929.2844631726143,
+            "88": 3.2543840053831787,
+            "99": 2450.5376413374534,
+            "110": 3.313723246309444
+          },
+          "n_seeds": 10,
+          "min": 2.829516099220944,
+          "median": 1929.2840773236276,
+          "max": 2450.5376413374534
+        }
       },
       "RETIRED_sort_recipe": {
-        "1e-08": 808844.6537733669,
-        "1e-06": 23016.95815894718,
-        "0.0001": 2447.8120048331016
+        "1e-06": {
+          "by_seed": {
+            "11": 21582.688026411135,
+            "22": 24662.048462478928,
+            "33": 23016.95815894718,
+            "44": 25985.845053904206,
+            "55": 19841.770035193396,
+            "66": 25030.983240055582,
+            "77": 21749.869675399812,
+            "88": 20842.967513668907,
+            "99": 26696.0705822385,
+            "110": 24106.676161674597
+          },
+          "n_seeds": 10,
+          "min": 19841.770035193396,
+          "median": 23561.81716031089,
+          "max": 26696.0705822385
+        }
       },
       "hungarian_alignment": {
-        "1e-08": 3.0500720635618204,
-        "1e-06": 3.091071000606531,
-        "0.0001": 84.38388763466062
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283586,
+            "22": 1.0004123290483449,
+            "33": 1.0003982805385183,
+            "44": 1.000407955643189,
+            "55": 1.0004505362687166,
+            "66": 1.00042040980096,
+            "77": 1.000391444699088,
+            "88": 1.0004262561210153,
+            "99": 1.0004074040264581,
+            "110": 1.0004106719791575
+          },
+          "n_seeds": 10,
+          "min": 1.000391444699088,
+          "median": 1.000411500513751,
+          "max": 1.0004558814283586
+        }
       }
     }
   },
@@ -673,24 +1081,84 @@
     "note": "models that GENUINELY differ by an FFN neuron permutation, then perturbed by epsilon. d_raw is the epsilon alone, since the permutation is gauge. Measurement D could not separate 'no permutation step' from 'alignment' because the correct correspondence there was always the identity; here it is not, so a variant that cannot recover a permutation must blow up by the full size of one.",
     "variants": {
       "no_permutation_step": {
-        "1e-08": 68954452.92511757,
-        "1e-06": 689544.5291930469,
-        "0.0001": 6896.228898302518
+        "1e-06": {
+          "by_seed": {
+            "11": 897108.0442504976,
+            "22": 897380.5954600102,
+            "33": 897264.7904807194,
+            "44": 897337.3737058464,
+            "55": 897217.8702313643,
+            "66": 897135.704127332,
+            "77": 897272.239967158,
+            "88": 897168.6288069496,
+            "99": 897459.041409198,
+            "110": 897243.835400378
+          },
+          "n_seeds": 10,
+          "min": 897108.0442504976,
+          "median": 897254.3129405486,
+          "max": 897459.041409198
+        }
       },
       "hungarian_alignment": {
-        "1e-08": 3.050072996813809,
-        "1e-06": 3.0910697060488417,
-        "0.0001": 84.38388758723882
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283617,
+            "22": 1.000412329048345,
+            "33": 1.0003982805385212,
+            "44": 1.0004079556431904,
+            "55": 1.0004505362687157,
+            "66": 1.0004204098009561,
+            "77": 1.0003914446990814,
+            "88": 1.0004262561210142,
+            "99": 1.0004074040264554,
+            "110": 1.0004106719791643
+          },
+          "n_seeds": 10,
+          "min": 1.0003914446990814,
+          "median": 1.0004115005137546,
+          "max": 1.0004558814283617
+        }
       },
       "ffn_sort_RETIRED": {
-        "1e-08": 3.050072996813809,
-        "1e-06": 22150.35678129192,
-        "0.0001": 2447.0414602355536
+        "1e-06": {
+          "by_seed": {
+            "11": 29276.229904492717,
+            "22": 22150.35678129192,
+            "33": 22110.373425651025,
+            "44": 24436.010535590274,
+            "55": 26897.823024267072,
+            "66": 22742.75910427558,
+            "77": 22699.352455064305,
+            "88": 26673.67201759008,
+            "99": 25579.766227120967,
+            "110": 24405.328671249616
+          },
+          "n_seeds": 10,
+          "min": 22110.373425651025,
+          "median": 24420.669603419945,
+          "max": 29276.229904492717
+        }
       },
       "shipped_recipe": {
-        "1e-08": 3.050072996813809,
-        "1e-06": 3.0910697060488417,
-        "0.0001": 84.38388758723882
+        "1e-06": {
+          "by_seed": {
+            "11": 1.0004558814283617,
+            "22": 1.000412329048345,
+            "33": 1.0003982805385212,
+            "44": 1.0004079556431906,
+            "55": 1.0004505362687157,
+            "66": 1.0004204098009561,
+            "77": 1.0003914446990814,
+            "88": 1.0004262561210142,
+            "99": 1.0004074040264554,
+            "110": 1.0004106719791643
+          },
+          "n_seeds": 10,
+          "min": 1.0003914446990814,
+          "median": 1.0004115005137546,
+          "max": 1.0004558814283617
+        }
       }
     }
   },
@@ -822,5 +1290,58 @@
   "sections_refreshed_this_run": [
     "A"
   ],
-  "STALENESS_WARNING": "PARTIALLY REGENERATED. The shipped recipe is FOUR steps: zero the key-bias gauge, zero the value-bias gauge, sort heads, align FFN neurons. SECTIONS A AND F ARE CURRENT -- both re-measured against that recipe at ten seeds. SECTIONS B, C, D AND E ARE NOT; they were measured against a six-step recipe and describe a ruler that is no longer shipped. A task-duration cap of roughly 600s killed every attempt to regenerate them: one measurement cell costs 4.8s and those sections need 11 to 26 minutes each. Do NOT quote B, C, D or E as describing the shipped ruler. Section A's rows for head_internal_transform (0.9997), layernorm_gain_rescale (1.754) and residual_permutation (0.9825) are the symmetries the shipped recipe DELIBERATELY does not quotient -- a large residual there is the documented cost of D-1 and D-2, not a failure."
+  "OPEN_QUESTION_distortion_factor": "THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND WHICH END APPLIES CANNOT BE KNOWN YET. With the FFN sort and the head-internal step both retired, at eps=1e-08 the shipped recipe reads 1.0004 median with a per-seed spread of [1.0004, 1.0005], and it holds that through eps=0.0001. IT DOES NOT HOLD EVERYWHERE. At eps=0.001 the median is still 1.0004 while the worst of 10 seeds reads 83.99 -- a factor of 83.95 between the median and the worst seed, with 1 head-order flip(s) recorded in that row. Logged as D-3. So the range is not a smooth curve that can be read off at whatever epsilon turns out to be real; it is near-neutral behaviour with a cliff in it, and THE CLIFF IS INVISIBLE IN THE MEDIAN. Which regime is operative depends on how far a burst arm actually sits from its seed-matched twin after training, expressed as a fraction of the parameter norm -- and that quantity does not exist until models are trained. A ruler whose distortion depends on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here as an open question rather than as a footnote. Resolving it requires measuring the twin-vs-twin distance on real checkpoints and reading the curve in this file at that epsilon.",
+  "seed_coverage": {
+    "A": {
+      "n_seeds": 10,
+      "epsilons": []
+    },
+    "C": {
+      "n_seeds": null,
+      "epsilons": []
+    },
+    "B": {
+      "n_seeds": 10,
+      "epsilons": [
+        1e-08,
+        1e-07,
+        1e-06,
+        1e-05,
+        0.0001,
+        0.001,
+        0.01
+      ]
+    },
+    "R": {
+      "n_seeds": 10,
+      "epsilons": [
+        1e-08,
+        1e-07,
+        1e-06,
+        1e-05,
+        0.0001,
+        0.001,
+        0.01
+      ]
+    },
+    "D": {
+      "n_seeds": 10,
+      "epsilons": [
+        1e-06
+      ]
+    },
+    "E": {
+      "n_seeds": 10,
+      "epsilons": [
+        1e-06
+      ]
+    },
+    "F": {
+      "n_seeds": 10,
+      "epsilons": [
+        1e-06
+      ]
+    }
+  },
+  "PROVENANCE": "Sections A, B, C, D, E, F are all measured against the SHIPPED recipe (zero_key_bias_gauge -> zero_value_bias_gauge -> sort_heads -> align_ffn_neurons). Seed coverage is read from the cells, not from the top-level 'seeds' key, which records only the LAST CHUNK'S WINDOW: A at 10 seeds; B at 10 seeds; D at 10 seeds; E at 10 seeds; F at 10 seeds. Section C is a sweep over interpolation level and carries no seed dimension. The floor is 10 seeds and every seeded section meets it. COVERAGE TRADED FOR SEEDS, AND IT CUTS BOTH WAYS: D at eps=1e-06 only; E at eps=1e-06 only; F at eps=1e-06 only. D was 1e-08, 1e-06, 0.0001, E was 1e-08, 1e-06, 0.0001 -- three epsilons at three seeds, until ten seeds at three epsilons proved not to fit the ~600s task-duration cap. Epsilon breadth was spent to buy seed breadth. The reason ten seeds is mandatory is that low-seed numbers in this build kept being overturned by widening. A single epsilon has the MIRROR-IMAGE weakness, and section B demonstrates it directly here: the ruler holds flat across the low decades and then steps off a cliff at eps=0.001, which a section measured at one epsilon could not have seen. Both limits are live and neither substitutes for the other. Big sections were measured in seed windows and merged per seed -- a cell costs about 4.8s -- and every merged cell stores its per-seed values, so min/median/max are computed over the union of chunks rather than over one chunk. READ THE RANGE, NOT THE MEDIAN: at eps=0.001 section B's median is 1.0004 and its worst of 10 seeds is 83.99, with 1 head-order flip(s). Logged as D-3. A median-only report would have shown a flawless ruler. Section R is the retired sort-based recipe and is deliberately NOT re-measured: SORT_ONLY_RECIPE has not changed, so its numbers remain valid for the recipe they describe. Its cells predate per-seed storage and cannot be re-merged."
 }

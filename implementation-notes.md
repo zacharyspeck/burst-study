@@ -2591,6 +2591,255 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S70. The report now states its own provenance, and the prose reads the data
+
+Four defects in the measurement report, all of the same family: **a record that
+looks clean because the thing that would have shown it was wrong is missing.**
+All four are fixed in `scripts/canonicalization_error.py`, and
+`tests/test_measurement_report.py` is the new guard.
+
+#### 1. Two hand-maintained records inside a machine-generated file
+
+The JSON's `PROVENANCE` key and the markdown report's header banner were both
+written **by hand**. The script neither wrote nor read either one. So the next
+`--sections` run would have overwritten both files and **silently deleted both
+records** — and the result would have looked entirely machine-clean, because a
+missing provenance note leaves no gap where it used to be. The previous banner
+had the same exposure and survived only by luck.
+
+Both are now derived, by `build_provenance` and `report_banner`, from the
+payload they describe. A provenance note that cannot be destroyed by
+regeneration is the only kind worth having, and one that is *computed* from the
+data cannot drift from it.
+
+#### 2. THE FIFTH STALE-PROSE INSTANCE, and this one was shipping a wrong claim
+
+`OPEN_QUESTION_DISTORTION_FACTOR` was a hardcoded string asserting the ruler
+"scores 3.05 at eps=1e-8 and eps=1e-6, and 84.4 at eps=1e-4" and "roughly
+TRIPLES a small difference." **Those are the RETIRED six-step recipe's
+figures.** The shipped recipe measures `1.0004`. That paragraph rendered into
+the report's OPEN QUESTION section, one screen below a table saying the
+opposite, and it had survived both D-1 and D-2.
+
+Now `open_question_distortion_factor(payload)` reads section B and states what
+is actually there. **Prose that quotes a measurement cannot go stale if it
+reads the measurement.** That is the general fix for a pattern this build has
+now hit five times.
+
+A second-order version of the same mistake nearly shipped inside the fix: the
+first draft derived the *numbers* but left the *interpretation* hardcoded —
+"off by a factor of eighty on the tenth [seed]", and an unconditional claim
+that there is a cliff. Running it against `--tiny`, where there is no cliff,
+printed a confident description of a phenomenon that was not in the data. Both
+the banner and the open question are now conditional on `_worst_seed_row`
+returning something, and the no-cliff branch says so plainly. **Deriving the
+numbers is not enough if the sentence around them is still an assertion.**
+
+#### 3. A table that would have gone ambiguous the moment it grew
+
+`format_report` looped `for eps, c in cells.items()` for measurements D and E
+and **never printed `eps`**. Harmless today only because D and E had been cut
+to a single epsilon. Restore a second and the table grows duplicate rows with
+identical labels and no way to tell them apart — the same defect as S61 and
+S69, where a table reads clean because the harness is broken. Fixed while it
+was free rather than after it cost a conclusion. Header and row renderer now
+share `_CELL_HEADER` so they cannot drift apart either.
+
+#### 4. Section A's coverage lived in a commit message
+
+A recorded no seed count. Its ten seeds were asserted by the message of
+`c155f08` and nowhere a reader of the JSON could look. A now records `n_seeds`
+and `seeds`, per row and per section, and `seed_coverage()` derives coverage
+for every section **from the cells** — because the top-level `seeds` key holds
+only the last chunk's *window*, and anyone reading it as coverage gets the
+wrong answer. Section A was re-measured at ten seeds to populate the field
+rather than having the number typed in, which would have reproduced defect 1.
+
+#### The single-epsilon limitation is now legible next to the seed count
+
+D and E run at `eps=1e-6` only, down from `1e-8, 1e-6, 1e-4` at three seeds.
+That is **coverage traded for seeds** and it is stated in the generated banner,
+in `PROVENANCE`, and in `docs/step9-summary.md` — not only here. The two limits
+are mirror images: ten seeds is mandatory because low-seed numbers kept being
+overturned, and a single epsilon has the opposite blind spot, since section B
+shows the ruler holding flat for six decades and stepping off a cliff at the
+seventh. **A section measured at one epsilon cannot see that cliff.**
+
+`EPSILON_NARROWED` records which sections actually paid that trade. Section F
+is deliberately absent: F has always run at one epsilon, and the first version
+of the banner described it as narrowed, attributing a history it does not have.
+The banner derives *which* sections are thin from the data; "down from three"
+is a historical claim and only the sections that paid it get it.
+
+#### `--render-only`, and why the missing flag was part of the cause
+
+Adding the epsilon column to F left the `.md` one column out of date with a
+`.json` that was still perfectly good, and the only way to regenerate it was to
+re-measure a section — five minutes of GPU for a formatting change. **That cost
+is what makes hand-editing a generated file tempting in the first place**, which
+is how defect 1 arose.
+
+`--render-only` re-renders the `.md` and recomputes the derived JSON fields
+from measurements already on disk, measuring nothing. It is wired **before**
+`import torch` in `main`, so re-rendering an existing result does not require
+an ML stack — the same reasoning that keeps `burst/` importable without torch.
+`_write_report` is now the single path that writes either file, so the derived
+fields cannot be recomputed on one route and skipped on the other.
+
+`test_markdown_is_exactly_what_the_json_renders` is what makes this hold: it
+asserts byte equality between the report on disk and `format_report(payload)`,
+so ANY hand edit anywhere in the file fails the suite, not just a missing
+banner.
+
+### S69. Results file fully regenerated; third stale-variant instance
+
+All six sections (A, B, C, D, E, F) are now measured against the shipped
+four-step recipe at **ten seeds**, in seed-window chunks merged per seed.
+Section R, the retired sort recipe, is deliberately not re-measured --
+`SORT_ONLY_RECIPE` is unchanged, so its numbers remain valid for the recipe
+they describe. The staleness banner is replaced by a provenance note.
+
+**The headline, section D at ten seeds, eps=1e-6, min/median/max:**
+
+| variant | min | median | max |
+| --- | --- | --- | --- |
+| **shipped recipe** | **1** | **1** | **1** |
+| without FFN permutation | 1 | 1 | 1 |
+| without head sort | 1 | 1 | 1 |
+| Hungarian alignment | 1 | 1 | 1 |
+| RETIRED gain absorption | 0.8483 | 0.922 | 1.711 |
+| RETIRED head-internal | 2.83 | 1929 | 2451 |
+| RETIRED sort recipe | 1.984e+04 | 2.356e+04 | 2.670e+04 |
+
+That table is the whole build in one place: the shipped recipe is exactly
+neutral, and each retired step is visible with the distortion that retired it.
+
+Section E confirms the permutation case at ten seeds: `no_permutation_step`
+reads `8.971e+05 / 8.973e+05 / 8.975e+05`, while both `hungarian_alignment` and
+the shipped recipe read `1 / 1 / 1`.
+
+#### Third instance of a stale variant list
+
+`measure_step_attribution`'s variants went stale for the third time -- after
+D-1 removed the head-internal step, `without_head_internal` filtered a step the
+recipe no longer contained, so it was a no-op identical to `shipped_recipe`.
+Same shape as S61's two instances: **a table whose rows all agree reads as a
+clean result rather than as a broken harness.**
+
+Fixed by redefining D around what it is now uniquely for -- the comparison
+against the three retired recipes -- since per-step attribution moved to
+measurement F, which has an EMPTY control. **Still unmitigated:** nothing
+asserts that a variant is the condition its label claims. Three instances now.
+
+#### And the fifth low-seed near-miss, which the range caught
+
+Section B at `eps=1e-3`: median `1.0004`, max `83.99`. **The median is
+indistinguishable from a perfect ruler and one seed in ten is off by a factor
+of 84.** Logged as D-3: the head sort is the last remaining sort and it flips
+once the perturbation exceeds its `3.452e-05` deciding margin. Untaken.
+
+This is why min/median/max is reported on everything. A median-only table would
+have shown a flawless ruler.
+
+### S67. OPEN: the config omits the three values that decide reproducibility
+
+**Not fixed. The values depend on decisions not yet made, so this records the
+gap rather than closing it.**
+
+`configs/base.yaml` declares `batch_size: 256` and `seq_len: 1024`. It does not
+declare **micro-batch size, dtype, or the AdamW implementation.** All three
+change **reduction order**, and reduction order is what bitwise reproducibility
+is made of. The config system's premise is that every number defining a run
+lives in that file; three numbers that decide whether a run is reproducible do
+not.
+
+The determinism probe had to invent all three -- `8 x 32` accumulation, both
+dtypes, `foreach` -- and records them in each run's
+`environment_asserted.yaml` rather than in the config. See D21.
+
+#### What each one changes
+
+| missing value | what it changes about reduction order |
+| --- | --- |
+| **micro-batch size** | How many sequences are summed per forward pass, and therefore how many partial sums the gradient accumulation adds and in what order. `256 = 8 x 32` and `256 = 16 x 16` give different floating-point results from the same data. |
+| **dtype** (fp32 / bf16 / fp16) | Which CUDA kernels are selected. Measured directly: fp32 chose `fmha_cutlassF/B` (mem-efficient), bf16 chose `pytorch_flash::flash_fwd/bwd`. 66 kernels against 74. Different kernels accumulate in different orders. |
+| **AdamW implementation** (`foreach` / `fused` / `single`) | Whether moments update per tensor, per fused group, or in one kernel. Each groups its arithmetic differently. |
+
+#### What the loader would need
+
+- **Three new fields.** Natural home is `training` for micro-batch and dtype,
+  `optimizer` for the AdamW implementation. Each needs a dataclass field, an
+  entry in `_SECTION_CLASSES`' backing class, a typed read in `_build_config`,
+  and a line in `configs/base.yaml` -- the five-place edit S-numbered under
+  "what you would have to touch" in the phase-1 plan.
+- **A divisibility check.** `batch_size % micro_batch == 0`, with the quotient
+  being the accumulation count. This is the same class as the existing
+  token-budget identity and belongs next to it in `_validate_semantics`.
+- **Enum-style validation.** dtype and AdamW impl are closed sets. The loader
+  has no enum helper today; `arm` is validated against `ARMS` by hand and that
+  is the pattern to copy.
+- **One interaction with existing validation, and it is not trivial.**
+  `expected_token_budget` is asserted as `batch_size * seq_len * total_steps`.
+  Micro-batching does not change that product, so the identity still holds --
+  but a reader will reasonably assume the batch in that identity is the one the
+  hardware sees, and it is not. Whatever wording is chosen has to make clear
+  that the budget is over the LOGICAL batch.
+- **No output-path conflict.** None of the three is path-like, so the denylist
+  at `burst/config.py:124-134` is not implicated.
+
+#### What a wrong or absent value costs
+
+**Absent:** exactly what happened -- the probe guessed, and its result is
+therefore about a configuration nobody chose. The number in
+`environment_asserted.yaml` is a record of an assumption, not of a decision.
+
+**Wrong or silently changed:** two runs that the config claims are identical
+would not reproduce bitwise, and **nothing in the repo would notice**, because
+`resolved_config.yaml` would be byte-identical between them. That is precisely
+the failure the config system exists to prevent, and it is currently outside
+its reach.
+
+**Not merely theoretical:** the study's full batch does not fit the tested
+hardware (below), so a micro-batch value is *required* for the study to run at
+all, and it is currently not written down anywhere.
+
+### S68. What the determinism result does and does not cover
+
+`docs/measurements/2026-08-02-determinism-check.md` establishes the STRONG
+criterion -- exact byte equality of every saved parameter tensor and every
+optimizer moment, via SHA-256 over raw tensor bytes, between two fresh
+processes. It is not a "the losses agreed closely" result. Verified by reading
+`probes/determinism/train_once.py:128` and `check.py:97`.
+
+**Covers:** 149 parameter tensors and 296 optimizer moments, identical across
+three legs (fp32; bf16; bf16 with the warmup/cosine boundary moved to step 10),
+at full GPT-2 Base shapes, on one RTX A6000, torch 2.13.0+cu126, CUDA 12.6.
+
+**Does NOT cover:**
+
+- **20 steps, not 9536**, and not step 200. The injection hook does not exist.
+- **Single GPU only.** A multi-device run adds NCCL all-reduce ordering.
+- **No resumed run.** Asa records this as the largest untested gap; RNG state in
+  checkpoints is an existing cross-module obligation.
+- **An invented micro-batch** of `8 x 32`, plus invented dtype and AdamW impl --
+  see S67. The result is about a configuration nobody chose.
+- **Synthetic data.** `torch.randint` seeded per index, not the corpus. Fine for
+  kernel selection, which is shape-keyed, but it is not the study's data path.
+- **Two runs per leg.** Enough to detect divergence, not to characterise a rate
+  of rare divergence.
+- **One GPU, driver and torch build.** Same limitation D7 records for
+  `burst_match.py`. fp16 untested.
+
+**AND THE STUDY DOES NOT FIT THE TESTED CARD.** A full batch of logits is
+`256 x 1024 x 50257 x 4 bytes` = **52.7 GB** against 49 GB available. Arithmetic
+checked. So the real run needs gradient accumulation or more than one device,
+**and neither is covered by this result** -- accumulation because the
+micro-batch was invented, multi-device because it was not tested at all.
+
+**Consequence for the study's central claim:** the seed-only noise floor is
+established for a 20-step single-GPU run at an invented micro-batch. It is
+**not** established for the configuration the study will actually train.
+
 ### S61. The S55 pattern one level up: mis-named experimental conditions
 
 S55 is about a *quantity* named for one thing and computed as another. The
@@ -3149,7 +3398,9 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-420 tests, counted per file with `--collect-only` rather than from memory:
+447 tests, counted per file with `--collect-only` rather than from memory.
+(The prose here read "420" against a table totalling 435 until 2026-08-03 —
+a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
 | file | tests |
 | --- | --- |
@@ -3161,10 +3412,11 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_canonicalize_recipe.py` | 44 |
 | `tests/test_canonicalize_mutations.py` | 16 |
 | `tests/test_canonicalize_diagnostics.py` | 10 |
-| **total** | **435** |
+| `tests/test_measurement_report.py` | 12 |
+| **total** | **447** |
 
-In the base environment (`.venv/`, no torch) the run is **281 passed, 154
-skipped**. In `.venv-ml/` it is **435 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **293 passed, 154
+skipped**. In `.venv-ml/` it is **447 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

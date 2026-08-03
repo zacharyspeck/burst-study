@@ -193,3 +193,64 @@ the study's actual measurement is unknown.
 
 A ruling. Option 2 is a further narrowing of what the ruler quotients and is
 therefore the same class of decision as D-1; I have not taken it.
+
+
+---
+
+## D-3. The head sort is the last remaining sort, and it flips
+
+**Status: open. Raised 2026-08-03 by section B at ten seeds. Nothing changed.**
+
+### The decision
+
+Should `SortHeads` be replaced by Hungarian matching, the way `SortFFNNeurons`
+already was?
+
+### What was measured
+
+Section B, shipped recipe, real GPT-2, ten seeds, isotropic. **Read the range.**
+
+| eps | min | median | max | head-order flips |
+| --- | --- | --- | --- | --- |
+| 1e-8 .. 1e-4 | 1.0004 | 1.0004 | 1.0005 | 0 |
+| **1e-3** | 1.0004 | **1.0004** | **83.99** | 1 |
+| 1e-2 | 1.0004 | 8.4576 | 10.91 | 3 |
+
+At `eps=1e-3` the **median is 1.0004 -- indistinguishable from a perfect
+ruler** -- and one seed in ten reads `83.99`. Reporting the median alone would
+have shown nothing at all. This is the fifth time in this build that a
+comfortable summary statistic hid a real effect.
+
+The mechanism is the one that retired the FFN sort: the head sort's deciding
+margin on real GPT-2 is `3.452e-05` (measurement C, `t=1`), and once the
+perturbation exceeds it the sort order flips. When two heads swap, they exchange
+their full parameter blocks, so the error is O(1) against an O(eps) real
+difference.
+
+### Why this is not already settled by the FFN ruling
+
+Scale. 12 heads against 3072 neurons means far fewer adjacent pairs and a
+margin three orders of magnitude wider (`3.452e-05` against `1.490e-08`), so
+the head sort only breaks at `eps >= 1e-3` where the FFN sort broke at
+`eps = 1e-8`. It is the same defect with far more headroom.
+
+Whether that headroom is enough depends on how far a burst arm sits from its
+seed-matched twin, **which is the same unknown that D-2 turned on and is not
+knowable until there are checkpoints.**
+
+### Options
+
+1. **Replace `SortHeads` with head alignment.** `align_permutations_to` already
+   supports heads (`heads=True`) and is measured at `1.0` in sections D and E.
+   Cost: canonical form becomes pairwise-relative in one more respect, which it
+   already is for the FFN.
+2. **Leave it.** Correct if the real arm-vs-twin distance is below `1e-4`
+   relative. Unverifiable today.
+3. **Leave it but assert the margin at measurement time** -- refuse to report a
+   distance when the perturbation exceeds the head-sort margin, rather than
+   silently returning an inflated number.
+
+### What I would need from you
+
+A ruling. Option 1 is the same change already made for the FFN and its
+machinery exists; I have not made it.

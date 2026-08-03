@@ -100,23 +100,64 @@ LIMITATION = (
 )
 
 #: A stated weakness of the study, not a caveat on a measurement.
-OPEN_QUESTION_DISTORTION_FACTOR = (
-    "THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND WHICH "
-    "END APPLIES CANNOT BE KNOWN YET. Even with the FFN sort removed -- the "
-    "step measurement D attributes essentially all of the inflation to -- this "
-    "canonicalization is not distance-neutral. It scores 3.05 at eps=1e-8 and "
-    "eps=1e-6, and 84.4 at eps=1e-4. So it roughly TRIPLES a small difference "
-    "at the low end and inflates by more than eightyfold three decades up. "
-    "3.05 is not 1, and 84.4 is not 3.05. Which of them is operative depends "
-    "on how far a burst arm actually sits from its seed-matched twin after "
-    "training, expressed as a fraction of the parameter norm -- and that "
-    "quantity does not exist until models are trained. A ruler whose "
-    "distortion factor ranges over more than an order of magnitude depending "
-    "on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded "
-    "here as an open question rather than as a footnote. Resolving it requires "
-    "measuring the twin-vs-twin distance on real checkpoints and reading the "
-    "curve in this file at that epsilon."
-)
+def open_question_distortion_factor(payload) -> str:
+    """The distortion-factor open question, with its numbers READ FROM THE DATA.
+
+    This text was a hardcoded string until 2026-08-03, and it was wrong: it
+    still quoted 3.05 and 84.4, which are the RETIRED six-step recipe's
+    figures. The shipped recipe reads 1.0004. So the report's own open-question
+    section was asserting that the shipped ruler triples a small difference
+    when the measurement one screen above said it does not -- the fifth time in
+    this build that stale prose outlived the number it described.
+
+    Deriving the figures from the payload is the structural fix. Prose that
+    quotes a measurement cannot go stale if it reads the measurement.
+    """
+    iso = {c["epsilon"]: c for c in payload["epsilon_sweep"]["cells"].values()
+           if c["shape"] == "isotropic"}
+    lo = min(iso)
+    cliff = _worst_seed_row(payload)
+    flat = [e for e in sorted(iso)
+            if cliff is None or e < cliff["epsilon"]]
+
+    text = (
+        "THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND "
+        "WHICH END APPLIES CANNOT BE KNOWN YET. With the FFN sort and the "
+        f"head-internal step both retired, at eps={lo:g} the shipped recipe "
+        f"reads {iso[lo]['ratio_median']:.4f} median with a per-seed spread of "
+        f"[{iso[lo]['ratio_min']:.4f}, {iso[lo]['ratio_max']:.4f}]")
+    text += (f", and it holds that through eps={max(flat):g}. "
+             if flat else ". ")
+
+    if cliff is not None:
+        factor = cliff["ratio_max"] / cliff["ratio_median"]
+        text += (
+            f"IT DOES NOT HOLD EVERYWHERE. At eps={cliff['epsilon']:g} the "
+            f"median is still {cliff['ratio_median']:.4f} while the worst of "
+            f"{cliff['n_seeds']} seeds reads {cliff['ratio_max']:.4g} -- a "
+            f"factor of {factor:.4g} between the median and the worst seed, "
+            f"with {cliff['head_order_flips_total']} head-order flip(s) "
+            f"recorded in that row. Logged as D-3. So the range is not a "
+            f"smooth curve that can be read off at whatever epsilon turns out "
+            f"to be real; it is near-neutral behaviour with a cliff in it, and "
+            f"THE CLIFF IS INVISIBLE IN THE MEDIAN. ")
+    else:
+        text += (
+            "No cliff appears anywhere in the swept range, so on this data the "
+            "factor is a narrow band rather than a range. That is a statement "
+            "about the epsilons and seeds actually swept and about nothing "
+            "else. ")
+
+    return text + (
+        "Which regime is operative depends on how far a burst arm actually "
+        "sits from its seed-matched twin after training, expressed as a "
+        "fraction of the parameter norm -- and that quantity does not exist "
+        "until models are trained. A ruler whose distortion depends on an "
+        "unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here "
+        "as an open question rather than as a footnote. Resolving it requires "
+        "measuring the twin-vs-twin distance on real checkpoints and reading "
+        "the curve in this file at that epsilon."
+    )
 
 #: What the SHIPPED recipe quotients. head_internal_transform is deliberately
 #: absent -- D-1 removed that step -- and is measured separately so its
@@ -139,6 +180,23 @@ NOT_QUOTIENTED = ("head_internal_transform", "layernorm_gain_rescale",
 # ---------------------------------------------------------------------------
 # distances
 # ---------------------------------------------------------------------------
+
+
+def _merge_seed_cell(prior, label, epsilon, seeds, ratios) -> dict:
+    """Merge this chunk's per-seed values into whatever is already stored.
+
+    Ten seeds is mandatory and does not fit the observed ~600s task-duration
+    cap for most sections, so a section is measured in seed windows and merged.
+    Per-seed values are kept so the merge is exact and so min/median/max are
+    recomputed over the union rather than over one chunk.
+    """
+    cell = (prior or {}).get("variants", {}).get(label, {})
+    cell = cell.get(f"{epsilon:g}") if isinstance(cell, dict) else None
+    merged = dict(cell.get("by_seed", {}) if isinstance(cell, dict) else {})
+    merged.update(dict(zip([str(s) for s in seeds], ratios)))
+    vals = [merged[k] for k in sorted(merged, key=int)]
+    return {"by_seed": merged, "n_seeds": len(vals), "min": min(vals),
+            "median": statistics.median(vals), "max": max(vals)}
 
 
 def l2_distance(sd_a: dict, sd_b: dict) -> float:
@@ -339,6 +397,14 @@ def measure_symmetry_residual(build, arch, seeds, stream, recipe=None) -> dict:
             ratios.append(d_canon / d_raw if d_raw else float("nan"))
             del plain, moved
         rows[name] = {
+            # n_seeds is recorded PER ROW, not just for the section, so the
+            # file states its own coverage. Section A carried no seed count at
+            # all until 2026-08-03: its ten seeds were asserted only by a
+            # commit message, which is not somewhere a reader of the JSON can
+            # look. Every other section stores per-seed values; A reduces to
+            # medians as it goes, so the count is what it can honestly keep.
+            "n_seeds": len(seeds),
+            "seeds": list(seeds),
             "d_raw_median": statistics.median(raws),
             "d_canonical_median": statistics.median(canons),
             "d_canonical_max": max(canons),
@@ -354,6 +420,8 @@ def measure_symmetry_residual(build, arch, seeds, stream, recipe=None) -> dict:
                  "ruler tested against ITSELF; measurement B is the one that "
                  "tests the use case."),
         "parameter_norm": theta_norm,
+        "n_seeds": len(seeds),
+        "seeds": list(seeds),
         "per_symmetry": rows,
     }
 
@@ -557,7 +625,8 @@ def measure_epsilon_sweep(build, arch, epsilons, shapes, seeds, stream,
 # ---------------------------------------------------------------------------
 
 
-def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
+def measure_step_attribution(build, arch, epsilons, seeds, stream,
+                             prior=None) -> dict:
     """Which recipe step is responsible for the inflation in measurement B.
 
     Measurement B reports a pooled ratio. A pooled number that is large says
@@ -568,10 +637,14 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
     """
     import copy
 
-    # Variants are defined against the SHIPPED recipe. An earlier version
-    # filtered for SortFFNNeurons, which DEFAULT_RECIPE no longer contains, so
-    # four of the five removals were no-ops and the table reported them all as
-    # identical. The live attribution question is now the head-internal step.
+    # Variants are defined against the SHIPPED recipe, and this list has gone
+    # stale THREE times now as steps were retired -- each time producing a
+    # table whose rows all agreed, which reads as a clean result rather than a
+    # broken harness. See S61 and S69.
+    #
+    # Per-step attribution moved to measurement F, which has an EMPTY control.
+    # What D is for now is the comparison against the three RETIRED recipes,
+    # which is the thing F cannot show.
     variants = {
         "shipped_recipe": C.DEFAULT_RECIPE,
         "without_ffn_permutation": tuple(
@@ -579,11 +652,11 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
             if not isinstance(s, (C.AlignFFNNeurons, C.SortFFNNeurons))),
         "without_head_sort": tuple(
             s for s in C.DEFAULT_RECIPE if not isinstance(s, C.SortHeads)),
-        "without_head_internal": tuple(
-            s for s in C.DEFAULT_RECIPE
-            if not isinstance(s, C.CanonicalizeHeadInternal)),
+        "RETIRED_gain_absorption": C.RETIRED_GAIN_ABSORPTION_RECIPE,
+        "RETIRED_head_internal": C.RETIRED_HEAD_INTERNAL_RECIPE,
         "RETIRED_sort_recipe": C.SORT_ONLY_RECIPE,
     }
+
     rows = {}
     for label, recipe in variants.items():
         reference = build()
@@ -603,10 +676,12 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
                 ratios.append(
                     l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
                 del moved
-            cells[f"{epsilon:g}"] = statistics.median(ratios)
+            cells[f"{epsilon:g}"] = _merge_seed_cell(
+                prior, label, epsilon, seeds, ratios)
         rows[label] = cells
-        print(f"    {label:<22} " + "  ".join(
-            f"eps={k}:{v:.4g}" for k, v in cells.items()),
+        print(f"    {label:<24} " + "  ".join(
+            f"eps={k}: n={v['n_seeds']} [{v['min']:.4g}, {v['median']:.4g}, "
+            f"{v['max']:.4g}]" for k, v in cells.items()),
             file=stream, flush=True)
         del reference, ref_sd
 
@@ -626,10 +701,12 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
             ratios.append(
                 l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
             del moved
-        cells[f"{epsilon:g}"] = statistics.median(ratios)
+        cells[f"{epsilon:g}"] = _merge_seed_cell(
+            prior, "hungarian_alignment", epsilon, seeds, ratios)
     rows["hungarian_alignment"] = cells
-    print(f"    {'hungarian_alignment':<22} " + "  ".join(
-        f"eps={k}:{v:.4g}" for k, v in cells.items()), file=stream, flush=True)
+    print(f"    {'hungarian_alignment':<24} " + "  ".join(
+        f"eps={k}: n={v['n_seeds']} [{v['min']:.4g}, {v['median']:.4g}, "
+        f"{v['max']:.4g}]" for k, v in cells.items()), file=stream, flush=True)
     del reference, ref_sd
 
     return {
@@ -641,7 +718,8 @@ def measure_step_attribution(build, arch, epsilons, seeds, stream) -> dict:
     }
 
 
-def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
+def measure_permuted_recovery(build, arch, epsilons, seeds, stream,
+                              prior=None) -> dict:
     """The case that separates 'drop the step' from 'align instead of sorting'.
 
     Measurement D compared the variants on models whose correct correspondence
@@ -709,10 +787,12 @@ def measure_permuted_recovery(build, arch, epsilons, seeds, stream) -> dict:
                 ratios.append(
                     l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
                 del moved
-            cells[f"{epsilon:g}"] = statistics.median(ratios)
+            cells[f"{epsilon:g}"] = _merge_seed_cell(
+                prior, label, epsilon, seeds, ratios)
         rows[label] = cells
-        print(f"    {label:<22} " + "  ".join(
-            f"eps={k}:{v:.4g}" for k, v in cells.items()),
+        print(f"    {label:<24} " + "  ".join(
+            f"eps={k}: n={v['n_seeds']} [{v['min']:.4g}, {v['median']:.4g}, "
+            f"{v['max']:.4g}]" for k, v in cells.items()),
             file=stream, flush=True)
         del reference, ref_sd
 
@@ -945,11 +1025,303 @@ def measure_dispersion_sweep(build, arch, levels, stream) -> dict:
 # ---------------------------------------------------------------------------
 
 
+#: Column header for the D and E tables. Shared so the header and the row
+#: renderer cannot drift apart into a table whose columns are mislabelled.
+_CELL_HEADER = (f"{'recipe variant':<26}{'eps':>9}{'n':>4}"
+                f"{'min':>14}{'median':>14}{'max':>14}")
+
+
+def _cell_row(label, eps, cell, width=26):
+    """Render a measurement cell, tolerating the pre-chunking float format.
+
+    Sections are refreshed independently, so a file can legitimately hold new
+    per-seed cells for one section and old bare floats for another. Rendering
+    has to survive that rather than crash on the mix -- the banner is what
+    tells the reader which is which.
+
+    THE EPSILON IS PRINTED. It was not until 2026-08-03: the caller looped over
+    epsilons and dropped the key, which was harmless only because D and E had
+    been cut to a single epsilon to afford ten seeds. Restore a second epsilon
+    and the table would have silently grown duplicate rows with the same label
+    and no way to tell them apart -- the same defect class as S61 and S69,
+    where a table reads clean because the harness is broken. Fixed while it
+    costs nothing rather than after it costs a conclusion.
+    """
+    if isinstance(cell, dict):
+        return (f"{label:<{width}}{eps:>9}{cell['n_seeds']:>4}"
+                f"{cell['min']:>14.5g}{cell['median']:>14.5g}"
+                f"{cell['max']:>14.5g}")
+    return (f"{label:<{width}}{eps:>9}{'?':>4}{'':>14}{cell:>14.5g}"
+            f"{'':>14}   [stale float]")
+
+
+#: Ten seeds is the floor for every seed-bearing section. The FFN sort's
+#: failure was seed-dependent and three low-seed results have since been
+#: overturned by widening, so a section below this is not reportable.
+MIN_SEEDS = 10
+
+#: Sections whose EPSILON coverage was deliberately narrowed to afford ten
+#: seeds, and what they swept before. D and E swept these three at three seeds
+#: through c155f08; on 2026-08-03 they were cut to one epsilon at ten seeds.
+#:
+#: F is deliberately NOT listed. F has always run at a single epsilon, so
+#: describing it as narrowed would attribute a trade that never happened -- the
+#: banner derives which sections are thin from the data, but "down from three"
+#: is a historical claim and only the sections that actually paid it get it.
+EPSILON_NARROWED = {
+    "D": (1e-8, 1e-6, 1e-4),
+    "E": (1e-8, 1e-6, 1e-4),
+}
+
+
+def _variant_cells(section):
+    """Yield (epsilon_key, cell) over a D/E/F-shaped section."""
+    for cells in (section or {}).get("variants", {}).values():
+        for eps, cell in cells.items():
+            yield eps, cell
+
+
+def seed_coverage(payload) -> dict:
+    """Per-section seed count and epsilon list, READ FROM THE CELLS.
+
+    The top-level "seeds" key records the last chunk's WINDOW, not the
+    coverage, because sections are measured in seed windows and merged. Anyone
+    reading it as coverage gets the wrong answer -- so coverage is derived from
+    the cells themselves, which is the only place it is actually true.
+    """
+    out = {}
+
+    a = payload.get("symmetry_residual") or {}
+    out["A"] = {"n_seeds": a.get("n_seeds"), "epsilons": []}
+    out["C"] = {"n_seeds": None, "epsilons": []}
+
+    for letter, key in (("B", "epsilon_sweep"),
+                        ("R", "epsilon_sweep_RETIRED_sort_recipe")):
+        cells = (payload.get(key) or {}).get("cells", {})
+        counts = [c.get("n_seeds") for c in cells.values()]
+        out[letter] = {
+            "n_seeds": min(counts) if counts and None not in counts else None,
+            "epsilons": sorted({c["epsilon"] for c in cells.values()}),
+        }
+
+    for letter, key in (("D", "step_attribution"),
+                        ("E", "permuted_model_recovery"),
+                        ("F", "step_contributions")):
+        pairs = list(_variant_cells(payload.get(key)))
+        counts = [c["n_seeds"] for _, c in pairs if isinstance(c, dict)]
+        out[letter] = {
+            "n_seeds": min(counts) if counts else None,
+            "epsilons": sorted({float(e) for e, _ in pairs}),
+        }
+    return out
+
+
+#: How far the worst seed must exceed the median before the spread is a
+#: finding rather than float noise. A row at this gap is one a median-only
+#: reader would miss entirely, which is the whole reason ranges are reported.
+SEED_SPREAD_ALERT = 1.5
+
+
+def _worst_seed_row(payload):
+    """The isotropic B cell whose worst seed most exceeds its median.
+
+    Returns None when NO row exceeds SEED_SPREAD_ALERT. That branch matters:
+    the read-the-range warning must be earned by the data. Asserting a cliff
+    unconditionally is how prose comes to describe a measurement it is no
+    longer attached to -- the exact failure this function is part of fixing.
+    """
+    iso = [c for c in payload["epsilon_sweep"]["cells"].values()
+           if c["shape"] == "isotropic" and c.get("ratio_median")]
+    if not iso:
+        return None
+    worst = max(iso, key=lambda c: c["ratio_max"] / c["ratio_median"])
+    if worst["ratio_max"] / worst["ratio_median"] < SEED_SPREAD_ALERT:
+        return None
+    return worst
+
+
+def build_provenance(payload) -> str:
+    """The PROVENANCE record, DERIVED from the payload rather than hand-written.
+
+    This key was hand-added to the JSON on 2026-08-02 and the script neither
+    wrote nor read it, so the next run would have silently deleted it -- a
+    provenance record that disappears is worse than none, because its absence
+    looks like the file was always machine-clean. Same for the markdown banner.
+    Both are now generated here, from the data they describe.
+    """
+    cov = seed_coverage(payload)
+    worst = _worst_seed_row(payload)
+    measured = [k for k in ("A", "B", "C", "D", "E", "F")
+                if payload.get({"A": "symmetry_residual",
+                                "B": "epsilon_sweep",
+                                "C": "dispersion_sweep",
+                                "D": "step_attribution",
+                                "E": "permuted_model_recovery",
+                                "F": "step_contributions"}[k])]
+    seeded = {k: cov[k]["n_seeds"] for k in measured if cov[k]["n_seeds"]}
+    thin_eps = sorted(k for k in ("B", "D", "E", "F")
+                      if len(cov[k]["epsilons"]) == 1)
+
+    parts = [
+        f"Sections {', '.join(measured)} are all measured against the SHIPPED "
+        f"recipe ({' -> '.join(payload['recipe'])}).",
+        "Seed coverage is read from the cells, not from the top-level 'seeds' "
+        "key, which records only the LAST CHUNK'S WINDOW: "
+        + "; ".join(f"{k} at {n} seeds" for k, n in sorted(seeded.items()))
+        + ". Section C is a sweep over interpolation level and carries no seed "
+          "dimension.",
+        f"The floor is {MIN_SEEDS} seeds and every seeded section meets it."
+        if all(n >= MIN_SEEDS for n in seeded.values())
+        else "AT LEAST ONE SECTION IS BELOW THE TEN-SEED FLOOR: "
+             + ", ".join(f"{k}={n}" for k, n in sorted(seeded.items())
+                         if n < MIN_SEEDS) + ".",
+    ]
+
+    if thin_eps:
+        narrowed = [k for k in thin_eps if k in EPSILON_NARROWED]
+        detail = "; ".join(
+            f"{k} at eps={cov[k]['epsilons'][0]:g} only" for k in thin_eps)
+        note = (
+            f"COVERAGE TRADED FOR SEEDS, AND IT CUTS BOTH WAYS: {detail}. ")
+        if narrowed:
+            was = ", ".join(
+                f"{k} was {', '.join(f'{e:g}' for e in EPSILON_NARROWED[k])}"
+                for k in narrowed)
+            note += (
+                f"{was} -- three epsilons at three seeds, until ten seeds at "
+                f"three epsilons proved not to fit the ~600s task-duration "
+                f"cap. Epsilon breadth was spent to buy seed breadth. ")
+        note += (
+            "The reason ten seeds is mandatory is that low-seed numbers in "
+            "this build kept being overturned by widening. A single epsilon "
+            "has the MIRROR-IMAGE weakness")
+        note += (
+            f", and section B demonstrates it directly here: the ruler holds "
+            f"flat across the low decades and then steps off a cliff at "
+            f"eps={worst['epsilon']:g}, which a section measured at one "
+            f"epsilon could not have seen. "
+            if worst is not None else
+            ", since a single epsilon cannot show where the ruler stops "
+            "behaving, only that it behaves at one point. ")
+        note += "Both limits are live and neither substitutes for the other."
+        parts.append(note)
+
+    parts.append(
+        "Big sections were measured in seed windows and merged per seed -- a "
+        "cell costs about 4.8s -- and every merged cell stores its per-seed "
+        "values, so min/median/max are computed over the union of chunks "
+        "rather than over one chunk.")
+    if worst is not None:
+        parts.append(
+            f"READ THE RANGE, NOT THE MEDIAN: at eps={worst['epsilon']:g} "
+            f"section B's median is {worst['ratio_median']:.4f} and its worst "
+            f"of {worst['n_seeds']} seeds is {worst['ratio_max']:.4g}, with "
+            f"{worst['head_order_flips_total']} head-order flip(s). Logged as "
+            f"D-3. A median-only report would have shown a flawless ruler.")
+    else:
+        parts.append(
+            "No row in section B shows a median-to-worst-seed gap above "
+            f"{SEED_SPREAD_ALERT}x, so no seed-spread alert is raised for this "
+            "data. Ranges are still reported everywhere; the absence of a "
+            "flagged row is a result, not a reason to read medians.")
+
+    retired = payload.get("epsilon_sweep_RETIRED_sort_recipe")
+    if retired:
+        parts.append(
+            "Section R is the retired sort-based recipe and is deliberately "
+            "NOT re-measured: SORT_ONLY_RECIPE has not changed, so its numbers "
+            "remain valid for the recipe they describe. Its cells predate "
+            "per-seed storage and cannot be re-merged.")
+    return " ".join(parts)
+
+
+def report_banner(payload) -> list:
+    """The markdown report's header banner, generated from the same facts.
+
+    Hand-editing this banner into the generated file is what made it fragile:
+    every previous banner was destroyed by the next run of this script. It is
+    generated so that it cannot be.
+    """
+    cov = seed_coverage(payload)
+    worst = _worst_seed_row(payload)
+    seeded = {k: v["n_seeds"] for k, v in cov.items() if v["n_seeds"]}
+    thin_eps = sorted(k for k in ("B", "D", "E", "F")
+                      if len(cov[k]["epsilons"]) == 1)
+    floor_ok = seeded and all(n >= MIN_SEEDS for n in seeded.values())
+
+    lines = ["ALL SECTIONS MEASURED AGAINST THE SHIPPED RECIPE"
+             if floor_ok else "*** A SECTION IS BELOW THE TEN-SEED FLOOR ***",
+             "",
+             "Shipped recipe: " + ", ".join(payload["recipe"]) + ".",
+             "",
+             "Seed coverage, read from the cells and not from the top-level",
+             "'seeds' key (which is only the last chunk's window):",
+             "  " + "   ".join(f"{k}={n}" for k, n in sorted(seeded.items()))
+             + "   (C is a sweep over t, no seed dimension)"]
+
+    if thin_eps:
+        narrowed = [k for k in thin_eps if k in EPSILON_NARROWED]
+        lines += [
+            "",
+            "TWO LIMITATIONS, AND THEY ARE MIRROR IMAGES. Read them together.",
+            "",
+            "  1. TEN SEEDS IS THE FLOOR because low-seed numbers in this",
+            "     build kept being overturned when the seed count widened.",
+            f"  2. {', '.join(thin_eps)} run at a SINGLE EPSILON "
+            f"(eps={cov[thin_eps[0]]['epsilons'][0]:g})."]
+        if narrowed:
+            lines += [
+                f"     {', '.join(narrowed)} previously swept "
+                f"{', '.join(f'{e:g}' for e in EPSILON_NARROWED[narrowed[0]])}"
+                " at three seeds.",
+                "     Ten seeds did not fit the ~600s task cap at three",
+                "     epsilons, so epsilon breadth was spent to buy seed",
+                "     breadth."]
+        lines += (
+            ["     Section B shows the ruler holding flat across the low",
+             f"     decades and then stepping off a cliff at "
+             f"eps={worst['epsilon']:g}",
+             "     -- a section at a single epsilon CANNOT SEE THAT CLIFF."]
+            if worst is not None else
+            ["     A single epsilon shows only that the ruler behaves at one",
+             "     point, never where it stops behaving."])
+        lines += [
+            "",
+            "  Neither limit substitutes for the other. A wide-seed,",
+            "  one-epsilon result and a one-seed, wide-epsilon result are",
+            "  both partial, in opposite directions."]
+
+    if worst is not None:
+        lines += [
+            "",
+            "READ THE RANGE, NOT THE MEDIAN. At "
+            f"eps={worst['epsilon']:g} section B's median is",
+            f"{worst['ratio_median']:.4f} and its worst of "
+            f"{worst['n_seeds']} seeds is {worst['ratio_max']:.4g}, with "
+            f"{worst['head_order_flips_total']} head-order flip(s).",
+            "A median-only report would have shown nothing. Logged as D-3."]
+    else:
+        lines += [
+            "",
+            "No section B row shows a median-to-worst-seed gap above "
+            f"{SEED_SPREAD_ALERT}x.",
+            "Ranges are reported regardless; read them, not the medians."]
+
+    if payload.get("epsilon_sweep_RETIRED_sort_recipe"):
+        lines += [
+            "",
+            "Section R is the retired sort-based recipe and is deliberately",
+            "not re-measured -- SORT_ONLY_RECIPE is unchanged, so its numbers",
+            "remain valid for the recipe they describe."]
+    return lines
+
+
 def format_report(payload) -> str:
     rule = "=" * 78
     thin = "-" * 78
-    lines = ["", rule, "STEP 9 -- CANONICALIZATION ERROR BAR", rule,
-             "PROXY MODEL. See the LIMITATION field in the JSON.", ""]
+    lines = ["", rule] + report_banner(payload) + [rule, ""]
+    lines += [rule, "STEP 9 -- CANONICALIZATION ERROR BAR", rule,
+              "PROXY MODEL. See the LIMITATION field in the JSON.", ""]
 
     lines += [rule, "A. SYMMETRY RESIDUAL -- the ruler against itself", rule,
               "Two models that are secretly identical, in different gauges.", "",
@@ -1052,12 +1424,10 @@ def format_report(payload) -> str:
               "Median ratio, isotropic perturbation, recipe steps removed one",
               "at a time. A pooled ratio says something is wrong; this says what.",
               ""]
-    eps_keys = list(next(iter(attr["variants"].values())).keys())
-    lines.append(f"{'recipe variant':<24}" + "".join(f"{'eps=' + k:>16}"
-                                                     for k in eps_keys))
+    lines.append(_CELL_HEADER)
     for label, cells in attr["variants"].items():
-        lines.append(f"{label:<24}" + "".join(f"{cells[k]:>16.4f}"
-                                              for k in eps_keys))
+        for eps, c in cells.items():
+            lines.append(_cell_row(label, eps, c))
 
     contrib = payload.get("step_contributions")
     if contrib:
@@ -1069,11 +1439,17 @@ def format_report(payload) -> str:
                   "construction, so any deviation there would put the factor in",
                   "the harness rather than the ruler.",
                   "",
-                  f"{'variant':<36}{'n':>4}{'min':>11}{'median':>11}{'max':>11}"]
+                  f"{'variant':<36}{'eps':>9}{'n':>4}{'min':>11}"
+                  f"{'median':>11}{'max':>11}"]
+        # Prints eps for the same reason D and E do: this loop had the key in
+        # hand and dropped it, which is invisible at one epsilon and ambiguous
+        # at two. F has only ever run at one, which is exactly how a latent
+        # defect stays latent.
         for label, cells in contrib["variants"].items():
             for eps, c in cells.items():
-                lines.append(f"{label:<36}{c['n_seeds']:>4}{c['min']:>11.5f}"
-                             f"{c['median']:>11.5f}{c['max']:>11.5f}")
+                lines.append(f"{label:<36}{eps:>9}{c['n_seeds']:>4}"
+                             f"{c['min']:>11.5f}{c['median']:>11.5f}"
+                             f"{c['max']:>11.5f}")
 
     margins = payload["ffn_sort_margins"]
     lines += ["", thin,
@@ -1091,10 +1467,10 @@ def format_report(payload) -> str:
               "perturbed by epsilon. d_raw is the epsilon alone; the",
               "permutation is gauge and a correct ruler should not report it.",
               ""]
-    pk = list(next(iter(perm["variants"].values())).keys())
-    lines.append(f"{'variant':<24}" + "".join(f"{'eps=' + k:>16}" for k in pk))
+    lines.append(_CELL_HEADER)
     for label, cells in perm["variants"].items():
-        lines.append(f"{label:<24}" + "".join(f"{cells[k]:>16.4g}" for k in pk))
+        for eps, c in cells.items():
+            lines.append(_cell_row(label, eps, c))
 
     lines += ["", rule, "OPEN QUESTION -- the distortion factor is a range", rule]
     for chunk in payload["OPEN_QUESTION_distortion_factor"].split(". "):
@@ -1126,7 +1502,15 @@ def _build_parser() -> argparse.ArgumentParser:
               "chunking by seed is how a section gets to ten without a single "
               "run long enough to be killed."))
     parser.add_argument(
-        "--sections", default="ABCDEF",
+        "--render-only", action="store_true",
+        help=("re-render the .md and the DERIVED json fields from the "
+              "measurements already in the .json, measuring nothing. The "
+              "report's formatting and its provenance text are pure functions "
+              "of the payload, so a change to either must not cost a "
+              "re-measurement -- that cost is what tempted hand-editing the "
+              "generated file in the first place."))
+    parser.add_argument(
+        "--sections", default="ABCDEFR",
         help=("which measurements to run, e.g. DE. A subset MERGES into the "
               "existing results file rather than replacing it, so an "
               "expensive section does not have to be recomputed to correct a "
@@ -1135,16 +1519,55 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv=None) -> int:
-    import copy
-    import torch
+def _write_report(payload, reportdir: Path, stem: str, stream) -> int:
+    """Recompute every DERIVED field, then write both files.
 
+    The derived fields are computed here, last, from the assembled payload --
+    so they describe what is actually in the file rather than what the caller
+    believed was going into it. PROVENANCE and the report banner were both
+    hand-maintained until 2026-08-03 and both were one regeneration away from
+    being silently deleted. See S70.
+    """
+    payload["OPEN_QUESTION_distortion_factor"] = (
+        open_question_distortion_factor(payload))
+    payload["seed_coverage"] = seed_coverage(payload)
+    payload["PROVENANCE"] = build_provenance(payload)
+
+    reportdir.mkdir(parents=True, exist_ok=True)
+    (reportdir / f"{stem}.json").write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+    text = format_report(payload)
+    (reportdir / f"{stem}.md").write_text(text + "\n", encoding="utf-8",
+                                          newline="\n")
+    print(text, file=stream)
+    print(f"\nwrote {reportdir / (stem + '.json')}", file=stream)
+    return 0
+
+
+def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
     stream = sys.stdout
     rule = "=" * 78
     print(rule, file=stream)
     print("canonicalization_error -- step 9 phase 5", file=stream)
     print(rule, file=stream)
+
+    stem = REPORT_STEM + ("-tiny" if args.tiny else "")
+    if args.render_only:
+        # Deliberately BEFORE torch is imported: re-rendering measurements that
+        # already exist is not an ML operation and must not require an ML
+        # stack. Same reason burst/ stays importable without torch.
+        source = Path(args.reportdir) / f"{stem}.json"
+        if not source.is_file():
+            print(f"nothing to render: {source} does not exist", file=stream)
+            return 1
+        print(f"render-only: re-rendering {source}, measuring nothing",
+              file=stream)
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        return _write_report(payload, Path(args.reportdir), stem, stream)
+
+    import copy
+    import torch
 
     if args.tiny:
         arch = C.TINY
@@ -1161,10 +1584,9 @@ def main(argv=None) -> int:
         a, b = (int(x) if x else None for x in args.seed_window.split(":"))
         seeds = seeds[a:b]
     want = set(args.sections.upper())
-    stem = REPORT_STEM + ("-tiny" if args.tiny else "")
     existing = {}
     prior = Path(args.reportdir) / f"{stem}.json"
-    if want != set("ABCDEF") and prior.is_file():
+    if want != set("ABCDEFR") and prior.is_file():
         existing = json.loads(prior.read_text(encoding="utf-8"))
         print(f"merging sections {sorted(want)} into {prior}", file=stream)
     residual = sweep = retired_sweep = dispersion = None
@@ -1185,10 +1607,15 @@ def main(argv=None) -> int:
                                       recipe=C.DEFAULT_RECIPE,
                                       prior=existing.get("epsilon_sweep"))
 
-        print(chr(10) + 'B-retired. epsilon sweep  [RETIRED sort recipe]', file=stream)
+    if "R" in want:
+        # Separate letter on purpose: SORT_ONLY_RECIPE has not changed, so its
+        # numbers stay valid and re-measuring them costs ~22 minutes for no new
+        # information. Only run R if that recipe is edited.
+        print(chr(10) + 'R. epsilon sweep  [RETIRED sort recipe]', file=stream)
         retired_sweep = measure_epsilon_sweep(
             build, arch, EPSILONS, ('isotropic',), seeds, stream,
-            recipe=C.SORT_ONLY_RECIPE)
+            recipe=C.SORT_ONLY_RECIPE,
+            prior=existing.get("epsilon_sweep_RETIRED_sort_recipe"))
 
     if "C" in want:
         print("\nC. dispersion sweep", file=stream)
@@ -1197,7 +1624,8 @@ def main(argv=None) -> int:
     if "D" in want:
         print("\nD. step attribution", file=stream)
         attribution = measure_step_attribution(
-            build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
+            build, arch, (1e-6,), seeds, stream,
+            prior=existing.get("step_attribution"))
         sort_margins = measure_sort_margins(build, arch, stream)
 
     if "F" in want:
@@ -1210,12 +1638,12 @@ def main(argv=None) -> int:
     if "E" in want:
         print("\nE. permuted-model recovery", file=stream)
         permuted = measure_permuted_recovery(
-            build, arch, (1e-8, 1e-6, 1e-4), seeds[:3], stream)
+            build, arch, (1e-6,), seeds, stream,
+            prior=existing.get("permuted_model_recovery"))
 
     payload = {
         "task": "step 9 phase 5",
         "LIMITATION": LIMITATION,
-        "OPEN_QUESTION_distortion_factor": OPEN_QUESTION_DISTORTION_FACTOR,
         "model": ("gpt2 124M (public, fully trained) -- A PROXY, see LIMITATION"
                   if not args.tiny else "TINY in-process smoke test"),
         "architecture": {"n_layer": arch.n_layer, "n_head": arch.n_head,
@@ -1244,16 +1672,7 @@ def main(argv=None) -> int:
         "sections_refreshed_this_run": sorted(want),
     }
 
-    reportdir = Path(args.reportdir)
-    reportdir.mkdir(parents=True, exist_ok=True)
-    (reportdir / f"{stem}.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-    text = format_report(payload)
-    (reportdir / f"{stem}.md").write_text(text + "\n", encoding="utf-8",
-                                          newline="\n")
-    print(text, file=stream)
-    print(f"\nwrote {reportdir / (stem + '.json')}", file=stream)
-    return 0
+    return _write_report(payload, Path(args.reportdir), stem, stream)
 
 
 if __name__ == "__main__":

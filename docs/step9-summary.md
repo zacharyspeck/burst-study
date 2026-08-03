@@ -149,6 +149,38 @@ algorithm, resolves near-ties by everything else about the neuron. It scores
 identically to having no permutation step when none is needed, and recovers a
 genuine permutation that dropping the step would miss by 6.9e+07.
 
+## How much of the measurement space is actually covered
+
+**Two limitations, and they are mirror images. Read them together — neither
+substitutes for the other, and each is the other's blind spot.**
+
+**1. Ten seeds is the floor, because low-seed numbers kept being overturned.**
+Every seed-bearing section (A, B, D, E, F) is measured at ten seeds. This is
+not caution for its own sake: the FFN sort's failure was seed-dependent, and
+three separate results in this build were reversed when the seed count widened.
+The most recent is the sharpest — at `eps=1e-3` the shipped ruler's median is
+`1.0004`, indistinguishable from perfect, and one seed in ten reads `83.99`. A
+median-only report would have shown a flawless ruler. That is D-3.
+
+**2. D and E are measured at a single epsilon, and that is coverage traded for
+seeds.** They previously swept `1e-8, 1e-6, 1e-4` at three seeds; they now
+sweep `1e-6` at ten. Ten seeds at three epsilons does not fit the ~600s
+task-duration cap, so epsilon breadth was spent to buy seed breadth. (Section F
+has always run at one epsilon and did not pay this trade. Section B still
+sweeps all seven decades.)
+
+**Why the second limitation is exactly as serious as the first.** Section B
+shows the ruler holding flat across six decades and then stepping off a cliff
+at the seventh. A section measured at one epsilon **cannot see that cliff** —
+it can only report that the ruler behaves at the one point it was asked about.
+A wide-seed, one-epsilon result and a one-seed, wide-epsilon result are both
+partial, in opposite directions. D and E are currently the first kind.
+
+Both limits are stated in the generated banner of
+`docs/measurements/9-canonicalization-error.md` and in that file's
+`PROVENANCE` key, both of which are derived from the data rather than
+maintained by hand.
+
 ## Open questions — read these before trusting a number
 
 **1. The distortion factor is a range, not a number.** Even with the FFN sort
@@ -224,6 +256,8 @@ tests/test_canonicalize.py                 tripwire, layout, equivalence, orderi
 tests/test_canonicalize_recipe.py          round trip, composition, recipe order
 tests/test_canonicalize_mutations.py       six injected faults
 tests/test_canonicalize_diagnostics.py     the S55 guard
+tests/test_measurement_report.py           the S70 guard: report states its own coverage
 docs/measurements/9-canonicalization-error.{json,md}
-docs/decisions-pending.md                  D-1, open
+docs/decisions-pending.md                  D-1 ruled, D-2 ruled, D-3 open
+docs/layout-cost.md                        input to the layout ruling (open question 3)
 ```

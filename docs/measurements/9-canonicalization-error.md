@@ -1,19 +1,43 @@
-==============================================================================
-PARTIALLY REGENERATED -- SECTIONS A AND F ARE CURRENT, B/C/D/E ARE NOT
-==============================================================================
-Shipped recipe is FOUR steps: zero key-bias gauge, zero value-bias
-gauge, sort heads, align FFN neurons.
 
-A and F were re-measured against it at ten seeds. B, C, D and E were
-measured with the six-step recipe and describe a ruler no longer
-shipped. A ~600s task-duration cap killed every regeneration attempt;
-one cell costs 4.8s and those sections need 11-26 minutes each.
+==============================================================================
+ALL SECTIONS MEASURED AGAINST THE SHIPPED RECIPE
 
-In section A, head_internal_transform (0.9997), layernorm_gain_rescale
-(1.754) and residual_permutation (0.9825) are symmetries the recipe
-DELIBERATELY does not quotient. A large residual there is the recorded
-cost of D-1 and D-2, not a failure. The composed row, 5.4e-17, covers
-only what the recipe does remove.
+Shipped recipe: zero_key_bias_gauge, zero_value_bias_gauge, sort_heads, align_ffn_neurons.
+
+Seed coverage, read from the cells and not from the top-level
+'seeds' key (which is only the last chunk's window):
+  A=10   B=10   D=10   E=10   F=10   R=10   (C is a sweep over t, no seed dimension)
+
+TWO LIMITATIONS, AND THEY ARE MIRROR IMAGES. Read them together.
+
+  1. TEN SEEDS IS THE FLOOR because low-seed numbers in this
+     build kept being overturned when the seed count widened.
+  2. D, E, F run at a SINGLE EPSILON (eps=1e-06).
+     D, E previously swept 1e-08, 1e-06, 0.0001 at three seeds.
+     Ten seeds did not fit the ~600s task cap at three
+     epsilons, so epsilon breadth was spent to buy seed
+     breadth.
+     Section B shows the ruler holding flat across the low
+     decades and then stepping off a cliff at eps=0.001
+     -- a section at a single epsilon CANNOT SEE THAT CLIFF.
+
+  Neither limit substitutes for the other. A wide-seed,
+  one-epsilon result and a one-seed, wide-epsilon result are
+  both partial, in opposite directions.
+
+READ THE RANGE, NOT THE MEDIAN. At eps=0.001 section B's median is
+1.0004 and its worst of 10 seeds is 83.99, with 1 head-order flip(s).
+A median-only report would have shown nothing. Logged as D-3.
+
+Section R is the retired sort-based recipe and is deliberately
+not re-measured -- SORT_ONLY_RECIPE is unchanged, so its numbers
+remain valid for the recipe they describe.
+==============================================================================
+
+==============================================================================
+STEP 9 -- CANONICALIZATION ERROR BAR
+==============================================================================
+PROXY MODEL. See the LIMITATION field in the JSON.
 
 ==============================================================================
 A. SYMMETRY RESIDUAL -- the ruler against itself
@@ -36,23 +60,23 @@ B. EPSILON SWEEP -- does canonicalizing INFLATE a real difference?
 ratio = ||canon(M) - canon(M+eps)|| / ||M - (M+eps)||.
 1.0 means neutral. Above means inflation. Below means collapse.
 
-head condition number over 144 heads: min 2.62, median 5.51, max 1.1e+03
+head condition number over 144 heads: min 2.87, median 6.11, max 806
 
 shape         epsilon  ratio med  ratio max  worst-cond  med-cond   flips h/f/s
-isotropic       1e-08     3.2629     3.4868      4.7156    5.6440    0/0/0
-isotropic       1e-07     3.2629     3.4868      4.7156    5.6440    0/0/0
-isotropic       1e-06  1929.2841  2450.5376      4.9317    5.6441    0/0/0
-isotropic       1e-05   278.4886   475.6342    651.0262    5.7533    0/0/0
-isotropic       1e-04    91.2910   125.0040    204.4178  280.2209    0/0/47
-isotropic       1e-03    36.7707    43.5507     52.3092   86.8081    4/0/882
-isotropic       1e-02    11.3600    11.9627     17.2862   23.7842   11/0/6801
-per_tensor      1e-08     4.1409     4.7206      5.3320    7.3509    0/0/0
-per_tensor      1e-07     4.1410     4.7205      5.3321    7.3509    0/0/0
-per_tensor      1e-06  1929.2853  3118.8574      6.5183    7.3508    0/0/0
-per_tensor      1e-05   324.1982   475.6395    580.4860    7.4686    0/0/1
-per_tensor      1e-04   109.5156   153.8735    193.8587  328.6574    0/0/74
-per_tensor      1e-03    47.2007    56.2472     52.9160  107.7024    7/0/1369
-per_tensor      1e-02    12.9935    13.5646     17.0926   28.6261   12/0/9428
+isotropic       1e-08     1.0004     1.0005      0.9999    0.9996    0/0/0
+isotropic       1e-07     1.0004     1.0005      0.9999    0.9996    0/0/0
+isotropic       1e-06     1.0004     1.0005      0.9999    0.9996    0/0/0
+isotropic       1e-05     1.0004     1.0005      0.9999    0.9996    0/0/0
+isotropic       1e-04     1.0004     1.0005      0.9999    0.9996    0/0/0
+isotropic       1e-03     1.0004    83.9891      0.9999    0.9996    1/0/66
+isotropic       1e-02     8.4576    10.9129      0.9999    0.9996    3/0/196
+per_tensor      1e-08     1.0005     1.0006      0.9997    0.9994    0/0/0
+per_tensor      1e-07     1.0005     1.0006      0.9997    0.9994    0/0/0
+per_tensor      1e-06     1.0005     1.0006      0.9997    0.9994    0/0/0
+per_tensor      1e-05     1.0005     1.0006      0.9997    0.9994    0/0/0
+per_tensor      1e-04     1.0005     1.0006      0.9997    0.9994    0/0/0
+per_tensor      1e-03     1.0005    83.9891      0.9997    0.9994    1/0/66
+per_tensor      1e-02     8.4576    10.9129      0.9997    0.9994    3/0/196
 
 ------------------------------------------------------------------------------
 the RETIRED sort-based recipe, same sweep, for comparison
@@ -115,13 +139,14 @@ D. ATTRIBUTION -- which step inflates, and does matching fix it
 Median ratio, isotropic perturbation, recipe steps removed one
 at a time. A pooled ratio says something is wrong; this says what.
 
-recipe variant                 eps=1e-08       eps=1e-06      eps=0.0001
-shipped_recipe                    3.0501          3.0911         84.3839
-without_ffn_permutation           3.0501          3.0911         84.3839
-without_head_sort                 3.0501          3.0911         84.3839
-without_head_internal             0.9093          0.9093          0.9117
-RETIRED_sort_recipe          808844.6538      23016.9582       2447.8120
-hungarian_alignment               3.0501          3.0911         84.3839
+recipe variant                  eps   n           min        median           max
+shipped_recipe                1e-06  10        1.0004        1.0004        1.0005
+without_ffn_permutation       1e-06  10        1.0004        1.0004        1.0005
+without_head_sort             1e-06  10        1.0004        1.0004        1.0005
+RETIRED_gain_absorption       1e-06  10       0.84828         0.922        1.7107
+RETIRED_head_internal         1e-06  10        2.8295        1929.3        2450.5
+RETIRED_sort_recipe           1e-06  10         19842         23562         26696
+hungarian_alignment           1e-06  10        1.0004        1.0004        1.0005
 
 ==============================================================================
 F. STEP CONTRIBUTIONS -- where the systematic factor comes from
@@ -131,13 +156,13 @@ return exactly 1.0: with no steps the ratio is 1 by
 construction, so any deviation there would put the factor in
 the harness rather than the ruler.
 
-variant                                n        min     median        max
-shipped_recipe                        10    1.00039    1.00041    1.00046
-EMPTY_control                         10    1.00000    1.00000    1.00000
-without_zero_key_bias_gauge           10    1.00043    1.00045    1.00049
-without_zero_value_bias_gauge         10    0.99996    0.99996    0.99996
-without_sort_heads                    10    1.00039    1.00041    1.00046
-without_align_ffn_neurons             10    1.00039    1.00041    1.00046
+variant                                   eps   n        min     median        max
+shipped_recipe                          1e-06  10    1.00039    1.00041    1.00046
+EMPTY_control                           1e-06  10    1.00000    1.00000    1.00000
+without_zero_key_bias_gauge             1e-06  10    1.00043    1.00045    1.00049
+without_zero_value_bias_gauge           1e-06  10    0.99996    0.99996    0.99996
+without_sort_heads                      1e-06  10    1.00039    1.00041    1.00046
+without_align_ffn_neurons               1e-06  10    1.00039    1.00041    1.00046
 
 ------------------------------------------------------------------------------
 FFN sort: the margin that DECIDES each adjacent comparison
@@ -157,22 +182,23 @@ Models that GENUINELY differ by an FFN neuron permutation, then
 perturbed by epsilon. d_raw is the epsilon alone; the
 permutation is gauge and a correct ruler should not report it.
 
-variant                        eps=1e-08       eps=1e-06      eps=0.0001
-no_permutation_step            6.895e+07       6.895e+05            6896
-hungarian_alignment                 3.05           3.091           84.38
-ffn_sort_RETIRED                    3.05       2.215e+04            2447
-shipped_recipe                      3.05           3.091           84.38
+recipe variant                  eps   n           min        median           max
+no_permutation_step           1e-06  10    8.9711e+05    8.9725e+05    8.9746e+05
+hungarian_alignment           1e-06  10        1.0004        1.0004        1.0005
+ffn_sort_RETIRED              1e-06  10         22110         24421         29276
+shipped_recipe                1e-06  10        1.0004        1.0004        1.0005
 
 ==============================================================================
 OPEN QUESTION -- the distortion factor is a range
 ==============================================================================
   THE RULER'S DISTORTION FACTOR IS NOT A NUMBER, IT IS A RANGE, AND WHICH END APPLIES CANNOT BE KNOWN YET.
-  Even with the FFN sort removed -- the step measurement D attributes essentially all of the inflation to -- this canonicalization is not distance-neutral.
-  It scores 3.05 at eps=1e-8 and eps=1e-6, and 84.4 at eps=1e-4.
-  So it roughly TRIPLES a small difference at the low end and inflates by more than eightyfold three decades up.
-  3.05 is not 1, and 84.4 is not 3.05.
-  Which of them is operative depends on how far a burst arm actually sits from its seed-matched twin after training, expressed as a fraction of the parameter norm -- and that quantity does not exist until models are trained.
-  A ruler whose distortion factor ranges over more than an order of magnitude depending on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here as an open question rather than as a footnote.
+  With the FFN sort and the head-internal step both retired, at eps=1e-08 the shipped recipe reads 1.0004 median with a per-seed spread of [1.0004, 1.0005], and it holds that through eps=0.0001.
+  IT DOES NOT HOLD EVERYWHERE.
+  At eps=0.001 the median is still 1.0004 while the worst of 10 seeds reads 83.99 -- a factor of 83.95 between the median and the worst seed, with 1 head-order flip(s) recorded in that row.
+  Logged as D-3.
+  So the range is not a smooth curve that can be read off at whatever epsilon turns out to be real; it is near-neutral behaviour with a cliff in it, and THE CLIFF IS INVISIBLE IN THE MEDIAN.
+  Which regime is operative depends on how far a burst arm actually sits from its seed-matched twin after training, expressed as a fraction of the parameter norm -- and that quantity does not exist until models are trained.
+  A ruler whose distortion depends on an unmeasured quantity is a WEAKNESS OF THE STUDY and is recorded here as an open question rather than as a footnote.
   Resolving it requires measuring the twin-vs-twin distance on real checkpoints and reading the curve in this file at that epsilon..
 
 ==============================================================================
