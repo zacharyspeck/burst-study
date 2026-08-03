@@ -505,6 +505,15 @@ class InjectionConfig:
     injection_step: int | None
     burst_length_tokens: int | None
     burst_text_paths: BurstTextPaths
+    #: Token offset where the burst starts inside the sequence, or None while
+    #: undecided.
+    #:
+    #: No default, for the same reason micro_batch and dtype have none: it is a
+    #: study-defining quantity, not a knob. Every arm-matching number in step 8
+    #: was measured at one position, so injecting at another would mean the
+    #: arms were matched somewhere the study does not use -- and nothing would
+    #: crash. It lived as a duplicated constant in three scripts before this.
+    burst_position: int | None = None
 
 
 @dataclass(frozen=True)
@@ -903,6 +912,8 @@ def _build_config(merged: dict, source: str | Path) -> Config:
                                      source, allow_null=True),
             # Built from ARMS rather than from a hardcoded list, so adding or
             # cutting an arm cannot leave this behind.
+            burst_position=_int(merged, "injection", "burst_position", source,
+                                allow_null=True),
             burst_text_paths=BurstTextPaths(paths={
                 arm: _str(merged, _BURST_TEXTS, arm, source, allow_null=True)
                 for arm in INJECTING_ARMS
@@ -1078,6 +1089,32 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             "positive."
         )
 
+    # The burst has to FIT, with a token before it to be predicted from.
+    #
+    # Position 0 is rejected for the reason burst_match.assemble_sequence
+    # rejects it: the token at index 0 has nothing preceding it, so the burst
+    # region would carry burst_length - 1 predictions and the burst-region loss
+    # would quietly be an average over a different set of tokens than the one
+    # step 8 measured. Checked here as well as there so a bad pairing fails at
+    # load rather than at step 200 of a multi-day run.
+    position = cfg.injection.burst_position
+    if position is not None:
+        if burst is None:
+            raise ConfigError(
+                f"{source}: injection.burst_position is set ({position}) but "
+                "injection.burst_length_tokens is null, so there is no way to "
+                "tell whether the burst fits.")
+        highest = cfg.training.seq_len - burst
+        if not 1 <= position <= highest:
+            raise ConfigError(
+                f"{source}: injection.burst_position ({position}) must be "
+                f"between 1 and {highest} inclusive, so that a "
+                f"{burst}-token burst fits inside a "
+                f"{cfg.training.seq_len}-token sequence with a token before it "
+                "to be predicted from. Position 0 would give the burst region "
+                f"{burst - 1} predictions instead of {burst}."
+            )
+
     _validate_checkpoint_intervals(cfg, source)
     _validate_burst_text_paths(cfg, source)
 
@@ -1215,6 +1252,8 @@ def _missing_for_launch(cfg: Config) -> list[str]:
             missing.append("injection.injection_step")
         if cfg.injection.burst_length_tokens is None:
             missing.append("injection.burst_length_tokens")
+        if cfg.injection.burst_position is None:
+            missing.append("injection.burst_position")
         # Only this arm's text matters. A coherent run does not care whether
         # the noise text has been written yet.
         if cfg.injection.burst_text_paths.for_arm(cfg.arm) is None:

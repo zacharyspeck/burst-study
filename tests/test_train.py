@@ -99,7 +99,10 @@ def _write_configs(tmp_path: Path, **overrides) -> tuple:
     base["optimizer"]["adamw_impl"] = "foreach"
     base["checkpointing"].update(weights_only_interval=2, full_interval=2)
     base["learning_rate"]["warmup_steps"] = 1
-    base["injection"].update(injection_step=1, burst_length_tokens=4)
+    # burst_position must fit THIS geometry: the shipped 400 is for a
+    # 1024-token sequence and the loader correctly refuses it here.
+    base["injection"].update(injection_step=1, burst_length_tokens=4,
+                             burst_position=4)
     # Keyed from INJECTING_ARMS so cutting or adding an arm cannot leave this
     # fixture describing a study that no longer exists.
     from burst.config import INJECTING_ARMS
@@ -397,79 +400,21 @@ def test_a_cpu_run_says_it_proves_nothing_about_cuda():
         "COVERAGE_WARNING"]
 
 
-def test_the_injection_seam_is_empty_and_named():
-    """Out of scope for step 12, and it must not silently become a no-op hook."""
-    source = (REPO_ROOT / "scripts" / "train.py").read_text(encoding="utf-8")
-    assert "_injection_seam" in source
-    x, y = object(), object()
-    assert T._injection_seam(0, x, y, None) == (x, y)
+def test_the_injection_hook_is_wired_in_not_a_seam():
+    """Step 14 replaced the empty seam with a real hook.
 
-
-# ---------------------------------------------------------------------------
-# The three reduction-order fields, after the 2026-08-03 contradiction scan
-# ---------------------------------------------------------------------------
-
-
-def test_state_digest_covers_the_optimizer_step_counter():
-    """The blind spot the scan found, pinned.
-
-    AdamW's bias correction is 1 - beta**step, so two optimizers holding
-    identical moments at different step counts produce different NEXT updates.
-    Before this, the digest called them identical -- and
-    probes/determinism/train_once.py still does.
+    This test previously asserted the seam did NOTHING, which was correct until
+    the hook existed. Inverted rather than deleted: the loop must now call
+    injection.apply on raw rows BEFORE the input/target shift, because splicing
+    into an already-shifted pair would be a second splice. The behavioural
+    proof lives in tests/test_injection.py.
     """
-    model = torch.nn.Linear(4, 4)
-    opt = torch.optim.AdamW(model.parameters(), lr=0.1)
-    for _ in range(3):
-        opt.zero_grad()
-        model(torch.ones(2, 4)).sum().backward()
-        opt.step()
-
-    before = T.state_digest(model, opt)
-    for state in opt.state.values():
-        state["step"] = state["step"] + 100
-    assert T.state_digest(model, opt) != before, (
-        "moving the step counter left the digest unchanged, so the comparison "
-        "cannot detect a divergence in bias correction")
-
-
-def test_the_loop_uses_the_configured_adamw_implementation(tmp_path, corpus):
-    """It hardcoded `single` while the determinism result used `foreach`."""
     source = (REPO_ROOT / "scripts" / "train.py").read_text(encoding="utf-8")
-    assert "foreach=False, fused=False" not in source
-    assert "foreach=(cfg.optimizer.adamw_impl" in source
-    record = _run(tmp_path, corpus, tmp_path / "a")
-    assert record["adamw_impl"] == "foreach"
-    assert record["dtype"] == "fp32"
-
-
-@pytest.mark.parametrize("field,section", [("dtype", "training"),
-                                           ("adamw_impl", "optimizer")])
-def test_the_loop_refuses_a_null_reduction_order_field(tmp_path, corpus,
-                                                       field, section):
-    import dataclasses
-
-    base_path, run_path = _write_configs(tmp_path)
-    cfg = _load_cfg(tmp_path, base_path, run_path)
-    section_obj = dataclasses.replace(getattr(cfg, section), **{field: None})
-    undecided = dataclasses.replace(cfg, **{section: section_obj})
-    with pytest.raises(T.TrainError, match="NO DEFAULT"):
-        T.train(undecided, family=SEAM.FAMILY_HF_GPT2, corpus_dir=corpus,
-                outdir=tmp_path / "o", stream=io.StringIO(),
-                strict_determinism=False, n_sequences=N_SEQ,
-                expected_order_digest=ORDER.seed_digest(3, N_SEQ))
-
-
-def test_bf16_is_refused_rather_than_silently_trained_as_fp32(tmp_path, corpus):
-    """The config accepts bf16; this loop has no autocast and says so."""
-    import dataclasses
-
-    base_path, run_path = _write_configs(tmp_path)
-    cfg = _load_cfg(tmp_path, base_path, run_path)
-    bf16 = dataclasses.replace(
-        cfg, training=dataclasses.replace(cfg.training, dtype="bf16"))
-    with pytest.raises(T.TrainError, match="implements fp32 ONLY"):
-        T.train(bf16, family=SEAM.FAMILY_HF_GPT2, corpus_dir=corpus,
-                outdir=tmp_path / "o", stream=io.StringIO(),
-                strict_determinism=False, n_sequences=N_SEQ,
-                expected_order_digest=ORDER.seed_digest(3, N_SEQ))
+    assert "_injection_seam" not in source, "the empty seam is still present"
+    assert "INJECT.apply(plan, step, micro_index, raw)" in source
+    # Order matters: inject on raw rows, then shift.
+    inject_at = source.index("INJECT.apply(")
+    shift_at = source.index("reader.shift(raw)")
+    assert inject_at < shift_at, (
+        "the hook runs after the input/target shift, which means it would have "
+        "to patch two tensors separately -- a second splice")

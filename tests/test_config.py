@@ -109,8 +109,18 @@ def test_override_may_not_change_shared_values(tmp_path):
 
 
 def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
-    """coherent/noise/ordinary need injection_step and burst_length_tokens."""
-    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
+    """Every injecting arm needs the injection fields.
+
+    They are DECIDED in the shipped config now, so this nulls them explicitly:
+    the rule under test is that an injecting arm cannot launch without them,
+    not that they happen to be unset.
+    """
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      injection__injection_step=None,
+                      injection__burst_length_tokens=None,
+                      injection__burst_position=None,
+                      injection__burst_text_paths=_paths())
     run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
@@ -123,7 +133,12 @@ def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
 
 @pytest.mark.parametrize("arm", ["fluent-false", "scrambled-false", "pos-substituted"])
 def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
-    base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
+    base = write_base(tmp_path, checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      injection__injection_step=None,
+                      injection__burst_length_tokens=None,
+                      injection__burst_position=None,
+                      injection__burst_text_paths=_paths())
     run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
@@ -149,8 +164,10 @@ def test_null_injection_fields_are_fine_for_twin(tmp_path):
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.arm == "twin"
-    assert cfg.injection.injection_step is None
-    assert cfg.injection.burst_length_tokens is None
+    # Decided in the shared base config, so twin SEES them and ignores them.
+    # It has no burst text of its own, which is the part that matters.
+    assert cfg.injection.injection_step == 200
+    assert cfg.injection.burst_length_tokens == 194
     assert cfg.injection.burst_text_paths.for_arm("twin") is None
     assert cfg.missing_for_launch == ()
 
@@ -532,6 +549,9 @@ def test_checkpoint_plan_edge_cases(tmp_path, total, wo, full, exp_wo, exp_full)
         checkpointing__weights_only_interval=wo,
         checkpointing__full_interval=full,
         learning_rate__warmup_steps=min(200, total - 1),
+        # injection_step is 200 in the shipped config and the loader
+        # range-checks it against total_steps, which this sweep shortens.
+        injection__injection_step=min(200, total - 1),
     )
     plan = cfg.checkpoint_plan
     assert (plan.weights_only_count, plan.full_count) == (exp_wo, exp_full)
@@ -696,10 +716,23 @@ def test_a_twin_burst_text_entry_is_rejected(tmp_path):
         load(tmp_path, base, run)
 
 
-def test_burst_text_paths_start_null_in_the_real_base_config():
+def test_burst_text_paths_are_decided_and_point_at_committed_texts():
+    """Decided 2026-08-03. One entry per injecting arm, all under bursts/.
+
+    Replaces a test asserting they start null, which stopped describing the
+    repo the moment they were decided. What matters now is that every injecting
+    arm has a path, that each path is repo-relative and exists, and that NO
+    entry names scrambled-corpus -- it has a committed text and committed
+    measurements and is not a run condition.
+    """
     paths = base_dict()["injection"]["burst_text_paths"]
     assert set(paths) == set(INJECTING_ARMS)
-    assert all(value is None for value in paths.values())
+    assert "scrambled-corpus" not in paths
+    for arm, value in paths.items():
+        assert value is not None, f"{arm} has no burst text path"
+        assert value.startswith("bursts/"), value
+        assert not Path(value).is_absolute()
+        assert (REPO_ROOT / value).is_file(), f"{value} does not exist"
 
 
 # ---------------------------------------------------------------------------
@@ -845,7 +878,12 @@ def test_provenance_files_are_written(tmp_path):
     assert meta["run_name"] == cfg.run_name == "seed03_fluent-false"
     assert "git" in meta and "dirty" in meta["git"] and "commit" in meta["git"]
     assert meta["launch_ready"] is False
-    assert "injection.injection_step" in meta["missing_for_launch"]
+    # The injection fields are decided now, so what is still missing is the
+    # reduction-order set. Asserting the LIST is non-empty and names a real
+    # field keeps this test about provenance rather than about which fields
+    # happen to be undecided this week.
+    assert meta["missing_for_launch"]
+    assert "training.micro_batch" in meta["missing_for_launch"]
 
 
 def test_reloading_the_same_run_into_the_same_outdir_is_allowed(tmp_path):

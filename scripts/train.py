@@ -23,10 +23,11 @@ batch rather than of a micro-batch. Clipping inside the accumulation loop would
 clip each micro-gradient separately, which is a different algorithm with the
 same config value -- and it would look fine.
 
-WHAT IS DELIBERATELY NOT HERE
+THE INJECTION HOOK IS NOW WIRED IN
 
-The injection hook. It is its own step and needs its own test proving the burst
-actually landed. `_injection_seam` marks where it goes and does nothing.
+`scripts/injection.py` builds a plan at startup (None for twin) and replaces one
+raw 1024-token row inside the accumulation loop, before the input/target shift.
+It consumes no sampler index and draws no randomness. See S81.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ for path in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
 
 import corpus_spec as SPEC          # noqa: E402
 import data_order as ORDER          # noqa: E402
+import injection as INJECT          # noqa: E402
 import model_seam as SEAM           # noqa: E402
 import rng_state as RNG             # noqa: E402
 from burst.config import load_config  # noqa: E402
@@ -195,6 +197,31 @@ class ShardReader:
         start = offset * self.seq_len
         return self._maps[shard][start:start + self.seq_len]
 
+    def rows(self, indices):
+        """The RAW (n, seq_len) token block, before any shift.
+
+        Split out from batch() so the injection hook can replace a whole
+        1024-token sequence. Splicing into an already-shifted (inputs, targets)
+        pair would mean patching two tensors separately -- a second splice by
+        another name, and the one thing step 14 must not do.
+        """
+        torch = _torch()
+        import numpy as np
+
+        stacked = np.stack([np.asarray(self.sequence(i), dtype=np.int64)
+                            for i in indices])
+        return torch.from_numpy(stacked)
+
+    @staticmethod
+    def shift(rows):
+        """(inputs, targets) from raw rows. Targets are inputs shifted by one.
+
+        Both come from the SAME sequence: a target drawn from the next sequence
+        would silently train across a document boundary the corpus builder was
+        careful to mark.
+        """
+        return rows[:, :-1].contiguous(), rows[:, 1:].contiguous()
+
     def batch(self, indices):
         """(inputs, targets) for a list of sequence indices.
 
@@ -206,10 +233,7 @@ class ShardReader:
         torch = _torch()
         import numpy as np
 
-        rows = np.stack([np.asarray(self.sequence(i), dtype=np.int64)
-                         for i in indices])
-        tokens = torch.from_numpy(rows)
-        return tokens[:, :-1].contiguous(), tokens[:, 1:].contiguous()
+        return self.shift(self.rows(indices))
 
 
 # ---------------------------------------------------------------------------
@@ -310,25 +334,6 @@ def load_checkpoint(path: Path, model, optimizer) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The seam that is deliberately empty
-# ---------------------------------------------------------------------------
-
-
-def _injection_seam(step, inputs, targets, cfg):
-    """WHERE THE BURST GOES. Deliberately does nothing.
-
-    The injection hook is its own step and needs its own test proving the burst
-    actually landed in the batch the model saw -- a hook that silently no-ops
-    would leave every arm identical to twin and every comparison null, which
-    reads exactly like a negative result.
-
-    It belongs here, at the batch boundary, after the batch is assembled and
-    before the forward. Returning the batch unchanged is the whole body.
-    """
-    return inputs, targets
-
-
-# ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
 
@@ -425,6 +430,13 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
     permutation = ORDER.sequence_permutation(cfg.seed, n_sequences)
     SPEC.assert_heldout_disjoint_from_training(n_sequences)
 
+    # Built at STARTUP, not at the injection step: a bad burst text or an
+    # out-of-range position must fail before a GPU is allocated, not eight
+    # hours into a run. Returns None for twin, which is how the twin arm is
+    # prevented from injecting rather than by a check at step time.
+    plan = INJECT.build_plan(cfg)
+    injection_fired = None
+
     model = SEAM.build_model(cfg, family).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg.learning_rate.peak,
@@ -460,8 +472,16 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         for micro_index in range(accum):
             flat = step * cfg.training.batch_size + micro_index * micro
             indices = permutation[flat:flat + micro]
-            inputs, targets = reader.batch(indices)
-            inputs, targets = _injection_seam(step, inputs, targets, cfg)
+            # Raw rows -> inject -> shift. The hook replaces one whole
+            # 1024-token sequence of the block the sampler already produced; it
+            # consumes no extra index and draws no randomness.
+            raw = reader.rows(indices)
+            raw, fired = INJECT.apply(plan, step, micro_index, raw)
+            if fired:
+                injection_fired = dict(plan.record())
+                injection_fired["burst_region"] = INJECT.burst_region_losses(
+                    model, plan, device=device)
+            inputs, targets = reader.shift(raw)
             inputs = inputs.to(device)
             targets = targets.to(device)
 
@@ -513,6 +533,8 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         "determinism": determinism,
         "rng_sources": RNG.sources_captured(RNG.capture()),
         "permutation_digest": expected_digest,
+        "injection_plan": plan.record() if plan else None,
+        "injection_fired": injection_fired,
         "resume": resume_record,
         "grad_norms": grad_norms,
         "checkpoints": checkpoints,

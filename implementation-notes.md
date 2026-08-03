@@ -2644,6 +2644,150 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S81. The injection hook, and nine config values decided
+
+`scripts/injection.py`. At step 200 one of the 256 sequences in the batch is
+replaced by a sequence carrying the burst. That substitution is the entire
+independent variable of the study.
+
+#### The splice is not reimplemented
+
+`burst_match.assemble_sequence` does it, and this module calls it. That function
+produced every loss-matching number in step 8, so a second splice here would
+mean the burst the model trains on is not the burst the arms were matched on.
+Verified importable and working in the torch-free environment before anything
+was built — it is pure integer-list work with no torch dependency, so there was
+no blocker and no reason to write another.
+
+`test_the_hook_uses_assemble_sequence_and_does_not_splice_itself` asserts the
+import and the call, and asserts the shape of a hand-rolled splice is absent.
+
+#### Position 400, and it is now in the config
+
+The injected sequence is
+`filler[:400] + burst[194] + filler[400:830]`, where `filler` is the first 830
+tokens of `bursts/context.txt` — exactly `match_arms.py:172`'s
+`context_ids[:seq_len - n_burst]`.
+
+**400 is what step 8 measured**, confirmed against
+`8b-i-in-context-match.json`: `burst_position: 400`, `filler_tokens: 830`, and
+`position: 400` on every one of the seven arms measured. It lived as
+`POSITION = 400` in three scripts and would have become a fourth copy in the
+hook — the S67 shape exactly — so it is now `injection.burst_position`, null in
+the config until decided, launch-blocking, and range-checked against
+`seq_len - burst_length_tokens`.
+
+`test_the_configured_position_is_what_step_8_measured` ties the config value to
+the measurement file, so drift breaks the suite rather than the study.
+
+#### Step 200, anchored so an off-by-one is visible
+
+Steps are 0-indexed and `injection_step` is compared by direct equality. The
+anchor: a weights-only checkpoint lands at step 199 because
+`(199 + 1) % 50 == 0`, and checkpoints are written **after** the optimizer step,
+so the step-199 file holds the state after steps 0..199 and before this
+injection. That is what makes "identical through 199, different from 200" a
+checkable claim rather than a described one. Verified against the shipped
+config: 198 → None, 199 → weights_only, 200 → None.
+
+#### The reader had to split, and the refactor is proven inert
+
+The old seam sat **after** the input/target shift, where a 1024-token sequence
+cannot be inserted without patching `inputs` and `targets` separately — a second
+splice by another name. `ShardReader` now exposes `rows()` and `shift()`, the
+hook replaces a whole raw row between them, and
+`test_rows_then_shift_equals_the_old_batch` asserts the split changes nothing on
+a non-injecting step.
+
+#### The four silent breakages
+
+**Consumes no index.** The hook overwrites a row of the block the sampler
+already produced. A test asserts the batch shape is unchanged and exactly one
+row differs.
+
+**Draws no randomness.** The slot is
+`derived_seed(run_seed, "injection_slot") % batch_size` — the same SHA-256
+mechanism as data order. A test walks the module's AST for any call named
+`random`, `randn`, `shuffle`, `choice`, `manual_seed` or `sample`, and a
+subprocess test under a different `PYTHONHASHSEED` proves the slot is stable
+across processes. Deriving from the seed rather than fixing slot 0 means no
+systematic first-micro-batch effect can be mistaken for a burst effect.
+
+**Twin never injects; every injecting arm does.** `build_plan` returns None for
+twin, and both directions are parametrised over `INJECTING_ARMS`. A hook that
+silently no-ops would leave every arm identical to twin, **which reads exactly
+like a negative result.**
+
+**The wrong text is refused, not warned.** File sha256 against
+`bursts/provenance.json`, token count against `burst_length_tokens`.
+
+#### A correction to what was asked for, and what replaced it
+
+The instruction was to assert the loaded token IDs hash to what provenance
+records. **Provenance records `sha256_file` — a hash of file BYTES — and carries
+no token-ID hash for any arm**, so that check could not be done as specified.
+
+What is done instead is equally strong: the file hash is asserted against
+provenance, the token count against the config, and the tokenizer is pinned by
+the step 11 probe mechanism. A pinned file plus a pinned tokenizer pins the
+token IDs. The token-ID hash is **computed and recorded** in the run record, so
+it becomes checkable from the next run onward rather than looked up from
+something that does not exist.
+
+#### scrambled-corpus cannot reach the hook
+
+`bursts/provenance.json` holds **seven** arms; the study has six. Confirmed
+before building: the loader refuses `arm: scrambled-corpus` outright, and
+`burst_text_paths` has no key for it. The hook looks up **by arm name** and
+never iterates `bursts/` or provenance — a test asserts the entry still exists
+in provenance (so the cut was a descoping, not a deletion) and is absent from
+the config.
+
+#### The test that matters
+
+Same seed, two arms, trained past the injection step. **Bit-identical through
+the step before injection, different after** — by the same
+SHA-256-over-raw-tensor-bytes method. One assertion covering three claims: the
+burst landed, it landed at the right step, and it reached the gradient.
+
+Beside it, reachability under accumulation: the exact 194 token IDs must appear
+contiguously at position 400 in the tensor whose `backward()` actually runs,
+captured by wrapping the real `compute_loss` rather than re-deriving which
+micro-batch ought to hold it. A burst spliced into a sequence that never reaches
+`backward` is invisible to every other check.
+
+**The tests use the real burst texts, the real tokenizer, and the real
+position** — only the model and run length are shrunk. The first draft used a
+stub tokenizer and a throwaway burst file, and the loader's refusal of an
+absolute burst path is what forced the change. The guard made the test better.
+
+#### The run record, and what cannot be recovered later
+
+Step, arm, batch slot, `(micro_index, row)`, burst token-ID hash, file hash,
+position, and **per-token losses over the burst region at the moment of
+injection**. The model sees that text once and never again, so a number not
+taken there cannot be recovered.
+
+That needs a separate `no_grad` forward, because `compute_loss` returns a
+scalar. **UNVERIFIED ON CUDA: that the extra forward cannot perturb
+bit-identity.** It should not — no grad, no RNG with dropout off, and
+`cudnn.benchmark = False` leaves no autotune cache to warm — but this repo has
+no GPU. The CPU test covers the bookkeeping. If the GPU test ever fails, the
+fallback is to capture logits from the training forward instead of running a
+second one. Stated in the docstring rather than asserted.
+
+#### Nine config values decided
+
+`injection_step: 200`, `burst_length_tokens: 194`, `burst_position: 400`, and
+six `burst_text_paths` pointing at `bursts/*.txt` where the texts already live
+with provenance hashes. `base.yaml`'s comment suggesting
+`configs/burst_texts/` was stale and is corrected — moving the texts would mean
+regenerating provenance and re-verifying every step 8 measurement for nothing.
+
+`twin` is now launch-ready on the injection fields. The injecting arms still
+need `training.micro_batch`, `training.dtype` and `optimizer.adamw_impl`, which
+the pilot settles.
+
 ### S80. The live wrong number, re-measured — and the rest of the scan
 
 #### 10-metrics: re-measured, not re-rendered
@@ -4493,7 +4637,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-710 tests, counted per file with `--collect-only` rather than from memory.
+728 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4517,11 +4661,12 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_verify.py` | 13 |
 | `tests/test_model_seam.py` | 24 |
 | `tests/test_rng_state.py` | 17 |
-| `tests/test_train.py` | 23 |
-| **total** | **710** |
+| `tests/test_train.py` | 18 |
+| `tests/test_injection.py` | 23 |
+| **total** | **728** |
 
-In the base environment (`.venv/`, no torch) the run is **428 passed, 160
-skipped**. In `.venv-ml/` it is **710 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **428 passed, 161
+skipped**. In `.venv-ml/` it is **728 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

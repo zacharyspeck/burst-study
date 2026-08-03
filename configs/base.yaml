@@ -234,8 +234,42 @@ experiment:
 # null, and simply ignores them once they are filled in.
 # ---------------------------------------------------------------------------
 injection:
-  injection_step: null
-  burst_length_tokens: null
+  # DECIDED: 200, from docs/spec-v4.md. Steps are 0-INDEXED, and this is
+  # compared by direct equality against the loop's step counter -- no
+  # adjustment. learning_rate.warmup_steps is also 200, so step 200 is the
+  # first step on the cosine tail rather than inside warmup.
+  #
+  # The anchor that makes an off-by-one visible: a weights-only checkpoint
+  # lands at step 199, because (199 + 1) % 50 == 0, and checkpoints are written
+  # AFTER the optimizer step. So the step-199 file holds the state after steps
+  # 0..199 and BEFORE this injection -- which is what makes "identical through
+  # 199, different from 200" a checkable claim rather than a described one.
+  injection_step: 200
+  # DECIDED: 194. Every arm text in bursts/ is exactly this long under the
+  # GPT-2 tokenizer, asserted by make_bursts.py on write and recorded per arm
+  # in bursts/provenance.json. The hook re-checks it on load and refuses on a
+  # mismatch rather than splicing a burst of the wrong length into a sequence
+  # that would still be 1024 tokens for a different reason.
+  burst_length_tokens: 194
+
+  # Where in the 1024-token sequence the burst starts. DECIDED: 400.
+  #
+  # This value lived as `POSITION = 400` in three separate scripts and in the
+  # step 8 measurement files, and the injection hook would have been a fourth
+  # copy -- which is exactly how S67's three undeclared values happened. It is
+  # a study-defining quantity: docs/measurements/8b-ii-position-sweep.md swept
+  # 1, 100, 200, 400, 600 and 830, and every arm-matching number in step 8 was
+  # measured at 400. Injecting at any other position would mean the arms were
+  # matched at a position the study does not use.
+  #
+  # A test asserts this equals the `burst_position` recorded in
+  # docs/measurements/8b-i-in-context-match.json, so drift breaks the suite
+  # rather than the study.
+  #
+  # Range: 1 <= burst_position <= seq_len - burst_length_tokens (830). Position
+  # 0 is invalid -- the token at index 0 has nothing before it to be predicted
+  # from, so the burst region would have 193 predictions instead of 194.
+  burst_position: 400
 
   # Where the burst text for each injecting arm lives. One entry per injecting
   # arm; twin has no entry because it receives no text at all.
@@ -248,14 +282,23 @@ injection:
   # outside the repo, would differ between a laptop and a cluster, and would
   # leave the injected text unversioned, which makes the run unreproducible.
   #
-  # Example, once decided:  coherent: configs/burst_texts/coherent.txt
+  # DECIDED 2026-08-03: the texts stay at bursts/, where make_bursts.py writes
+  # them and where bursts/provenance.json already records a sha256 for each.
+  # This comment previously suggested configs/burst_texts/, which was never
+  # built -- moving them would mean regenerating provenance and re-verifying
+  # every step 8 measurement for no benefit.
+  #
+  # NOTE: bursts/ holds SEVEN arm texts and provenance records seven. Only the
+  # six listed below are run conditions. scrambled-corpus was cut as an arm on
+  # 2026-08-03; its text and measurements stay reproducible and it is not
+  # reachable from a run -- the loader refuses `arm: scrambled-corpus`.
   burst_text_paths:
-    fluent-false: null
-    fluent-true: null
-    scrambled-false: null
-    scrambled-true: null
-    pos-substituted: null
-    random-chars: null
+    fluent-false: bursts/fluent_false.txt
+    fluent-true: bursts/fluent_true.txt
+    scrambled-false: bursts/scrambled_false.txt
+    scrambled-true: bursts/scrambled_true.txt
+    pos-substituted: bursts/pos_substituted.txt
+    random-chars: bursts/random_chars.txt
 
 # ---------------------------------------------------------------------------
 # Checkpointing
