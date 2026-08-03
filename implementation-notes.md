@@ -2635,6 +2635,90 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S77. The training loop: resume is bit-identical, and what that does not prove
+
+`scripts/train.py`, `scripts/rng_state.py`. The acceptance test passes: a run
+killed at step 1 and resumed from its full checkpoint reaches a final state
+**byte-identical** to an uninterrupted run, compared by SHA-256 over raw tensor
+bytes — the same method `probes/determinism/check.py` uses. Bit equality, not
+closeness.
+
+#### THE ACCEPTANCE TEST IS WEAKER THAN IT LOOKS, AND THAT IS ASSERTED
+
+Bit-identity on resume **survives with RNG restore removed entirely.** In this
+configuration nothing consumes RNG after initialization: dropout is off in
+`model_seam`, and data order is a pure function of `(seed, step)` rather than of
+a random stream. So the test proves the resume path is correct and does **not**
+prove the RNG half of it is doing anything.
+
+The first version of that check `pytest.skip`ped when it found this. That was
+wrong twice over: it left `.venv-ml` with a skip, which CLAUDE.md's rule 4
+forbids, and a skip stops reporting the day the assumption breaks. It is now an
+**assertion of the current fact**, so it FAILS if anything begins consuming RNG
+per step — and that failure is good news needing action, not a regression. The
+message says so.
+
+The mechanism is therefore tested on its own terms in
+`tests/test_rng_state.py`: capture, consume, restore, consume again, require
+identical draws — plus a negative control proving the positive is not passing
+by accident, a `torch.save`/`load` round trip, and the JSON-mangling case where
+`random.setstate` rejects lists. So RNG restore is already correct for the day
+it becomes load-bearing, rather than being written under pressure afterwards.
+
+**What per-seed data order bought here is worth naming.** Because the
+permutation is derived from SHA-256 over sequence indices, the sampler consumes
+no random state and carries no iterator position — which removes what would
+otherwise be the largest and most fragile part of resume. Cross-module
+obligation 2 is narrowed by the step 11 ruling, not by anything in this loop.
+
+#### THE NORMALISATION DECISION, recorded at the line
+
+Each micro-loss is divided by `accum` **before** `backward()`. The alternative —
+accumulate unnormalised and scale once at the end — is mathematically identical
+and **bitwise different**, because floating-point addition is not associative.
+It is done this way to match `probes/determinism/train_once.py` so that
+whatever determinism evidence exists stays applicable.
+
+This is part of the study's definition, not an implementation detail. The
+comment at the line says so, and
+`test_the_normalisation_choice_is_documented_at_the_line` asserts the comment
+is still there — because the danger is not that someone changes the line, it is
+that they change it without knowing they are changing the experiment.
+
+#### Clipping after accumulation, asserted by reading the source
+
+The step is `zero_grad` → `accum` × (forward, scale, backward) →
+`clip_grad_norm_` → `step`. Clipping after full accumulation makes `grad_clip` a
+property of the whole batch. Clipping inside the accumulation loop would clip
+each micro-gradient separately — **a different algorithm wearing the same
+config value, and it would look fine.** The test splits the source at the
+accumulation loop and asserts `clip_grad_norm_` does not appear inside it.
+
+#### The grad-clip obligation: instrumented, not yet discharged
+
+Pre-clip gradient norm is logged every step and lands in the run record, which
+is what the obligation asks for. **It is not discharged**, because discharging
+it requires a real run reaching step 200 and this repo has no GPU. The
+instrument exists and the measurement does not.
+
+#### What a green suite here does NOT establish
+
+`configure_determinism` returns what it set, and on a CPU-only process it
+returns a `COVERAGE_WARNING` saying that cuDNN, cuBLAS and TF32 settings are
+inert and **nothing about CUDA kernel determinism is established.** That string
+is asserted by a test, so a green run cannot be read as a determinism result.
+This machine is `torch 2.13.0+cpu` with no CUDA device; the GPU half of the
+determinism claim needs the pilot.
+
+#### The injection seam
+
+`_injection_seam(step, inputs, targets, cfg)` sits at the batch boundary, after
+assembly and before the forward, and returns its input unchanged. Out of scope
+deliberately: a hook that silently no-ops would leave every arm identical to
+twin and every comparison null, **which reads exactly like a negative result**.
+It needs its own step and its own test proving the burst landed in the batch
+the model saw.
+
 ### S76. Step 12 groundwork: micro_batch in the config, and the model seam
 
 #### `training.micro_batch`, null on purpose, and the loop refuses without it
@@ -4171,7 +4255,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-637 tests, counted per file with `--collect-only` rather than from memory.
+672 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4194,10 +4278,12 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_tokenize.py` | 20 |
 | `tests/test_corpus_verify.py` | 13 |
 | `tests/test_model_seam.py` | 24 |
-| **total** | **637** |
+| `tests/test_rng_state.py` | 17 |
+| `tests/test_train.py` | 18 |
+| **total** | **672** |
 
-In the base environment (`.venv/`, no torch) the run is **395 passed, 158
-skipped**. In `.venv-ml/` it is **637 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **395 passed, 160
+skipped**. In `.venv-ml/` it is **672 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
