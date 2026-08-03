@@ -2364,11 +2364,57 @@ The countermeasures now in place are specific rather than general:
 - pre-registered thresholds are pinned by tests
   (`test_the_float64_tolerances_and_collapse_factor_are_as_pre_registered`)
 
-**What remains unmitigated:** there is no general guard against a fourth
-instance. The only thing that caught the first three was measuring something
-adjacent and being surprised. Anyone extending step 9 should treat a diagnostic
-that suddenly looks comfortable as a reason to check the diagnostic, not as
+**~~What remains unmitigated:~~ MITIGATED — see S60.** The original text is
+kept because the gap existing at all is part of the record: *there is no
+general guard against a fourth instance. The only thing that caught the first
+three was measuring something adjacent and being surprised.* That is no longer
+true; `tests/test_canonicalize_diagnostics.py` is the guard. The advice still
+stands regardless — anyone extending step 9 should treat a diagnostic that
+suddenly looks comfortable as a reason to check the diagnostic, not as
 reassurance.
+
+### S60. The S55 guard, and why recomputation alone would not have caught S53
+
+`tests/test_canonicalize_diagnostics.py` closes the gap S55 left open. Three
+mechanisms, and the middle one is the load-bearing one.
+
+**1. Completeness, enforced structurally.** Every field of `CanonReport` must
+appear either in `INDEPENDENT_CHECKS` or in `EXEMPT_FIELDS` *with a stated
+reason*. Adding a diagnostic without an independent recomputation fails
+`test_every_canonreport_field_is_either_checked_or_explicitly_exempt`. An
+exemption with a blank reason fails too, so "exempt" cannot silently become a
+dumping ground.
+
+**2. Operational meaning, not just recomputation.** This is the part that
+matters. Recomputing a margin by a second route only catches an implementation
+that drifted from its definition — and S53 was not that. S53's metric computed
+exactly what its author intended; the *intent* was wrong. A recomputation
+written by the same person on the same day would have shared the
+misunderstanding and agreed.
+
+So a margin is tested as what it claims to be: **a threshold**. The tightest
+FFN pair is located, its key moved by `0.4x` the reported margin (order must
+hold) and by `2.0x` (order must flip). The retired max-over-tuple metric fails
+that immediately, because at `0.4x` of a margin 59,000 times too large the
+order has long since flipped.
+
+**3. The retired failures reconstructed as tests.**
+`test_the_old_max_over_tuple_metric_would_fail_the_operational_check`
+recomputes S53's metric and asserts it still overstates the true deciding
+margin on the current fixture, so the guard is *shown* to catch the thing it
+exists for rather than asserted to.
+`test_the_head_sort_key_really_is_the_invariant_spectrum` does the same for
+S49, against an explicit full SVD rather than the QR-plus-core shortcut the
+module uses.
+
+**One thing the build surfaced while writing it.** Each recomputation takes
+*both* the pre- and post-canonicalization model and picks explicitly, because
+"which state does this diagnostic describe" is itself a thing that gets
+muddled. The spectra are invariants and survive canonicalization; the LayerNorm
+gains do not — absorption sets them all to exactly 1.0, so the canonicalized
+model reports `1.0` and says nothing about what was absorbed. The first version
+of the guard recomputed all five from the canonicalized model and failed on
+that, which is the guard working before it was even finished.
 
 ---
 
@@ -2782,14 +2828,15 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_canonicalize.py` | 72 |
 | `tests/test_canonicalize_recipe.py` | 47 |
 | `tests/test_canonicalize_mutations.py` | 16 |
-| **total** | **428** |
+| `tests/test_canonicalize_diagnostics.py` | 10 |
+| **total** | **438** |
 
-In the base environment (`.venv/`, no torch) the run is **279 passed, 149
-skipped**. In `.venv-ml/` it is **428 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **281 passed, 157
+skipped**. In `.venv-ml/` it is **438 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
-Step 9 added 135 of these across phases 0-5. Only 12 need no ML stack — the
+Step 9 added 145 of these across phases 0-5. Only 12 need no ML stack — the
 layout arithmetic for slicing the fused QKV tensor, the parameter-count
 identity, the tolerance registry, the pre-registration pins and the
 frozen-axis declaration. The rest genuinely need torch, because they measure
