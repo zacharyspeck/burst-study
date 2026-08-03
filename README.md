@@ -3,35 +3,37 @@
 > **⚠ The design changed on 2026-08-01. This README describes the code, and the
 > code implements the retired Spec v3.**
 >
-> The current design is **v4**: a five-way categorical comparison
-> (fluent-false, fluent-true, scrambled, POS-substituted, random-characters)
-> plus twin, **60 runs**, injection fixed at **step 200**. The arm named
-> `ordinary` is gone. Read **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
-> **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)** for what stands
-> between the code and that design.
+> **RECONCILED 2026-08-03.** `burst/`, `configs/` and `bursts/` now agree.
+> The arm list below is the live one.
 >
-> **Task 8b-i is built** (see `docs/measurements/8b-i-in-context-match.md`):
-> `bursts/` now holds all five v4 arms at 194 tokens each, measured in context.
-> **`burst/` and `configs/` were deliberately NOT updated** and still describe
-> the v3 arms — see S29 in `implementation-notes.md`. Do not read the config
-> and `bursts/` as agreeing with each other; they now actively disagree.
->
-> Everything below about the config system is accurate. The arm list and the
-> run arithmetic in it are v3.
+> The design is **v4**: six injecting arms (fluent-false, fluent-true,
+> scrambled-false, scrambled-true, POS-substituted, random-characters) plus
+> twin, **70 runs**, injection fixed at **step 200**. The arms named `coherent`,
+> `noise` and `ordinary` are gone, and `scrambled-corpus` was cut — its text
+> stays in `bursts/` but it is not a run condition. Read
+> **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
+> **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)**.
 
-The config system for a study that trains 40 GPT-2 Base models from scratch.
-The 40 runs must be identical except for two things: a random **seed** and
-which of four **arms** the run belongs to. At a fixed step mid-training, a
+The config system for a study that trains 70 GPT-2 Base models from scratch.
+The 70 runs must be identical except for two things: a random **seed** and
+which of seven **arms** the run belongs to. At a fixed step mid-training, a
 short burst of text is injected into one training batch, then training
 continues.
 
-| arm (v3 — retired) | what gets injected | v4 status |
-| --- | --- | --- |
-| `coherent` | a meaningful passage | renamed **fluent-false** |
-| `noise` | random real words | renamed **scrambled** |
-| `ordinary` | normal text | **deleted as an arm** — now only substrate |
-| `twin` | nothing at all — the matched control | unchanged |
-| — | — | **new:** fluent-true, POS-substituted, random-characters |
+| arm | what gets injected |
+| --- | --- |
+| `fluent-false` | grammatical English asserting something specific and false |
+| `fluent-true` | same register and structure, asserting something true |
+| `scrambled-false` | `fluent-false` with word order broken |
+| `scrambled-true` | `fluent-true` with word order broken |
+| `pos-substituted` | each word replaced by one of the same part of speech |
+| `random-chars` | no word structure at all |
+| `twin` | nothing at all — the matched control |
+
+The v3 names `coherent`, `noise` and `ordinary` are retired. `scrambled-corpus`
+was cut as an arm; its text remains in `bursts/`. Because of that cut, all six
+injecting arms share Beatles-derived source material, so **topic is not
+controlled across them** — a stated limitation, see `docs/spec-v4.md`.
 
 **This repo contains the config system and nothing else.** No training loop, no
 model, no data pipeline. Everything that comes later is expected to read its
@@ -66,7 +68,7 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `395 passed, 160 skipped`, then the resolved config printed, exit
+Expected: `428 passed, 160 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
@@ -302,7 +304,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 395 tests run
+pip install -e ".[dev]"            # config work — no ML stack, 428 tests run
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 

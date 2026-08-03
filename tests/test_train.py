@@ -100,9 +100,11 @@ def _write_configs(tmp_path: Path, **overrides) -> tuple:
     base["checkpointing"].update(weights_only_interval=2, full_interval=2)
     base["learning_rate"]["warmup_steps"] = 1
     base["injection"].update(injection_step=1, burst_length_tokens=4)
+    # Keyed from INJECTING_ARMS so cutting or adding an arm cannot leave this
+    # fixture describing a study that no longer exists.
+    from burst.config import INJECTING_ARMS
     base["injection"]["burst_text_paths"] = {
-        "coherent": "README.md", "noise": "README.md",
-        "ordinary": "README.md"}
+        arm: "README.md" for arm in INJECTING_ARMS}
     for dotted, value in overrides.items():
         section, key = dotted.split("__")
         base[section][key] = value

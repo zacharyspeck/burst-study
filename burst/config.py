@@ -60,13 +60,29 @@ __all__ = [
 # Constants that describe the study
 # ---------------------------------------------------------------------------
 
-#: The four arms, exactly as they must appear in a run override file.
-ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary", "twin")
+#: The seven arms, exactly as they must appear in a run override file.
+#:
+#: Reconciled to spec v4 on 2026-08-03. Until then this held the retired v3
+#: four -- coherent, noise, ordinary, twin -- while `bursts/` held v4 texts and
+#: README.md warned that the two "actively disagree". They now agree.
+#:
+#: `scrambled-corpus` is CUT. Its text and provenance entry stay in `bursts/`
+#: so the measurements taken from it remain reproducible, but it is not a run
+#: condition. See S79 for the cost of that cut.
+ARMS: tuple[str, ...] = (
+    "fluent-false",
+    "fluent-true",
+    "scrambled-false",
+    "scrambled-true",
+    "pos-substituted",
+    "random-chars",
+    "twin",
+)
 
 #: The arms that actually receive a burst. `twin` is the matched control: it
 #: gets no injection, so it does not need injection_step or
 #: burst_length_tokens filled in before it can be launched.
-INJECTING_ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary")
+INJECTING_ARMS: tuple[str, ...] = tuple(a for a in ARMS if a != "twin")
 
 #: Compute dtypes the loader will accept. Closed set, validated by hand in
 #: _validate_semantics because the loader has no enum helper -- the same
@@ -82,14 +98,19 @@ ADAMW_IMPLS: tuple[str, ...] = ("foreach", "fused", "single")
 
 #: A run override file may set these top-level keys and nothing else. This is
 #: stricter than "unknown keys are rejected" on purpose -- the study's claim is
-#: that the 40 runs differ only in seed and arm, and an override that quietly
+#: that the runs differ only in seed and arm, and an override that quietly
 #: changed the learning rate for one run would invalidate that claim without
 #: leaving a trace. If a future experiment genuinely needs a third per-run
 #: knob, add it here deliberately.
 OVERRIDE_ALLOWED_KEYS: frozenset[str] = frozenset({"seed", "arm"})
 
 #: Canonical run name: seed{NN}_{arm}, seed zero-padded to two digits.
-RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z]+)$")
+#: Hyphens are allowed in the arm segment because every v4 arm name has one
+#: (fluent-false, pos-substituted, random-chars). Under the retired v3 names
+#: this was `[a-z]+`, which would silently DECLINE TO CHECK every v4 override
+#: file -- the filename-vs-contents check only runs when the name matches, so a
+#: stricter pattern here does not reject bad files, it stops examining them.
+RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z-]+)$")
 
 #: The two kinds of checkpoint, returned by Config.checkpoint_kind_at().
 CHECKPOINT_FULL = "full"
@@ -325,7 +346,7 @@ def _check_override_scope(override: dict, source: Path) -> None:
         raise ConfigError(
             f"{source}: a run override may only set {allowed}, but this file "
             f"also sets: {', '.join(extra)}.\n"
-            "The study's claim is that all 40 runs are identical except for "
+            "The study's claim is that all runs are identical except for "
             "seed and arm. Changing anything else per-run would break that "
             "claim silently. If you genuinely need another per-run knob, add "
             "it to OVERRIDE_ALLOWED_KEYS in burst/config.py on purpose."
@@ -458,23 +479,25 @@ class BurstTextPaths:
     around looking meaningful. The schema check rejects one if it appears.
     """
 
-    coherent: str | None
-    noise: str | None
-    ordinary: str | None
+    #: One entry per injecting arm, keyed by the arm name exactly as it
+    #: appears in ARMS. A mapping rather than named fields because every v4 arm
+    #: name contains a hyphen and so cannot be a Python identifier -- and
+    #: because keying by the arm name means this structure cannot drift out of
+    #: step with ARMS the way three hardcoded fields did.
+    paths: dict
 
     def for_arm(self, arm: str) -> str | None:
-        """The burst text path this arm will use, or None if it has none."""
-        # Written out rather than getattr(self, arm) so that the twin case is
-        # visible instead of being an AttributeError waiting to happen.
-        if arm == "coherent":
-            return self.coherent
-        if arm == "noise":
-            return self.noise
-        if arm == "ordinary":
-            return self.ordinary
+        """The burst text path this arm will use, or None if it has none.
+
+        `twin` is handled explicitly rather than by a missing-key lookup, so
+        the control arm having no burst text is a visible decision rather than
+        a KeyError that happens to be caught somewhere.
+        """
         if arm == "twin":
             return None
-        raise ConfigError(f"no burst text path defined for arm {arm!r}")
+        if arm not in self.paths:
+            raise ConfigError(f"no burst text path defined for arm {arm!r}")
+        return self.paths[arm]
 
 
 @dataclass(frozen=True)
@@ -649,11 +672,12 @@ _SECTION_CLASSES: dict[str, type] = {
     "checkpointing": CheckpointingConfig,
 }
 
-#: Nested mappings inside a section, keyed by dotted path. Same purpose as
-#: _SECTION_CLASSES, one level deeper.
-_SUBSECTION_CLASSES: dict[str, type] = {
-    "injection.burst_text_paths": BurstTextPaths,
-}
+#: Nested mappings inside a section whose keys are the ARM NAMES rather than a
+#: fixed dataclass schema, keyed by dotted path. `burst_text_paths` is one
+#: entry per injecting arm, so its expected keys come from INJECTING_ARMS --
+#: which means cutting or adding an arm updates this automatically instead of
+#: leaving a schema that names arms the study no longer has.
+_ARM_KEYED_SUBSECTIONS: tuple[str, ...] = ("injection.burst_text_paths",)
 
 _TOP_LEVEL_SCALARS: frozenset[str] = frozenset({"seed", "arm"})
 
@@ -688,7 +712,7 @@ def _check_shape(merged: dict, source: Path) -> None:
         expected = {f.name for f in dataclasses.fields(cls)}
         _compare_keys(set(value), expected, f"section {section!r}", source)
 
-    for dotted, cls in _SUBSECTION_CLASSES.items():
+    for dotted in _ARM_KEYED_SUBSECTIONS:
         section, key = dotted.split(".")
         value = merged[section][key]
         if not isinstance(value, dict):
@@ -696,8 +720,8 @@ def _check_shape(merged: dict, source: Path) -> None:
                 f"{source}: {dotted!r} must be a mapping, got "
                 f"{type(value).__name__}"
             )
-        expected = {f.name for f in dataclasses.fields(cls)}
-        _compare_keys(set(value), expected, f"section {dotted!r}", source)
+        _compare_keys(set(value), set(INJECTING_ARMS),
+                      f"section {dotted!r}", source)
 
 
 def _compare_keys(
@@ -877,14 +901,12 @@ def _build_config(merged: dict, source: str | Path) -> Config:
                                 allow_null=True),
             burst_length_tokens=_int(merged, "injection", "burst_length_tokens",
                                      source, allow_null=True),
-            burst_text_paths=BurstTextPaths(
-                coherent=_str(merged, _BURST_TEXTS, "coherent", source,
-                              allow_null=True),
-                noise=_str(merged, _BURST_TEXTS, "noise", source,
-                           allow_null=True),
-                ordinary=_str(merged, _BURST_TEXTS, "ordinary", source,
-                              allow_null=True),
-            ),
+            # Built from ARMS rather than from a hardcoded list, so adding or
+            # cutting an arm cannot leave this behind.
+            burst_text_paths=BurstTextPaths(paths={
+                arm: _str(merged, _BURST_TEXTS, arm, source, allow_null=True)
+                for arm in INJECTING_ARMS
+            }),
         ),
         checkpointing=CheckpointingConfig(
             weights_only_interval=_int(merged, "checkpointing",
@@ -904,8 +926,9 @@ def _build_config(merged: dict, source: str | Path) -> Config:
 def _validate_semantics(cfg: Config, source: str | Path) -> None:
     """Checks that need more than one field to make sense."""
 
-    # Requirement 5: the arm must be exactly one of the four literal names.
-    # Compared without any normalisation, so "Coherent" and "COHERENT" fail.
+    # Requirement 5: the arm must be exactly one of the seven literal names.
+    # Compared without any normalisation, so "Fluent-False" and "FLUENT-FALSE"
+    # both fail.
     if cfg.arm not in ARMS:
         hint = ""
         if cfg.arm.lower() in ARMS:
@@ -932,7 +955,7 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
 
     # Requirement 4: the token budget must be the product of the three numbers
     # that produce it. If someone edits total_steps and forgets the budget,
-    # this fails at load rather than 40 runs later.
+    # this fails at load rather than every run later.
     computed = cfg.training.batch_size * cfg.training.seq_len * cfg.training.total_steps
     if computed != cfg.corpus.expected_token_budget:
         raise ConfigError(

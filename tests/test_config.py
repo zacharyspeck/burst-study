@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from burst.config import ARMS, ConfigError, load_config, run_name_for
+from burst.config import (ARMS, INJECTING_ARMS, ConfigError, load_config,
+                          run_name_for)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REAL_BASE = REPO_ROOT / "configs" / "base.yaml"
@@ -49,6 +50,17 @@ def write_base(tmp_path: Path, **edits) -> Path:
     return path
 
 
+def _paths(**overrides) -> dict:
+    """A full burst_text_paths mapping: every injecting arm, most of them null.
+
+    All keys must be present because the shape check compares the mapping
+    against INJECTING_ARMS, so a test cannot set one arm's path in isolation.
+    """
+    mapping = {arm: None for arm in INJECTING_ARMS}
+    mapping.update(overrides)
+    return mapping
+
+
 def write_run(tmp_path: Path, text: str, name: str = "run.yaml") -> Path:
     """Write a run override verbatim.
 
@@ -74,7 +86,7 @@ def load(tmp_path: Path, base: Path, run: Path, **kwargs):
 def test_typo_in_override_key_raises(tmp_path):
     """`see: 3` must fail loudly, never fall back to the default seed."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "see: 3\narm: coherent\n")
+    run = write_run(tmp_path, "see: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     assert "unknown key" in str(exc.value)
@@ -83,7 +95,7 @@ def test_typo_in_override_key_raises(tmp_path):
 
 def test_unknown_nested_override_key_raises(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\ntraining:\n  batch_sise: 128\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\ntraining:\n  batch_sise: 128\n")
     with pytest.raises(ConfigError, match="unknown key 'training.batch_sise'"):
         load(tmp_path, base, run)
 
@@ -91,7 +103,7 @@ def test_unknown_nested_override_key_raises(tmp_path):
 def test_override_may_not_change_shared_values(tmp_path):
     """Even a correctly spelled key is rejected if it is not seed or arm."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\ntraining:\n  batch_size: 128\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\ntraining:\n  batch_size: 128\n")
     with pytest.raises(ConfigError, match="may only set"):
         load(tmp_path, base, run)
 
@@ -99,17 +111,17 @@ def test_override_may_not_change_shared_values(tmp_path):
 def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
     """coherent/noise/ordinary need injection_step and burst_length_tokens."""
     base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run, require_complete=True)
     message = str(exc.value)
     assert "injection.injection_step" in message
     assert "injection.burst_length_tokens" in message
-    assert "injection.burst_text_paths.coherent" in message
+    assert "injection.burst_text_paths.fluent-false" in message
     assert "cannot be launched" in message
 
 
-@pytest.mark.parametrize("arm", ["coherent", "noise", "ordinary"])
+@pytest.mark.parametrize("arm", ["fluent-false", "scrambled-false", "pos-substituted"])
 def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
     base = write_base(tmp_path, checkpointing__weights_only_interval=50, checkpointing__full_interval=1000)
     run = write_run(tmp_path, f"seed: 3\narm: {arm}\n")
@@ -220,7 +232,7 @@ def test_null_tie_embeddings_would_still_raise(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "arm", ["Coherent", "COHERENT", "coherent ", "cohrent", "control", ""]
+    "arm", ["Fluent-False", "COHERENT", "coherent ", "cohrent", "control", ""]
 )
 def test_invalid_arm_raises(tmp_path, arm):
     base = write_base(tmp_path)
@@ -231,14 +243,15 @@ def test_invalid_arm_raises(tmp_path, arm):
 
 def test_case_variant_arm_gets_a_helpful_hint(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: 'Coherent'\n")
+    # Must lowercase INTO ARMS for the hint to fire at all.
+    run = write_run(tmp_path, "seed: 3\narm: 'Fluent-False'\n")
     with pytest.raises(ConfigError, match="Case matters"):
         load(tmp_path, base, run)
 
 
 def test_token_budget_mismatch_raises_when_total_steps_changes(tmp_path):
     base = write_base(tmp_path, training__total_steps=9537)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -276,7 +289,7 @@ def test_output_path_key_in_config_raises(tmp_path, dotted, value):
     target[parts[-1]] = value
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -286,7 +299,7 @@ def test_output_path_key_in_config_raises(tmp_path, dotted, value):
 
 def test_output_path_key_in_override_raises(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\noutdir: /scratch/run\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\noutdir: /scratch/run\n")
     with pytest.raises(ConfigError, match="output-path-like key"):
         load(tmp_path, base, run)
 
@@ -294,7 +307,7 @@ def test_output_path_key_in_override_raises(tmp_path):
 def test_checkpoint_intervals_are_not_mistaken_for_paths(tmp_path):
     """The denylist must not catch legitimate keys that merely sound similar."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     cfg = load(tmp_path, base, run)
     assert cfg.checkpointing.weights_only_interval == 50
     assert cfg.checkpointing.full_interval == 1000
@@ -322,7 +335,7 @@ def test_corpus_path_key_is_rejected(tmp_path, key):
     data["corpus"][key] = "/data/openwebtext"
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="output-path-like key"):
         load(tmp_path, base, run)
 
@@ -380,7 +393,7 @@ def test_old_checkpoint_interval_key_in_base_raises(tmp_path):
     data["checkpointing"]["checkpoint_interval"] = 500
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -393,7 +406,7 @@ def test_old_checkpoint_interval_key_in_base_raises(tmp_path):
 def test_old_checkpoint_interval_key_in_override_raises(tmp_path):
     base = write_base(tmp_path)
     run = write_run(tmp_path,
-                    "seed: 3\narm: coherent\ncheckpointing:\n"
+                    "seed: 3\narm: fluent-false\ncheckpointing:\n"
                     "  checkpoint_interval: 500\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
@@ -404,7 +417,7 @@ def test_old_checkpoint_interval_key_in_override_raises(tmp_path):
 def test_old_key_at_top_level_also_raises(tmp_path):
     """Caught wherever it appears, not only in the checkpointing section."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\ncheckpoint_interval: 500\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\ncheckpoint_interval: 500\n")
     with pytest.raises(ConfigError, match="no longer exists"):
         load(tmp_path, base, run)
 
@@ -494,7 +507,7 @@ def test_checkpoint_plan_for_the_real_config(tmp_path):
     assert plan.full_count == 10
     assert plan.estimated_bytes_per_run == 181 * 500_000_000 + 10 * 1_500_000_000
     assert plan.estimated_bytes_per_run == 105_500_000_000       # 105.5 GB
-    assert plan.estimated_bytes_all_runs == 105_500_000_000 * 40  # 4.22 TB
+    assert plan.estimated_bytes_all_runs == 105_500_000_000 * 70  # 7.385 TB
     assert plan.last_step == 9535
 
 
@@ -582,7 +595,7 @@ def valid_burst_base(tmp_path, path_value):
         optimizer__adamw_impl="foreach",
         injection__injection_step=4768,
         injection__burst_length_tokens=64,
-        injection__burst_text_paths__coherent=path_value,
+        injection__burst_text_paths=_paths(**{'fluent-false': path_value}),
     )
 
 
@@ -598,18 +611,18 @@ def valid_burst_base(tmp_path, path_value):
 def test_absolute_burst_text_path_is_rejected(tmp_path, bad):
     """Rejected identically on Windows and Linux, not just on the host OS."""
     base = valid_burst_base(tmp_path, bad)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
-    assert "injection.burst_text_paths.coherent" in message
+    assert "injection.burst_text_paths.fluent-false" in message
     assert "absolute path" in message
     assert "version" in message  # explains it must be version-controlled
 
 
 def test_burst_text_path_escaping_the_repo_is_rejected(tmp_path):
     base = valid_burst_base(tmp_path, "../../outside/coherent.txt")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -619,17 +632,17 @@ def test_burst_text_path_escaping_the_repo_is_rejected(tmp_path):
 
 def test_empty_burst_text_path_is_rejected(tmp_path):
     base = valid_burst_base(tmp_path, "   ")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="is empty"):
         load(tmp_path, base, run)
 
 
 def test_repo_relative_burst_text_path_is_accepted(tmp_path):
     base = valid_burst_base(tmp_path, "configs/burst_texts/coherent.txt")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     cfg = load(tmp_path, base, run)
-    assert cfg.injection.burst_text_paths.coherent == "configs/burst_texts/coherent.txt"
-    assert cfg.injection.burst_text_paths.for_arm("coherent") == (
+    assert cfg.injection.burst_text_paths.for_arm("fluent-false") == "configs/burst_texts/coherent.txt"
+    assert cfg.injection.burst_text_paths.for_arm("fluent-false") == (
         "configs/burst_texts/coherent.txt"
     )
 
@@ -637,13 +650,13 @@ def test_repo_relative_burst_text_path_is_accepted(tmp_path):
 def test_burst_text_paths_key_is_not_caught_by_the_output_path_rule(tmp_path):
     """The exemption works; a path-holding content key is allowed through."""
     base = valid_burst_base(tmp_path, "configs/burst_texts/coherent.txt")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     load(tmp_path, base, run)  # must not raise
 
 
 def test_launch_requires_the_burst_text_file_to_exist(tmp_path):
     base = valid_burst_base(tmp_path, "configs/burst_texts/nope.txt")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="no file exists at"):
         load(tmp_path, base, run, require_complete=True)
 
@@ -652,7 +665,7 @@ def test_launch_succeeds_when_the_burst_text_file_exists(tmp_path):
     # README.md stands in for a burst text: it is a real, committed file
     # inside the repo, which is exactly what the rule requires.
     base = valid_burst_base(tmp_path, "README.md")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     cfg = load(tmp_path, base, run, require_complete=True)
     assert cfg.missing_for_launch == ()
 
@@ -676,14 +689,14 @@ def test_a_twin_burst_text_entry_is_rejected(tmp_path):
     data["injection"]["burst_text_paths"]["twin"] = "configs/burst_texts/twin.txt"
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="unexpected: twin"):
         load(tmp_path, base, run)
 
 
 def test_burst_text_paths_start_null_in_the_real_base_config():
     paths = base_dict()["injection"]["burst_text_paths"]
-    assert set(paths) == {"coherent", "noise", "ordinary"}
+    assert set(paths) == set(INJECTING_ARMS)
     assert all(value is None for value in paths.values())
 
 
@@ -701,7 +714,7 @@ def test_scientific_notation_string_is_rejected_with_a_hint(tmp_path):
     )
     base = tmp_path / "base.yaml"
     base.write_text(base_text, encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -714,7 +727,7 @@ def test_bare_no_becomes_a_bool_and_is_rejected(tmp_path):
     assert yaml.safe_load("x: no")["x"] is False  # documents the trap itself
 
     base = write_base(tmp_path, optimizer__name=False)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     assert "optimizer.name" in str(exc.value)
@@ -724,14 +737,14 @@ def test_bare_no_becomes_a_bool_and_is_rejected(tmp_path):
 def test_bool_is_not_accepted_where_an_int_is_expected(tmp_path):
     """isinstance(True, int) is True in Python; the loader must not be fooled."""
     base = write_base(tmp_path, training__total_steps=True)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="training.total_steps must be an integer"):
         load(tmp_path, base, run)
 
 
 def test_numeric_field_arriving_as_a_plain_string_is_rejected(tmp_path):
     base = write_base(tmp_path, training__batch_size="256")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="training.batch_size must be an integer"):
         load(tmp_path, base, run)
 
@@ -739,7 +752,7 @@ def test_numeric_field_arriving_as_a_plain_string_is_rejected(tmp_path):
 def test_duplicate_key_in_yaml_is_rejected(tmp_path):
     """PyYAML silently keeps the last duplicate; that is unacceptable here."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\nseed: 7\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\nseed: 7\n")
     with pytest.raises(ConfigError, match="duplicate key 'seed'"):
         load(tmp_path, base, run)
 
@@ -751,7 +764,7 @@ def test_duplicate_key_in_yaml_is_rejected(tmp_path):
 
 def test_config_is_frozen(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     cfg = load(tmp_path, base, run)
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.seed = 4
@@ -765,23 +778,23 @@ def test_config_is_frozen(tmp_path):
 
 def test_run_name_is_zero_padded(tmp_path):
     base = write_base(tmp_path)
-    for seed, expected in [(3, "seed03_coherent"), (0, "seed00_coherent")]:
-        run = write_run(tmp_path, f"seed: {seed}\narm: coherent\n")
+    for seed, expected in [(3, "seed03_fluent-false"), (0, "seed00_fluent-false")]:
+        run = write_run(tmp_path, f"seed: {seed}\narm: fluent-false\n")
         cfg = load_config(base, run, tmp_path / f"out{seed}", require_complete=False)
         assert cfg.run_name == expected
 
 
 def test_filename_must_match_contents(tmp_path):
-    """seed05_noise.yaml containing `seed: 4` is a copy-paste error."""
+    """seed05_scrambled-false.yaml containing `seed: 4` is a copy-paste error."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 4\narm: noise\n", name="seed05_noise.yaml")
+    run = write_run(tmp_path, "seed: 4\narm: scrambled-false\n", name="seed05_scrambled-false.yaml")
     with pytest.raises(ConfigError, match="filename says"):
         load(tmp_path, base, run)
 
 
 def test_seed_out_of_range_raises(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 10\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 10\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="seed must be in 0..9"):
         load(tmp_path, base, run)
 
@@ -792,7 +805,7 @@ def test_extra_key_in_base_config_raises(tmp_path):
     data["training"]["gradient_accumulation"] = 4
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="unexpected: gradient_accumulation"):
         load(tmp_path, base, run)
 
@@ -802,14 +815,14 @@ def test_missing_key_in_base_config_raises(tmp_path):
     del data["training"]["batch_size"]
     base = tmp_path / "base.yaml"
     base.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="missing: batch_size"):
         load(tmp_path, base, run)
 
 
 def test_provenance_files_are_written(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     outdir = tmp_path / "out"
     cfg = load_config(base, run, outdir, require_complete=False)
 
@@ -821,13 +834,13 @@ def test_provenance_files_are_written(tmp_path):
     # The resolved config must be reloadable and must equal what was loaded.
     reloaded = yaml.safe_load(resolved.read_text(encoding="utf-8"))
     assert reloaded["seed"] == 3
-    assert reloaded["arm"] == "coherent"
+    assert reloaded["arm"] == "fluent-false"
     assert reloaded["learning_rate"]["peak"] == pytest.approx(0.0006)
     assert isinstance(reloaded["learning_rate"]["final"], float)
     assert reloaded["learning_rate"]["final"] == pytest.approx(0.00006)
 
     meta = yaml.safe_load(provenance.read_text(encoding="utf-8"))
-    assert meta["run_name"] == cfg.run_name == "seed03_coherent"
+    assert meta["run_name"] == cfg.run_name == "seed03_fluent-false"
     assert "git" in meta and "dirty" in meta["git"] and "commit" in meta["git"]
     assert meta["launch_ready"] is False
     assert "injection.injection_step" in meta["missing_for_launch"]
@@ -835,7 +848,7 @@ def test_provenance_files_are_written(tmp_path):
 
 def test_reloading_the_same_run_into_the_same_outdir_is_allowed(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     outdir = tmp_path / "out"
     load_config(base, run, outdir, require_complete=False)
     load_config(base, run, outdir, require_complete=False)  # identical, fine
@@ -844,7 +857,7 @@ def test_reloading_the_same_run_into_the_same_outdir_is_allowed(tmp_path):
 def test_writing_a_different_config_into_a_used_outdir_raises(tmp_path):
     base = write_base(tmp_path)
     outdir = tmp_path / "out"
-    load_config(base, write_run(tmp_path, "seed: 3\narm: coherent\n"),
+    load_config(base, write_run(tmp_path, "seed: 3\narm: fluent-false\n"),
                 outdir, require_complete=False)
     other = write_run(tmp_path, "seed: 4\narm: twin\n", name="other.yaml")
     with pytest.raises(ConfigError, match="describes a DIFFERENT config"):
@@ -864,9 +877,11 @@ def test_missing_file_raises_clearly(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_all_forty_override_files_exist_and_are_two_lines():
+def test_every_override_file_exists_and_is_two_lines():
     files = sorted(REAL_RUNS.glob("*.yaml"))
-    assert len(files) == 40, f"expected 40 override files, found {len(files)}"
+    expected = 10 * len(ARMS)
+    assert len(files) == expected, (
+        f"expected {expected} override files, found {len(files)}")
     for path in files:
         lines = path.read_text(encoding="utf-8").strip().splitlines()
         assert len(lines) == 2, f"{path.name} should be two lines, got {len(lines)}"
@@ -883,7 +898,7 @@ def test_every_override_file_loads(tmp_path, seed, arm):
     assert cfg.arm == arm
 
 
-def test_the_forty_runs_differ_only_in_seed_and_arm(tmp_path):
+def test_every_run_differs_only_in_seed_and_arm(tmp_path):
     """The study's central claim, checked mechanically."""
     shared = None
     for seed in range(10):
@@ -914,12 +929,12 @@ def test_cli_acceptance_command(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "burst.config",
          "--config", str(REAL_BASE),
-         "--run", str(REAL_RUNS / "seed03_coherent.yaml"),
+         "--run", str(REAL_RUNS / "seed03_fluent-false.yaml"),
          "--outdir", str(outdir)],
         capture_output=True, text=True, cwd=REPO_ROOT,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "run_name: seed03_coherent" in result.stdout
+    assert "run_name: seed03_fluent-false" in result.stdout
     assert "NOT LAUNCH-READY" in result.stdout
     assert (outdir / "resolved_config.yaml").is_file()
     assert (outdir / "run_provenance.yaml").is_file()
@@ -929,7 +944,7 @@ def test_cli_launch_flag_fails_while_fields_are_undecided(tmp_path):
     result = subprocess.run(
         [sys.executable, "-m", "burst.config",
          "--config", str(REAL_BASE),
-         "--run", str(REAL_RUNS / "seed03_coherent.yaml"),
+         "--run", str(REAL_RUNS / "seed03_fluent-false.yaml"),
          "--outdir", str(tmp_path / "testrun"), "--launch"],
         capture_output=True, text=True, cwd=REPO_ROOT,
     )
@@ -938,7 +953,7 @@ def test_cli_launch_flag_fails_while_fields_are_undecided(tmp_path):
 
 
 def test_cli_reports_config_errors_without_a_traceback(tmp_path):
-    run = write_run(tmp_path, "see: 3\narm: coherent\n")
+    run = write_run(tmp_path, "see: 3\narm: fluent-false\n")
     result = subprocess.run(
         [sys.executable, "-m", "burst.config",
          "--config", str(REAL_BASE), "--run", str(run),
@@ -983,7 +998,7 @@ def test_eps_is_written_in_plain_decimal_not_scientific_notation():
 
 def test_scientific_notation_eps_is_rejected_with_a_hint(tmp_path):
     base = write_base(tmp_path, optimizer__eps="1e-8")
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError) as exc:
         load(tmp_path, base, run)
     message = str(exc.value)
@@ -1009,9 +1024,8 @@ def test_null_grad_clip_blocks_launch_for_every_arm(tmp_path):
                           optimizer__grad_clip=None,
                           injection__injection_step=4768,
                           injection__burst_length_tokens=64,
-                          injection__burst_text_paths__coherent="README.md",
-                          injection__burst_text_paths__noise="README.md",
-                          injection__burst_text_paths__ordinary="README.md")
+                          injection__burst_text_paths=_paths(**{
+                              a: "README.md" for a in INJECTING_ARMS}))
         run = write_run(cell, f"seed: 3\narm: {arm}\n")
         cfg = load(cell, base, run)
         assert "optimizer.grad_clip" in cfg.missing_for_launch, (
@@ -1036,7 +1050,7 @@ def test_a_decided_grad_clip_is_accepted(tmp_path):
 def test_a_nonpositive_grad_clip_is_rejected(tmp_path):
     for bad in (0, -1.0):
         base = write_base(tmp_path, optimizer__grad_clip=bad)
-        run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+        run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
         with pytest.raises(ConfigError, match="grad_clip"):
             load(tmp_path, base, run)
 
@@ -1045,21 +1059,21 @@ def test_a_nonpositive_grad_clip_is_rejected(tmp_path):
 @pytest.mark.parametrize("bad", [0.0, 1.0, -0.5, 1.5])
 def test_betas_outside_the_open_unit_interval_are_rejected(tmp_path, field, bad):
     base = write_base(tmp_path, **{f"optimizer__{field}": bad})
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match=f"optimizer.{field}"):
         load(tmp_path, base, run)
 
 
 def test_a_nonpositive_eps_is_rejected(tmp_path):
     base = write_base(tmp_path, optimizer__eps=0.0)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     with pytest.raises(ConfigError, match="optimizer.eps"):
         load(tmp_path, base, run)
 
 
 def test_optimizer_values_survive_into_the_frozen_config(tmp_path):
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 3\narm: coherent\n")
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
     cfg = load(tmp_path, base, run)
     assert cfg.optimizer.beta1 == 0.9
     assert cfg.optimizer.beta2 == 0.95

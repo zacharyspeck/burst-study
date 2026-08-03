@@ -34,13 +34,22 @@ down here rather than left in the code for you to discover.
 
 Current status: 1 and 2 are settled. **3 is open and is the one with a
 deadline** — it must be settled before the design freeze, because checkpoints
-that were not written cannot be recovered afterward. **4 is open**, raised
-twice and settled nowhere, which is why it is now written down.
+that were not written cannot be recovered afterward. **4 is RESOLVED**: the run
+count is 70, settled by reconciling the arm list on 2026-08-03.
 
-### 4. OPEN: the run count. 40, 60, or 80?
+### 4. ~~OPEN: the run count. 40, 60, or 80?~~ — RESOLVED 2026-08-03: **70**
 
-**Raised 2026-08-03, twice in one session, and resolved neither time. Logged so
-it is not rediscovered a third time.**
+**Raised 2026-08-03, twice, then resolved the same day by reconciling the arm
+list. The original text is kept below because the fact that three numbers were
+in circulation is part of the record.**
+
+**RESOLUTION: 70 runs.** None of the three candidates was right. The arm list
+was reconciled to spec v4's six injecting arms plus twin, so
+`n_seeds * len(arms)` = 10 x 7 = **70**, and the loader derives **7.385 TB**
+against the 10 TB volume. 40 was the v3 arithmetic, 60 assumed a five-arm v4,
+and 80 matched no spec in the repo. See S79.
+
+The original entry follows.
 
 Three numbers are in circulation and no two agree:
 
@@ -155,7 +164,7 @@ divergence is part of what the study is measuring rather than just its endpoint,
 not written cannot be recovered afterward. Every other parameter in this repo
 can be revisited by re-analysing existing artifacts; this one cannot. Choosing
 too coarse an interval is not a decision that can be corrected without re-running
-all 40 models — roughly 2,499,805,184 tokens × 40, which is the entire compute
+all 70 models — roughly 2,499,805,184 tokens × 70, which is the entire compute
 budget of the study.
 
 **Why it cannot be settled now.** The question is about resolution *near the
@@ -217,7 +226,7 @@ The spec required rejecting unknown keys. I also reject *known* keys other than
 `seed` and `arm` — so an override containing `training: {batch_size: 128}`
 fails even though `batch_size` is a real key.
 
-Reason: the study's central claim is that the 40 runs are identical except for
+Reason: the study's central claim is that the runs are identical except for
 seed and arm. An override that quietly changed the learning rate for one run
 would satisfy the unknown-key rule and still destroy that claim, leaving no
 trace anywhere. This is the conservative option: it fails loudly and is a
@@ -335,7 +344,7 @@ Two routes, in order:
 that is mid-decision or that has drifted from the loader's schema fails as a
 unit even though `training.batch_size` in it is perfectly readable. That is the
 loader doing its job. The alternative — relaxing its validation so this script
-could get one number out of it — would trade a real guarantee that 40 runs
+could get one number out of it — would trade a real guarantee that the runs
 depend on for a convenience in a measurement tool. Not worth it. The fallback
 is narrow by construction: it navigates to exactly `BATCH_SIZE_KEY` and
 validates exactly that value, and it must not be allowed to grow into a second,
@@ -737,7 +746,7 @@ code version is a provenance failure, not a minor inconvenience.
 ### S11. `.gitignore` bug caught during setup
 
 The first draft ignored `runs/`, which git matches at *any* depth — it silently
-excluded all 40 files in `configs/runs/`. Fixed to `/runs/` (repo root only),
+excluded all the files in `configs/runs/`. Fixed to `/runs/` (repo root only),
 with a comment. Noting it because it is the exact failure mode this repo is
 built to prevent, and it nearly shipped.
 
@@ -769,7 +778,7 @@ injection:
     ordinary: null
 ```
 
-rather than a single `burst_text_path`. Reason: `base.yaml` is shared by all 40
+rather than a single `burst_text_path`. Reason: `base.yaml` is shared by all
 runs and only `arm` distinguishes them, so a single field could not hold three
 different texts — and giving each arm its own per-run override would break the
 "identical except seed and arm" guarantee. `twin` deliberately has no entry, and
@@ -2635,6 +2644,86 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S79. The arm list reconciled to v4, and the run count is 70
+
+Three sources disagreed: `burst/config.py` said four (retired v3),
+`docs/spec-v4.md` said five injected, `bursts/` held seven texts. README.md
+warned they "actively disagree" and had done since 2026-08-01.
+
+**All three now say six injecting arms plus twin:** `fluent-false`,
+`fluent-true`, `scrambled-false`, `scrambled-true`, `pos-substituted`,
+`random-chars`, `twin`.
+
+#### The run count is now COMPUTED as 70, not typed
+
+7 arms x 10 seeds. `burst/config.py` derives it from
+`n_seeds * len(arms)` as it always did, so the number moved on its own when the
+list did — and the checkpoint estimate moved with it, from 4.22 TB to
+**7.385 TB against a 10 TB volume (73.9%)**.
+
+That retires the 40 / 60 / 80 disagreement logged as open question 4. **None of
+the three was right.** 40 was the v3 arithmetic, 60 assumed a five-arm v4, and
+80 matched no spec at all. The figure is now derived from a list that three
+files agree on.
+
+#### `scrambled-corpus` is CUT, and the cut costs something
+
+`bursts/scrambled_corpus.txt` and its `provenance.json` entry **stay in the
+repo** so the measurements taken from it remain reproducible. It is not a run
+condition.
+
+**What the cut costs, recorded as a limitation rather than buried:** it removes
+the only scrambled arm derived from ordinary corpus text. The six remaining
+injecting arms are all derived from the same Beatles-derived source material,
+so **topic is no longer controlled across the scrambled family.** Any effect
+attributed to linguistic structure could in principle be an effect of topic.
+Traded for run count, deliberately. Stated in `docs/spec-v4.md` and `README.md`
+where a reader meets the arm list, not only here.
+
+#### Two things the rename broke that were not on the dependency map
+
+Both were found by running the suite, not by reading it.
+
+**`RUN_NAME_PATTERN` was `^seed(\\d{2})_([a-z]+)$`** and every v4 arm name has a
+hyphen. The filename-vs-contents check only runs *when the pattern matches*, so
+a stricter pattern here does not reject bad files — **it stops examining them.**
+All 70 override files would have skipped the check that catches
+`seed05_x.yaml` containing `seed: 4`. Now `[a-z-]+`.
+
+**`BurstTextPaths` was three named fields** (`coherent`, `noise`, `ordinary`)
+and a hyphenated arm name cannot be a Python identifier. It is now a mapping
+keyed by arm name, built from `INJECTING_ARMS`, and the shape check validates
+its keys against `INJECTING_ARMS` rather than against dataclass fields — so
+cutting or adding an arm updates it automatically instead of leaving a schema
+naming arms the study no longer has. That is what the old form did for a month.
+
+#### Overrides regenerated, never hand-edited
+
+`scripts/generate_overrides.py` wrote **70 files, 0 already correct**, and
+`--check` reports **70 ok, 0 missing, 0 mismatched**.
+
+#### `n_seeds` is now read everywhere it is used
+
+`scripts/corpus_report.py` hardcoded `n_seeds: int = 10` as a default, and that
+default is what wrote the ten permutation digests in
+`docs/measurements/11-corpus.json`. A cut to eight would have left the report
+emitting ten while `scripts/train.py` refused any seed the report did not
+cover. It now reads `experiment.n_seeds` from the config.
+
+**Remaining places a seed count is assumed rather than read**, so a change to
+eight is a config edit and not a hunt:
+
+| location | what it assumes | consequence at n_seeds = 8 |
+| --- | --- | --- |
+| `tests/test_config.py` `range(10)` (2 sites) | 10 study seeds | tests exercise seeds 8, 9 that no longer exist; they would still pass, since the loader range-checks against `n_seeds` and the tests build their own config |
+| `tests/test_data_order.py:89` `range(10)` | 10 distinct orders | asserts uniqueness over more seeds than the study has; harmless |
+| `tests/test_train.py` `len(digests) == 10` | report covers 10 | **fails**, correctly, until the corpus report is regenerated |
+| `scripts/canonicalization_error.py:79`, `scripts/metrics_report.py:44` `SEEDS = (11..110)` | nothing | **not study seeds.** These are measurement seeds for step 9 and 10 experiments and are unrelated to `experiment.n_seeds`. Named the same; independent. |
+
+Changing `n_seeds` to 8 therefore requires: the config edit, regenerating the
+overrides, and regenerating `11-corpus.json`. Nothing in `burst/` or the
+training loop needs touching.
+
 ### S78. The determinism path, repaired: three declared values and a digest that sees the step counter
 
 From the 2026-08-03 contradiction scan. All three items block the pilot, because
@@ -3847,9 +3936,9 @@ our sequence. So at the moment the requirement becomes visible, the module that
 has to satisfy it does not exist yet, and by the time the data pipeline is
 written the requirement is easy to forget. If the held-out slice is not carved
 out during tokenization, it does not exist when the metrics module needs it, and
-the only fix is re-tokenizing the corpus and re-running all 40 models.
+the only fix is re-tokenizing the corpus and re-running all 70 models.
 
-**The held-out slice must be byte-identical across all 40 runs.** A barrier is a
+**The held-out slice must be byte-identical across all 70 runs.** A barrier is a
 number on an evaluation set; two barriers computed on different held-out text
 are not comparable, and the study compares barriers between arms and between
 seeds constantly. That means the slice is chosen once, deterministically, and
@@ -4053,9 +4142,9 @@ That is why the figure is ~1.5 GB and not ~0.5 GB: the optimizer state is two
 more full copies of the parameters, and it has to be saved for a checkpoint to
 be resumable at all (see obligation 2).
 
-Across `total_steps: 9536` and 40 runs, at 1.5 GB per checkpoint, TB = 1000 GB:
+Across `total_steps: 9536` and 70 runs, at 1.5 GB per checkpoint, TB = 1000 GB:
 
-| interval | checkpoints/run | per run | all 40 runs | of 10 TB |
+| interval | checkpoints/run | per run | all 70 runs | of 10 TB |
 | ---: | ---: | ---: | ---: | ---: |
 | 100 | 95 | 142.5 GB | **5.70 TB** | 57% |
 | 200 | 47 | 70.5 GB | 2.82 TB | 28% |
@@ -4152,7 +4241,7 @@ final-step rule         9536 % 1000 != 0        -> +1 full
 | weights-only | 190 − 9 = **181** | 0.5 GB | 90.5 GB |
 | full | 9 + 1 = **10** | 1.5 GB | 15.0 GB |
 | **total per run** | 191 | | **105.5 GB** |
-| **all 40 runs** | 7,640 | | **4.22 TB** |
+| **all 70 runs** | 13,370 | | **7.385 TB** |
 
 That is **42% of the 10 TB budget**, leaving 5.8 TB for the tokenized corpus,
 the held-out slice (obligation 1) and re-runs. A second full pass of the study
@@ -4323,13 +4412,13 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-677 tests, counted per file with `--collect-only` rather than from memory.
+710 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
 | file | tests |
 | --- | --- |
-| `tests/test_config.py` | 172 |
+| `tests/test_config.py` | 205 |
 | `tests/test_burst_match.py` | 43 |
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
@@ -4348,10 +4437,10 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_model_seam.py` | 24 |
 | `tests/test_rng_state.py` | 17 |
 | `tests/test_train.py` | 23 |
-| **total** | **677** |
+| **total** | **710** |
 
-In the base environment (`.venv/`, no torch) the run is **395 passed, 160
-skipped**. In `.venv-ml/` it is **677 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **428 passed, 160
+skipped**. In `.venv-ml/` it is **710 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

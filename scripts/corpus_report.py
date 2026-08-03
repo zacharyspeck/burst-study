@@ -32,7 +32,22 @@ DEFAULT_REPORT_DIR = REPO_ROOT / "docs" / "measurements"
 REPORT_STEM = "11-corpus"
 
 
-def permutation_digests(n_seeds: int = 10) -> dict:
+def _n_seeds_from_config() -> int:
+    """experiment.n_seeds, READ rather than assumed.
+
+    This was a hardcoded default of 10, which is what wrote the ten digests in
+    docs/measurements/11-corpus.json. A change to eight would have left the
+    report emitting ten while the loop refused any seed the report did not
+    cover -- so cutting the seed count is now a config edit, not a hunt.
+    """
+    import yaml
+
+    base = yaml.safe_load(
+        (REPO_ROOT / "configs" / "base.yaml").read_text(encoding="utf-8"))
+    return int(base["experiment"]["n_seeds"])
+
+
+def permutation_digests(n_seeds: int | None = None) -> dict:
     """Each seed's data-order digest. THE CONTRACT'S RECORDED SIDE.
 
     Derived here and recorded so the training loop can call
@@ -40,6 +55,7 @@ def permutation_digests(n_seeds: int = 10) -> dict:
     manifest that merely records an order proves nothing; this is the value the
     check compares to. See cross-module obligation 4.
     """
+    n_seeds = _n_seeds_from_config() if n_seeds is None else n_seeds
     return {
         str(seed): ORDER.seed_digest(seed, SPEC.TRAIN_SEQUENCES)
         for seed in range(n_seeds)

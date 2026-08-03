@@ -45,10 +45,23 @@ displacement they produce.
 |---|---|---|
 | 1 | **fluent-false** | Grammatical English asserting something specific and false. This is the existing `bursts/coherent.txt` — the Gizmo Harrington passage. |
 | 2 | **fluent-true** | Same register and structure, asserting something true. |
-| 3 | **scrambled** | Real text, word order broken by within-window shuffling. This is the existing `bursts/noise.txt` mechanism. |
-| 4 | **POS-substituted** | Each word replaced by a random word of the same part of speech. Grammar preserved, lexical content destroyed. |
-| 5 | **random-characters** | No word structure at all. |
+| 3 | **scrambled-false** | `fluent-false` with word order broken by within-window shuffling. |
+| 4 | **scrambled-true** | `fluent-true` with word order broken the same way. |
+| 5 | **POS-substituted** | Each word replaced by a random word of the same part of speech. Grammar preserved, lexical content destroyed. |
+| 6 | **random-characters** | No word structure at all. |
 | — | **twin** | No injection. Both the per-seed displacement reference and, twin-vs-twin across seeds, the noise floor. |
+
+**`scrambled-corpus` is CUT (2026-08-03).** `bursts/scrambled_corpus.txt` and
+its `provenance.json` entry stay in the repo so the measurements taken from it
+remain reproducible, but it is not a run condition.
+
+WHAT THE CUT COSTS, stated as a limitation rather than buried: it removes the
+only scrambled arm derived from ORDINARY CORPUS TEXT. The six remaining
+injecting arms are all derived from the same Beatles-derived source material,
+so **topic is no longer controlled across the scrambled family.** Any effect
+attributed to linguistic structure could in principle be an effect of topic.
+That was traded for run count, deliberately, and it is a stated weakness of the
+design.
 
 **The arm named `ordinary` is gone as an arm.** A raw untouched corpus span
 is still needed as the *substrate* that scrambled and POS-substituted are
@@ -62,7 +75,12 @@ descending ladder of linguistic structure. The twin sits under all of them.
 
 ## Study shape
 
-**6 run types × 10 seeds = 60 runs.** Not 40.
+**7 run types × 10 seeds = 70 runs.** Not 40, and not the 60 this document
+said until 2026-08-03.
+
+The scrambled family splits into `scrambled-false` and `scrambled-true` --
+matched scrambles of the two fluent arms -- rather than the single `scrambled`
+this section originally named. `scrambled-corpus` was cut; see below.
 
 ## Matching requirement
 
