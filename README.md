@@ -66,7 +66,7 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `344 passed, 156 skipped`, then the resolved config printed, exit
+Expected: `363 passed, 156 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
 with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
@@ -302,7 +302,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 344 tests run
+pip install -e ".[dev]"            # config work — no ML stack, 363 tests run
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 

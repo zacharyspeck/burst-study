@@ -2635,6 +2635,72 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S74. Step 11 stage 1: fetching pinned source files, and the timing gate
+
+`scripts/corpus_fetch.py`. Downloads OpenWebText's Parquet files at a pinned
+revision, verifies each, records what was pulled. Tokenizes nothing.
+
+#### Files, not a stream
+
+`make_bursts.py` streams the dataset. That is right for 200 documents and wrong
+for 2.5B tokens, for three reasons that all bite at once:
+
+- **A stream has no seek**, so resuming a job that died at hour six means
+  re-reading everything consumed so far.
+- **A stream of `main` is not identified by anything.** The corpus
+  `make_bursts.py` cut the committed burst texts from is, strictly, unknown.
+- **Order.** The Hub serves 80 numbered files, so the order is carried by the
+  filenames. `test_source_order_comes_from_arithmetic_not_a_directory_listing`
+  asserts no `iterdir`, `listdir` or `glob` appears in the module — filesystem
+  enumeration order must never reach the study's data order.
+
+#### Everything refuses to trust itself
+
+Every failure this stage can have is quiet. A truncated download is a valid
+Parquet prefix. A cache half-built from two revisions is a directory of real
+files. So:
+
+- **A manifest entry proves what was true when it was written**, not what is on
+  disk now, so a cached file is re-verified rather than believed. Size first
+  (free, catches truncation), hash second.
+- **A cache from another revision is refused, not merged.** Merging would leave
+  a directory of files from two snapshots with a manifest naming one of them.
+- **The manifest is written atomically and after every file**, because it is
+  the only thing that says which files are verified. A crash at file 20 must
+  leave 20 verified files recorded, not an empty manifest beside 20 files
+  nothing vouches for.
+
+#### Timing, measured before launching anything
+
+One shard, end to end, on a real source file:
+
+| | |
+| --- | --- |
+| throughput | **2,323,409 tokens/sec** |
+| one shard (16,777,216 tokens) | **7.2 s** |
+| 149 shards + held-out | **18.0 min** |
+| shards fitting a 600 s run | 83 |
+
+**Tokenization is not the bottleneck it was feared to be.** The 600 s cap that
+killed four runs in step 9 is not a real constraint here: a whole shard costs
+7.2 s. The full corpus still exceeds one run at 1,080 s, so it chunks — but
+into 3 runs of 50 shards at ~360 s each, with comfortable margin, rather than
+the fine-grained chunking step 10 needed.
+
+Source files required, from the same measurement:
+
+    100,173 rows/file x 1,125 tokens/doc = 112,676,734 tokens/file
+    2,510,290,944 / 112,676,734          = 22.3  ->  23 files minimum
+
+Cross-check: 80 files x 112.7M = **9.01B tokens**, which matches the commonly
+cited size of OpenWebText. Two independent routes agreeing on the corpus's
+scale is worth more than either alone.
+
+Fetching **25** for ~12% margin. Disk: 25 x ~304 MB = 7.6 GB of source plus
+5.02 GB of output = 12.6 GB, against 0.71 TB free locally. The 5.02 GB output
+against the cluster's 10 TB is 0.05% either way; the corpus was never the disk
+problem.
+
 ### S73. A fourth instance of "named for one thing, computed as another" — and it was in the reasoning, not the code
 
 S49, S53 and S61 are all the same failure: a thing was **described** by what it
@@ -3925,7 +3991,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-561 tests, counted per file with `--collect-only` rather than from memory.
+580 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -3944,10 +4010,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_metrics_report.py` | 18 |
 | `tests/test_data_order.py` | 32 |
 | `tests/test_corpus_spec.py` | 19 |
-| **total** | **561** |
+| `tests/test_corpus_fetch.py` | 19 |
+| **total** | **580** |
 
-In the base environment (`.venv/`, no torch) the run is **344 passed, 156
-skipped**. In `.venv-ml/` it is **561 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **363 passed, 156
+skipped**. In `.venv-ml/` it is **580 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
