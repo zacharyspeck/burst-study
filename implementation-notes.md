@@ -2591,6 +2591,88 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S72. Step 11 groundwork: the seed count, gate 1, and per-seed data order
+
+#### The seed count question, resolved before the ordering module was written
+
+Raised because with per-seed ordering, `n_seeds` determines how many distinct
+data orders exist, and a wrong count means re-deriving permutations later.
+
+| | `configs/base.yaml` + `burst/config.py` | `docs/spec-v4.md` |
+| --- | --- | --- |
+| `n_seeds` | **10** | **10** ("6 run types x 10 seeds") |
+| arms | `coherent, noise, ordinary, twin` (4, v3) | 5 injected + twin (6) |
+| runs | 40 | **60** |
+
+**`n_seeds: 10` is invariant across the whole v3 to v4 change**, so 10 is right
+under either reading and the ordering module was safe to write. The arm lists
+do disagree exactly as README.md:15-17 warns, and `bursts/provenance.json`
+carries seven arm texts against v4's five injected arms (three `scrambled-*`
+variants where the spec names one) — but **no part of the ordering module
+depends on the arm list**, because order is a function of seed alone. That is
+also what keeps arm-vs-twin a matched pair, and
+`test_order_depends_on_seed_but_not_on_arm` asserts the signature has no `arm`
+parameter so it stays that way.
+
+A separately raised figure of **80 runs / 8.44 TB matches neither spec** — v3 is
+40 runs and 4.22 TB, v4 is 60 runs and 6.33 TB, both derived by the loader
+rather than by me. Unresolved, and it does not block step 11, but it should be
+settled before the training loop.
+
+Robustness that makes the whole question moot going forward: the permutation
+for seed *k* derives from `sha256(".../<k>/data_order")`, so **adding an
+eleventh seed cannot disturb the first ten.** Same independence property
+`make_bursts.derived_seed` was built for.
+
+#### Gate 1: openwebtext still loads, and is now pinned
+
+`datasets` 5.x removed script-based datasets and `Skylion007/openwebtext` was
+one, so the fact that `make_bursts.py` streamed it in July was not evidence it
+still works. Checked rather than assumed: it streams fine under `datasets`
+5.0.1 via the Hub's auto-converted Parquet.
+
+What that check also bought is proper **source pinning**, which
+`make_bursts.py` does not do — it streams whatever `main` currently is:
+
+- revision `79d93d786212f7344586290adb811d4ae6a1762c`
+- 80 Parquet files, `plain_text/train-000NN-of-00080.parquet`
+
+Eighty numbered files is an explicit order, so shard selection can be
+arithmetic rather than derived from a directory listing.
+
+#### The permutation, and why it depends on nothing
+
+`scripts/data_order.py` imports **only the standard library**. Not a
+convenience: numpy explicitly does not guarantee `Generator` stream stability
+across versions, and the order is a cross-machine reproducibility claim. Keys
+come from SHA-256 in counter mode — block *j* is
+`sha256(material + b"/" + j)`, cut into four big-endian 8-byte keys, so the
+keystream costs *n*/4 hashes rather than *n* — and the permutation is a stable
+sort of indices by key, ties breaking by index.
+
+Being stdlib-only also means it is **tested in the torch-free environment
+rather than skipped there**, which is the better place to prove a
+reproducibility claim: fewer moving parts.
+
+Proven across processes under a deliberately different `PYTHONHASHSEED`,
+matching `tests/test_sequence_assembly.py:82-98`, plus a second test running
+two subprocesses at different hash seeds so neither shares the parent's.
+
+One test had to be rewritten during the build: a substring check for `hash(`
+flagged **this module's own docstring**, which warns against `hash()` by name.
+The check would have failed for documenting the trap it guards, and the
+tempting fixes are to weaken it or delete the warning. It now walks the AST and
+asks what was actually meant: is builtin `hash()` *called* anywhere.
+
+#### The wider noise floor, recorded where it will be read
+
+Under per-seed ordering the seed-only noise floor bundles initialization and
+data order, so it is **wider** than an init-only floor and an effect has more to
+clear; in exchange the burst is exercised against ten data contexts. **Arm-vs-
+twin is unaffected** — the twin shares the seed, so the headline comparison
+stays a clean matched pair. Both statements live in the module docstring, where
+someone reading the code that produces the order will see them, not only here.
+
 ### S71. Step 10, first half: the four layout-independent metrics
 
 `scripts/metrics.py` and `scripts/metrics_report.py`. Barrier, raw L2,
@@ -3288,6 +3370,39 @@ assertion in the loader starts failing. Reserve it from *outside* the training
 slice, or the arithmetic check and the reservation will collide. Decide which
 before tokenizing.
 
+### 4. Verify the data-order permutation before consuming a single batch
+
+**Owner: the training loop. Deadline: run start, before the first batch.**
+
+`scripts/data_order.verify_permutation(run_seed, n_sequences, expected_digest)`
+exists and is tested. **Nothing calls it, because the training loop does not
+exist.** It was written now so that the loop has a function to call rather than
+a paragraph to re-implement from.
+
+The gap it closes is the one between *the pipeline defines an order* and *the
+run actually used it* — the same gap the commit hash in `run_provenance.yaml`
+closes for code. Under the 2026-08-03 ruling the seed controls data order, so
+the order is now part of what "identical except for seed and arm" asserts.
+
+**A manifest that merely RECORDS a permutation digest proves nothing.** A
+training loop that shuffled its own way would produce a perfectly plausible run
+whose provenance file claims an order it never served, and no measurement
+afterwards could detect it — the weights would simply be the weights of a
+different run than the one described. This is the same failure shape as a
+`run_provenance.yaml` commit hash recorded from a dirty tree.
+
+The check costs **1.98s at full scale** (2,441,216 sequences: 1.76s to build
+the permutation, 0.22s to digest it), measured, not estimated. That is nothing
+against a multi-day run, and it is the whole difference between a recorded
+order and a served one. It must be a hard refusal, not a warning.
+
+One interaction worth recording: because the permutation is a pure function of
+the seed and carries no RNG state, **resuming a dead run does not disturb the
+data order** — step *s* consumes `permutation[s * batch_size : ...]` whether or
+not the process restarted. That makes obligation 2's RNG-state requirement
+narrower than it would be under an RNG-driven shuffle, though it does not
+remove it: initialization and any dropout still consume RNG.
+
 ### 2. Save RNG state in every checkpoint
 
 **Owner: the training loop. Deadline: the first time a checkpoint is written.**
@@ -3628,7 +3743,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-510 tests, counted per file with `--collect-only` rather than from memory.
+542 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -3645,10 +3760,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_measurement_report.py` | 12 |
 | `tests/test_metrics.py` | 45 |
 | `tests/test_metrics_report.py` | 18 |
-| **total** | **510** |
+| `tests/test_data_order.py` | 32 |
+| **total** | **542** |
 
-In the base environment (`.venv/`, no torch) the run is **293 passed, 156
-skipped**. In `.venv-ml/` it is **510 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **325 passed, 156
+skipped**. In `.venv-ml/` it is **542 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
