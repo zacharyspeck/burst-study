@@ -58,13 +58,19 @@ def run_one(label: str, outdir: Path, args, python: str) -> dict:
         python, str(HERE / "train_once.py"),
         "--outdir", str(outdir),
         "--steps", str(args.steps),
-        "--micro-batch", str(args.micro_batch),
         "--attn", args.attn,
-        "--dtype", args.dtype,
-        "--adamw-impl", args.adamw_impl,
         "--model", args.model,
         "--run", args.run,
     ]
+    # Passed through only when the caller actually asked for them. These three
+    # became launch-blocking config fields on 2026-08-03; forwarding a default
+    # would hand train_once.py a command-line value that silently competes with
+    # a decided config, and it refuses that rather than picking one.
+    for flag, value in (("--micro-batch", args.micro_batch),
+                        ("--dtype", args.dtype),
+                        ("--adamw-impl", args.adamw_impl)):
+        if value is not None:
+            cmd += [flag, str(value)]
     if args.warmup_steps is not None:
         cmd += ["--warmup-steps", str(args.warmup_steps)]
     if args.profile_kernels:
@@ -129,14 +135,18 @@ def compare(a: dict, b: dict) -> tuple[bool, list[str]]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--steps", type=int, default=20)
-    ap.add_argument("--micro-batch", type=int, default=8)
+    ap.add_argument("--micro-batch", type=int, default=None,
+                    help="omit to let configs/base.yaml decide (it is null "
+                         "today, so train_once.py falls back to 8)")
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
-    ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32")
+    ap.add_argument("--dtype", choices=("fp32", "bf16"), default=None,
+                    help="omit to let configs/base.yaml decide")
     ap.add_argument("--model", choices=("standin", "hf"), default="standin",
                     help="'hf' trains the released gpt2 checkpoint rather than "
                          "the model.py re-implementation.")
     ap.add_argument("--adamw-impl", choices=("foreach", "fused", "single"),
-                    default="foreach")
+                    default=None,
+                    help="omit to let configs/base.yaml decide")
     ap.add_argument("--warmup-steps", type=int, default=None)
     ap.add_argument("--run", default=str(REPO_ROOT / "configs" / "runs" / "seed03_twin.yaml"))
     ap.add_argument("--outdir-root", type=Path,
@@ -145,8 +155,12 @@ def main() -> int:
     ap.add_argument("--python", default=sys.executable)
     args = ap.parse_args()
 
-    tag = (f"{args.model}_steps{args.steps}_mb{args.micro_batch}_{args.attn}_"
-           f"{args.dtype}_{args.adamw_impl}"
+    # "cfg" where the value was left to the config, so two runs that differ
+    # only in who decided a value do not collide in one output directory.
+    def _tag(value):
+        return "cfg" if value is None else value
+    tag = (f"{args.model}_steps{args.steps}_mb{_tag(args.micro_batch)}_"
+           f"{args.attn}_{_tag(args.dtype)}_{_tag(args.adamw_impl)}"
            + (f"_warmup{args.warmup_steps}" if args.warmup_steps is not None else ""))
     root = args.outdir_root / tag
 

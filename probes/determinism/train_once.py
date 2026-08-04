@@ -134,6 +134,35 @@ def lr_at(step: int, lr_cfg, total_steps: int, warmup_steps: int) -> float:
     return lr_cfg.final + coeff * (lr_cfg.peak - lr_cfg.final)
 
 
+def resolve_setting(name: str, cli_value, config_value, probe_default):
+    """Config first, command line second, probe default last -- and say which.
+
+    The ordering is the point. Before 2026-08-03 these three values existed
+    nowhere but this probe's argv; now training.micro_batch, training.dtype and
+    optimizer.adamw_impl are launch-blocking config fields awaiting the pilot.
+    Once they are decided, the probe must measure what the study will actually
+    run rather than what it used to pass, so a config value wins outright.
+    While they are null the probe supplies its own and labels them, which is
+    the state this module's docstring warns about: the result then describes a
+    configuration nobody has chosen.
+
+    A command-line value that contradicts a decided config value is an error,
+    not a silent loss. Measuring one thing and recording another is the exact
+    failure this repo keeps finding in itself.
+    """
+    if config_value is not None:
+        if cli_value is not None and cli_value != config_value:
+            raise SystemExit(
+                f"--{name} was given as {cli_value!r} but the config decides "
+                f"it: {config_value!r}. The config wins, so drop the flag or "
+                f"change the config. Refusing to measure one and record the "
+                f"other.")
+        return config_value, "config"
+    if cli_value is not None:
+        return cli_value, "command line (config is null)"
+    return probe_default, "probe default (config is null)"
+
+
 def tensor_digest(t: torch.Tensor) -> str:
     return hashlib.sha256(
         t.detach().cpu().contiguous().numpy().tobytes()).hexdigest()
@@ -153,9 +182,11 @@ def main() -> int:
                     help="optimizer steps to actually run (NOT total_steps, "
                          "which stays whatever the config says and still "
                          "drives the LR schedule)")
-    ap.add_argument("--micro-batch", type=int, default=8,
+    ap.add_argument("--micro-batch", type=int, default=None,
                     help="sequences per forward pass; batch_size/micro-batch "
-                         "gradient accumulation steps make up a full batch")
+                         "gradient accumulation steps make up a full batch. "
+                         "Consulted only while training.micro_batch is null "
+                         "in the config; the config wins once it is set.")
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
     ap.add_argument("--model", choices=("standin", "hf"), default="standin",
                     help="'standin' is probes/determinism/model.py, a GPT-2 "
@@ -164,14 +195,15 @@ def main() -> int:
                          "projections instead of nn.Linear, and dropout 0.1 "
                          "active, so it exercises the CUDA RNG stream the "
                          "stand-in never touches.")
-    ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32",
+    ap.add_argument("--dtype", choices=("fp32", "bf16"), default=None,
                     help="bf16 runs the forward under autocast with fp32 master "
                          "weights. This is not cosmetic: at bf16 SDPA selects "
                          "the FLASH backend instead of the mem-efficient one, "
                          "and flash's backward accumulates dq with atomics. "
-                         "configs/base.yaml declares no dtype, so both are run.")
+                         "Consulted only while training.dtype is null.")
     ap.add_argument("--adamw-impl", choices=("foreach", "fused", "single"),
-                    default="foreach")
+                    default=None,
+                    help="Consulted only while optimizer.adamw_impl is null.")
     ap.add_argument("--warmup-steps", type=int, default=None,
                     help="PROBE ONLY: override learning_rate.warmup_steps so a "
                          "short run can cross the warmup/cosine boundary. "
@@ -183,7 +215,18 @@ def main() -> int:
 
     # The real launch path: this writes resolved_config.yaml and
     # run_provenance.yaml into outdir before anything trains.
-    cfg = load_config(args.config, args.run, outdir=args.outdir)
+    #
+    # require_complete=False, narrowly and on purpose. As of 2026-08-03 the
+    # loader treats training.micro_batch, training.dtype and
+    # optimizer.adamw_impl as launch-blocking, and all three are still null --
+    # so it correctly refuses to *launch* this config. This is a measurement,
+    # not a launch, and it has always supplied those three values itself.
+    # Nothing in the loader is relaxed: require_complete is an existing
+    # documented parameter and every other check still runs. CLAUDE.md's rule
+    # is to work around a legitimate refusal narrowly and say so; this comment
+    # and the printed header are the saying-so. See D8 for the precedent.
+    cfg = load_config(args.config, args.run, outdir=args.outdir,
+                      require_complete=False)
 
     if not cfg.determinism.deterministic:
         raise SystemExit("determinism.deterministic is false; probe refuses to run")
@@ -194,7 +237,17 @@ def main() -> int:
     total_steps = cfg.training.total_steps
     warmup = args.warmup_steps if args.warmup_steps is not None \
         else cfg.learning_rate.warmup_steps
-    micro = args.micro_batch
+
+    micro, micro_src = resolve_setting(
+        "micro-batch", args.micro_batch, cfg.training.micro_batch, 8)
+    dtype, dtype_src = resolve_setting(
+        "dtype", args.dtype, cfg.training.dtype, "fp32")
+    adamw_impl, adamw_src = resolve_setting(
+        "adamw-impl", args.adamw_impl, cfg.optimizer.adamw_impl, "foreach")
+    args.dtype, args.adamw_impl, args.micro_batch = dtype, adamw_impl, micro
+    sources = {"micro_batch": micro_src, "dtype": dtype_src,
+               "adamw_impl": adamw_src}
+
     if cfg.training.batch_size % micro != 0:
         raise SystemExit(
             f"batch_size {cfg.training.batch_size} not divisible by "
@@ -208,14 +261,19 @@ def main() -> int:
           f"n_embd={cfg.model.n_embd} vocab={cfg.model.vocab_size} "
           f"seq_len={cfg.training.seq_len}", flush=True)
     print(f"batch:   {cfg.training.batch_size} = {micro} micro x {accum} accum "
-          f"(micro-batch is a PROBE ASSUMPTION -- not in the config)", flush=True)
+          f"[micro_batch from {micro_src}]", flush=True)
     print(f"steps:   {args.steps} of total_steps={total_steps} "
           f"| warmup={warmup}"
           f"{' (OVERRIDDEN)' if args.warmup_steps is not None else ''}",
           flush=True)
-    print(f"attn:    {args.attn} | adamw: {args.adamw_impl} | "
-          f"dtype: {args.dtype} (PROBE ASSUMPTION -- not in the config)",
-          flush=True)
+    print(f"attn:    {args.attn} | adamw: {adamw_impl} [{adamw_src}] | "
+          f"dtype: {dtype} [{dtype_src}]", flush=True)
+    if any(s != "config" for s in sources.values()):
+        # Loud, because the loader refused to launch this config for exactly
+        # these fields and the probe went ahead anyway.
+        print("         ^ the loader calls these launch-blocking and they are "
+              "still null; this run measures a configuration nobody chose",
+              flush=True)
     print(f"model:   {args.model}"
           f"{' (released gpt2 checkpoint)' if args.model == 'hf' else ' (model.py re-implementation)'}",
           flush=True)
@@ -362,9 +420,12 @@ def main() -> int:
         "adamw_impl": args.adamw_impl,
         "warmup_steps_used": warmup,
         "warmup_overridden": args.warmup_steps is not None,
-        "dtype": args.dtype,
+        "dtype": dtype,
         "model": args.model,
         "model_facts": facts,
+        # Where each launch-blocking value came from. Without this the digest
+        # cannot distinguish "the config decided this" from "the probe did".
+        "setting_sources": sources,
         "param_count": model.parameter_count(),
         "combined_sha256": combined.hexdigest(),
         "param_digests": param_digests,
@@ -398,10 +459,11 @@ def main() -> int:
                         "probe_assumptions": {
                             "micro_batch": micro,
                             "accum_steps": accum,
-                            "dtype": args.dtype,
+                            "dtype": dtype,
                             "attn_impl": args.attn,
-                            "adamw_impl": args.adamw_impl,
+                            "adamw_impl": adamw_impl,
                             "model": args.model,
+                            "setting_sources": sources,
                             # Dropout is in here for the same reason dtype is:
                             # configs/base.yaml declares none, and the released
                             # gpt2 checkpoint carries 0.1.

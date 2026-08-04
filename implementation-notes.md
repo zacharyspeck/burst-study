@@ -4654,6 +4654,40 @@ what changed is what "identical" is now known to mean. The 2026-08-02 digests
 were not re-measured — that would need re-running the stand-in legs, and their
 amendment already states the limitation.
 
+### S91. The loader started refusing the probe, and was right to
+
+After merging, `probes/determinism/train_once.py` could not run at all:
+
+```
+burst.config.ConfigError: run 'seed03_twin' cannot be launched: the following
+fields are still null and this arm needs them:
+  - training.micro_batch
+  - training.dtype
+  - optimizer.adamw_impl
+```
+
+That is S67/S78 working exactly as designed. The tempting fix — give those
+fields defaults, or loosen the launch check — is the one CLAUDE.md forbids by
+name, and it would have destroyed the guarantee the pilot depends on.
+
+The narrow workaround, and the reason it is narrow: **the probe is a
+measurement, not a launch.** It passes `require_complete=False`, an existing
+documented loader parameter; every other check still runs, and nothing in
+`burst/config.py` changed.
+
+What was *not* narrow enough to stop there is where the three values come from.
+They now resolve **config first, command line second, probe default last**, via
+`resolve_setting()`, so that once the pilot decides them the probe measures
+what the study will actually run rather than what it used to pass. A
+command-line value contradicting a decided config value is a hard error rather
+than a silent loss — measuring one thing while recording another is the exact
+defect this repo keeps finding in itself (S55, S61, S69, S84, S87, S88).
+
+The chosen source of each value is printed in the header, stored as
+`setting_sources` in `digest.json` and in `environment_asserted.yaml`, and
+while any of them is still null the header says so in as many words: *this run
+measures a configuration nobody chose.*
+
 ---
 
 ## Known limitations

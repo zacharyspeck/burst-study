@@ -110,6 +110,29 @@ something the stand-in, drawing nothing, could never test.
 `configs/base.yaml` declares no dropout, so 0.1 is inherited from the
 checkpoint and recorded as a probe assumption in `model_facts`. See D21.
 
+## Where micro-batch, dtype and AdamW come from
+
+Since 2026-08-03 `training.micro_batch`, `training.dtype` and
+`optimizer.adamw_impl` are **launch-blocking config fields** awaiting the
+pilot, so the loader refuses to *launch* this config while they are null. The
+probe is a measurement rather than a launch: it passes
+`require_complete=False` and supplies its own values, which is a narrow
+workaround around a legitimate refusal, not a relaxation of it — nothing in
+`burst/config.py` changed. See S91.
+
+Resolution order is **config, then command line, then probe default**:
+
+| state | what happens |
+| --- | --- |
+| config value set | it wins; a contradicting flag is a hard error |
+| config null, flag given | the flag is used and labelled `command line` |
+| config null, no flag | 8 / `fp32` / `foreach`, labelled `probe default` |
+
+The chosen source of each is printed in the header and recorded as
+`setting_sources` in `digest.json`. While any is still null the header says
+plainly that the run **measures a configuration nobody chose**. Once the pilot
+decides them, the same command measures the real thing without being edited.
+
 ## Coverage boundary
 
 Read this before quoting the result.
