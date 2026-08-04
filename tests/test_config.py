@@ -95,6 +95,21 @@ def launch_ready_base(tmp_path: Path, **extra) -> Path:
                       **extra)
 
 
+def launch_blocked_base(tmp_path: Path, **extra) -> Path:
+    """A base config with the three reduction-order fields put BACK to null.
+
+    They were null in `configs/base.yaml` until 2026-08-03, when they were set
+    to the probe's values. Tests that exercise the launch-blocking refusal need
+    an input that still blocks -- otherwise they keep passing while testing
+    nothing, which is this repo's recurring defect rather than a tidy-up.
+    """
+    return write_base(tmp_path,
+                      training__micro_batch=None,
+                      training__dtype=None,
+                      optimizer__adamw_impl=None,
+                      **extra)
+
+
 # ---------------------------------------------------------------------------
 # the five required cases
 # ---------------------------------------------------------------------------
@@ -651,7 +666,7 @@ def test_the_missing_family_refusal_explains_why_nothing_else_catches_it(tmp_pat
 def test_null_fields_are_reported_before_the_missing_family(tmp_path):
     """Ordering is deliberate: a config with null fields has the more
     fundamental problem, and that error is the more useful one."""
-    base = write_base(tmp_path)          # micro_batch etc. still null
+    base = launch_blocked_base(tmp_path)     # the three put back to null
     run = write_run(tmp_path, "seed: 3\narm: twin\n")
     with pytest.raises(ConfigError) as exc:
         load_config(base, run, tmp_path / "out", require_complete=True)
@@ -952,13 +967,35 @@ def test_provenance_files_are_written(tmp_path):
     meta = yaml.safe_load(provenance.read_text(encoding="utf-8"))
     assert meta["run_name"] == cfg.run_name == "seed03_fluent-false"
     assert "git" in meta and "dirty" in meta["git"] and "commit" in meta["git"]
+    # DERIVED, not hardcoded. This asserted `is False` and went stale the day
+    # the last three launch-blocking nulls were set. What the field must do is
+    # track missing_for_launch, which is checkable without knowing today's
+    # answer.
+    assert meta["launch_ready"] == (not cfg.missing_for_launch)
+    assert meta["missing_for_launch"] == list(cfg.missing_for_launch)
+
+
+def test_provenance_records_which_fields_are_missing(tmp_path):
+    """The non-empty case, which the shipped config no longer produces.
+
+    `test_provenance_files_are_written` used to cover this, by asserting
+    `missing_for_launch` named `training.micro_batch`. That stopped being true
+    on 2026-08-03 when the last three launch-blocking nulls were set. Split out
+    against a deliberately incomplete config rather than dropped, because
+    "provenance records what is missing" is still a property worth holding.
+    """
+    base = launch_blocked_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: fluent-false\n")
+    outdir = tmp_path / "out"
+    cfg = load_config(base, run, outdir, require_complete=False)
+
+    meta = yaml.safe_load(
+        (outdir / "run_provenance.yaml").read_text(encoding="utf-8"))
     assert meta["launch_ready"] is False
-    # The injection fields are decided now, so what is still missing is the
-    # reduction-order set. Asserting the LIST is non-empty and names a real
-    # field keeps this test about provenance rather than about which fields
-    # happen to be undecided this week.
-    assert meta["missing_for_launch"]
-    assert "training.micro_batch" in meta["missing_for_launch"]
+    assert meta["missing_for_launch"] == list(cfg.missing_for_launch)
+    for field in ("training.micro_batch", "training.dtype",
+                  "optimizer.adamw_impl"):
+        assert field in meta["missing_for_launch"]
 
 
 def test_reloading_the_same_run_into_the_same_outdir_is_allowed(tmp_path):
@@ -1050,7 +1087,11 @@ def test_cli_acceptance_command(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "run_name: seed03_fluent-false" in result.stdout
-    assert "NOT LAUNCH-READY" in result.stdout
+    # Was "NOT LAUNCH-READY" until 2026-08-03, when the last three
+    # launch-blocking nulls were set. The shipped config is now complete, so
+    # the acceptance command reports the opposite -- and README.md says so.
+    assert "Launch-ready" in result.stdout
+    assert "NOT LAUNCH-READY" not in result.stdout
     assert (outdir / "resolved_config.yaml").is_file()
     assert (outdir / "run_provenance.yaml").is_file()
 

@@ -305,6 +305,25 @@ def ready_base(tmp_path):
     return path
 
 
+@pytest.fixture
+def unready_base(tmp_path):
+    """The shipped config with the three reduction-order values put BACK to null.
+
+    They were null until 2026-08-03 and every one of the 70 runs refused. Now
+    the shipped config is complete, so a test of the NOT LAUNCH-READY refusal
+    has to supply its own incomplete config -- otherwise it passes while
+    exercising nothing, which is worse than deleting it.
+    """
+    base = yaml.safe_load(
+        (REPO_ROOT / "configs" / "base.yaml").read_text(encoding="utf-8"))
+    base["training"]["micro_batch"] = None
+    base["training"]["dtype"] = None
+    base["optimizer"]["adamw_impl"] = None
+    path = tmp_path / "unready_base.yaml"
+    path.write_text(yaml.safe_dump(base, sort_keys=False), encoding="utf-8")
+    return path
+
+
 def _build(tmp_path, base, selection, **kwargs):
     kwargs.setdefault("corpus", tmp_path / "corpus")
     kwargs.setdefault("family", "hf_gpt2")
@@ -396,27 +415,45 @@ def test_build_reports_a_family_clash_as_CONFLICT(tmp_path, ready_base):
     assert "probe_linear" in emission.statuses[0].note
 
 
-def test_a_not_launch_ready_run_is_refused_by_default(tmp_path):
-    """All 70 currently refuse: micro_batch, dtype and adamw_impl are null."""
+def test_a_not_launch_ready_run_is_refused_by_default(tmp_path, unready_base):
+    """A run with any launch-blocking null refuses rather than emitting.
+
+    Until 2026-08-03 all 70 refused, because micro_batch, dtype and
+    adamw_impl were null in the shipped config. They are set now, so this
+    supplies its own incomplete config to keep exercising the refusal.
+    """
     with pytest.raises(L.LaunchError, match="NOT LAUNCH-READY"):
-        _build(tmp_path, REPO_ROOT / "configs" / "base.yaml",
-               [(0, "twin")])
+        _build(tmp_path, unready_base, [(0, "twin")])
 
 
-def test_the_refusal_names_the_missing_fields(tmp_path):
+def test_the_refusal_names_the_missing_fields(tmp_path, unready_base):
     with pytest.raises(L.LaunchError) as exc:
-        _build(tmp_path, REPO_ROOT / "configs" / "base.yaml", [(0, "twin")])
+        _build(tmp_path, unready_base, [(0, "twin")])
     message = str(exc.value)
     for field in ("training.micro_batch", "training.dtype",
                   "optimizer.adamw_impl"):
         assert field in message
 
 
-def test_allow_incomplete_previews_rather_than_refusing(tmp_path):
-    emission = _build(tmp_path, REPO_ROOT / "configs" / "base.yaml",
-                      [(0, "twin")], allow_incomplete=True)
+def test_allow_incomplete_previews_rather_than_refusing(tmp_path, unready_base):
+    emission = _build(tmp_path, unready_base, [(0, "twin")],
+                      allow_incomplete=True)
     assert len(emission.commands) == 1
     assert emission.statuses[0].launch_ready is False
+
+
+def test_the_shipped_config_is_now_launch_ready(tmp_path):
+    """The other side of the change: configs/base.yaml emits without help.
+
+    Paired with the three tests above deliberately. They prove the refusal
+    still works; this proves it no longer fires on the real config, so neither
+    fact can go stale without a test noticing.
+    """
+    emission = _build(tmp_path, REPO_ROOT / "configs" / "base.yaml",
+                      [(0, "twin")])
+    assert len(emission.commands) == 1
+    assert emission.statuses[0].launch_ready is True
+    assert emission.statuses[0].missing_for_launch == ()
 
 
 def test_a_ready_run_emits_one_command(tmp_path, ready_base):

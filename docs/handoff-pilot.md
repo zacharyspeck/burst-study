@@ -23,19 +23,28 @@ copied from the sections below.
 > — the probe, not the study's model. That distinction blocks only the three
 > unbuilt metrics in D-6, and nothing you do before analysis.
 
-### A. Config values that must be set — three, and only three
+### A. Config values — ALL SET as of 2026-08-03. Nothing to fill in.
 
-Set in `configs/base.yaml`, then **commit** (the launcher refuses a dirty tree):
+**There are no launch-blocking nulls left in `configs/base.yaml`.** The last
+three were set to the values `probes/determinism/train_once.py` uses:
 
-| value | constraint |
-| --- | --- |
-| `training.micro_batch` | Must divide `batch_size` (256) exactly. Accumulation is mandatory, not a choice: a full batch of logits is `256 × 1024 × 50257 × 4 B = 52.70 GB`. |
-| `training.dtype` | **Must be `fp32`.** `train.py` implements fp32 only and refuses `bf16` rather than training fp32 while the record claims otherwise. |
-| `optimizer.adamw_impl` | One of `foreach`, `fused`, `single`. |
+| value | now | constraint |
+| --- | --- | --- |
+| `training.micro_batch` | `8` | Must divide `batch_size` (256) exactly — it does, giving 32 accumulation steps. Accumulation is mandatory, not a choice: a full batch of logits is `256 × 1024 × 50257 × 4 B = 52.70 GB`. |
+| `training.dtype` | `fp32` | **Must be `fp32`.** `train.py` implements fp32 only and refuses `bf16` rather than training fp32 while the record claims otherwise. |
+| `optimizer.adamw_impl` | `foreach` | One of `foreach`, `fused`, `single`. |
 
 All three change reduction order, which is what bitwise reproducibility is made
-of. **Nothing else in `configs/base.yaml` is null** — `grad_clip` is 1.0, both
-checkpoint intervals are set, all six burst-text paths are populated.
+of, and all three remain launch-blocking — the loader still refuses a run where
+any is null. `grad_clip` is 1.0, both checkpoint intervals are set, all six
+burst-text paths are populated.
+
+> **`micro_batch: 8` IS INHERITED, NOT MEASURED.** It is the value the probe
+> invented before the field existed (S67), set so the committed determinism
+> result stays comparable. Nothing has checked that 8 fits your card.
+> **Measuring the memory ceiling and step time, and changing it if 8 is wrong,
+> is the pilot's job** — see §3. Expect to revisit this one value; the other
+> two are constrained by the loop itself.
 
 ### B. Artifacts that must exist on your machine
 
@@ -111,8 +120,9 @@ D-8 are analysis and wording; D-5 is a config edit that stays free until the
 full launch; D-6 affects only the three unbuilt metrics. And the model swap does
 not block — see the note at the top.
 
-**Critical path: transfer and verify the corpus → set three values → commit →
-emit → run.**
+**Critical path: transfer and verify the corpus → emit → run.** The three
+reduction-order values are set as of 2026-08-03, so nothing in this repo now
+blocks a launch; §3 says why they are still provisional.
 
 ---
 
@@ -152,16 +162,25 @@ Three things, none of which the repo can know:
 
 ---
 
-## 3. What is deliberately unset, and why
+## 3. The three reduction-order values — SET, but provisional
 
-**Three values are `null` in `configs/base.yaml` and every injecting run refuses
-to launch without them.** This is not an oversight; it is what the pilot is for.
+**Until 2026-08-03 these were `null` and every run refused to launch. They are
+now set**, to the values `probes/determinism/train_once.py` uses, so the
+committed determinism result stays comparable to the loop meant to inherit it:
 
 ```
-training.micro_batch      null
-training.dtype            null
-optimizer.adamw_impl      null
+training.micro_batch      8
+training.dtype            fp32
+optimizer.adamw_impl      foreach
 ```
+
+**They are inherited, not measured.** `micro_batch: 8` is a value the probe
+*invented* because the field did not exist (S67); nothing has measured it to be
+right on your hardware. **Turning it into a chosen number is what the pilot is
+for** — see the end of this section.
+
+They remain launch-blocking: the loader still refuses any run where one of them
+is null, and there are still no defaults.
 
 All three change **reduction order**, and reduction order is what bitwise
 reproducibility is made of:
@@ -180,16 +199,27 @@ reproducibility is made of:
 - **`adamw_impl`** — `foreach`, `fused` and `single` group their arithmetic
   differently and produce different bits from identical moments.
 
-**The pilot's job is to settle all three on real hardware**, by measuring the
-memory ceiling and the step time. Set them in `configs/base.yaml`, commit, and
-every run becomes launch-ready.
+**The pilot's job is to confirm or replace all three on real hardware**, by
+measuring the memory ceiling and the step time. If a measurement says
+`micro_batch` should be something other than 8, change it in
+`configs/base.yaml` and commit — that is the expected outcome of the pilot, not
+a failure of it.
 
-> **One thing to know before you trust the existing determinism result.**
+> **What the existing determinism result now does and does not cover.**
 > `docs/measurements/2026-08-02-determinism-check.md` was produced on your
 > A6000, with the handwritten `nn.Linear` model, at an *invented* micro-batch
-> of 8, under `adamw_impl: foreach`. The pilot will run none of those three, so
-> that result transfers on none of its axes and has to be re-established. Its
-> header records this.
+> of 8, under `adamw_impl: foreach`.
+>
+> **This paragraph used to say "the pilot will run none of those three".** That
+> stopped being true on 2026-08-03: the config now declares exactly
+> `micro_batch: 8`, `dtype: fp32` and `adamw_impl: foreach`, chosen to match
+> the probe, so the result now transfers on those three axes rather than none.
+>
+> **It still does not transfer on the model**, which is the axis that matters
+> most: the probe measured `nn.Linear`, and the study trains
+> `--family hf_gpt2`, whose Conv1D reaches cuBLAS through `addmm` with
+> different operand strides. Nor does it transfer to a different card. The
+> result has to be re-established on whatever you actually run.
 
 ---
 
@@ -235,12 +265,12 @@ otherwise validate corrupted shards.
 ### Step 1 — check the repo is sane
 
 ```bash
-python -m pytest -q                    # expect 531 passed, 164 skipped
+python -m pytest -q                    # expect 533 passed, 164 skipped
 python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mismatched
 ```
 
 The skips are the tests needing torch or `transformers`. If you have the ML
-environment, `python -m pytest -q` there should be **836 passed, 0 skipped**.
+environment, `python -m pytest -q` there should be **838 passed, 0 skipped**.
 Or run both at once with `python scripts/check_suites.py`, which reports each
 count and exits nonzero if either environment fails.
 
@@ -283,7 +313,7 @@ self-contained and begins `CUBLAS_WORKSPACE_CONFIG=:4096:8`.
 > initialises.** `train.py` refuses without it rather than setting it itself —
 > a process that fixes its own environment cannot tell you the launcher forgot.
 
-### Step 4 — the full study, when the pilot has settled the three values
+### Step 4 — the full study, once the pilot has confirmed the three values
 
 ```bash
 python scripts/launch.py --outroot ... --corpus ... --family hf_gpt2 \
@@ -395,7 +425,8 @@ Told plainly so you do not discover it at an inconvenient moment.
 `docs/decisions-pending.md` holds **six** open decisions (D-3 through D-8) with
 what each one blocks, and two ruled ones (D-1, D-2) kept for the record. Read it
 before ruling on anything. **Only D-6 touches anything you do before analysis,
-and it does not block a launch** — see §3 for the three values that do.
+and it does not block a launch.** As of 2026-08-03 nothing in the repo blocks a
+launch at all — §3 covers the three values that used to.
 
 ---
 
@@ -405,8 +436,9 @@ and it does not block a launch** — see §3 for the three values that do.
 # 1. verify the corpus you were sent
 python scripts/corpus_verify.py --outdir /path/to/corpus
 
-# 2. decide three values in configs/base.yaml, commit them
-#    training.micro_batch, training.dtype, optimizer.adamw_impl
+# 2. (already done 2026-08-03) training.micro_batch=8, dtype=fp32,
+#    adamw_impl=foreach are set. Re-decide micro_batch if the pilot's
+#    measured memory ceiling says something other than 8.
 
 # 3. emit four runs
 python scripts/launch.py --outroot /scratch/burst/runs \

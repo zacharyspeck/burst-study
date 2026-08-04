@@ -73,8 +73,9 @@ a corpus is built locally; with one present it is `547 passed, 164 skipped`),
 then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
-with a `NOT LAUNCH-READY` block — that is correct, not a failure. Three values
-are still undecided; see [`--launch`](#--launch).
+with `Launch-ready: every field this arm needs has a value.` Until 2026-08-03 it
+ended with a `NOT LAUNCH-READY` block naming three undecided values; those are
+now set. See [`--launch`](#--launch).
 
 Those skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
@@ -493,17 +494,26 @@ arrives, the corpus location belongs on its command line.
 There is deliberately no `burst_text_paths.twin`; twin receives no text, and
 adding one is rejected by the schema check.
 
-### The three fields that ARE still undecided
+### The three reduction-order fields, set 2026-08-03
 
-| field | value | why it has no default |
+| field | value | why it still has no default |
 | --- | --- | --- |
-| `training.micro_batch` | **null** | accumulation sums partial gradients in sequence, and float addition is not associative, so `8 x 32` and `16 x 16` give different bits from identical data |
-| `training.dtype` | **null** | changes which CUDA kernels are selected — the determinism probe measured 66 kernels against 74 between fp32 and bf16 |
-| `optimizer.adamw_impl` | **null** | `foreach`, `fused` and `single` group their arithmetic differently and produce different bits from identical moments |
+| `training.micro_batch` | `8` | accumulation sums partial gradients in sequence, and float addition is not associative, so `8 x 32` and `16 x 16` give different bits from identical data |
+| `training.dtype` | `fp32` | changes which CUDA kernels are selected — the determinism probe measured 66 kernels against 74 between fp32 and bf16 |
+| `optimizer.adamw_impl` | `foreach` | `foreach`, `fused` and `single` group their arithmetic differently and produce different bits from identical moments |
 
-All three are launch-blocking for **every** arm including `twin`, because all
-three change reduction order and reduction order is what bitwise
-reproducibility is made of. The pilot settles them; see
+All three were `null` and launch-blocking until 2026-08-03. They remain
+launch-blocking for **every** arm including `twin` — the loader still refuses a
+run where any of them is null — because all three change reduction order and
+reduction order is what bitwise reproducibility is made of. They have values
+rather than defaults: nothing infers them, and a config that nulls them refuses
+exactly as before.
+
+**The values are the ones `probes/determinism/train_once.py` uses**, so the
+committed determinism result stays comparable to the loop that inherits it.
+`micro_batch: 8` in particular is the probe's *invented* value, not a measured
+one — see S67. **The pilot is what turns it into a chosen number**, by measuring
+the memory ceiling and the step time on real hardware; see
 [`docs/handoff-pilot.md`](docs/handoff-pilot.md).
 
 **Burst text paths must be relative and must resolve inside this repository.**

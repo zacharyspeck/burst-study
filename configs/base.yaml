@@ -65,8 +65,10 @@ training:
   # Sequences per forward pass. batch_size / micro_batch is the number of
   # gradient accumulation steps that make up one optimizer step.
   #
-  # UNSET ON PURPOSE, and the training loop REFUSES to run without it. There
-  # is no default and no inferred value, because this number is part of the
+  # SET TO 8 on 2026-08-03 to match probes/determinism/train_once.py, so that
+  # the committed determinism result stays comparable to the loop meant to
+  # inherit it. It was null until then, and the loop REFUSED to run: there is
+  # still no default and no inferred value, because this number is part of the
   # study's definition rather than a performance knob:
   #
   # ACCUMULATION SUMS PARTIAL GRADIENTS IN SEQUENCE, AND FLOATING-POINT
@@ -83,14 +85,21 @@ training:
   # was established at micro_batch 8 -- a value probes/determinism/train_once.py
   # INVENTED because this field did not exist. That result therefore describes
   # a configuration nobody chose, and it does NOT transfer to any other value
-  # here. See S67. The pilot settles this on real hardware.
-  micro_batch: null
+  # here. See S67.
+  #
+  # SO 8 IS AN INHERITED VALUE, NOT A MEASURED ONE. It is set to keep the
+  # determinism evidence comparable, not because anything measured it to be
+  # right. THE PILOT IS WHAT TURNS IT INTO A CHOSEN VALUE, by measuring the
+  # memory ceiling and the step time on real hardware. Until then, treat this
+  # number as provisional and as the probe's invention.
+  micro_batch: 8
 
   # The loader asserts batch_size % micro_batch == 0 when micro_batch is set.
 
   # Compute dtype for the forward and backward pass: fp32 or bf16.
   #
-  # UNSET ON PURPOSE, and the training loop REFUSES without it, for the same
+  # SET TO fp32 on 2026-08-03, matching probes/determinism/train_once.py. It
+  # was null until then and the loop REFUSED without it, for the same
   # reason as micro_batch: it CHANGES WHICH CUDA KERNELS RUN, and therefore
   # reduction order. The determinism probe measured this directly -- fp32
   # selected fmha_cutlassF/B, bf16 selected pytorch_flash::flash_fwd/bwd, 66
@@ -99,7 +108,10 @@ training:
   # NOTE: scripts/train.py implements fp32 ONLY. It has no autocast, and it
   # refuses bf16 explicitly rather than training fp32 while this field claims
   # bf16. probes/determinism covers both; the loop does not. See S78.
-  dtype: null
+  #
+  # fp32 is therefore the only value the loop can honour, and it is also the
+  # one the determinism result was taken under.
+  dtype: fp32
 
   # Optimizer steps for the whole run.
   #
@@ -131,9 +143,10 @@ optimizer:
 
   # Which AdamW implementation: foreach, fused, or single.
   #
-  # UNSET ON PURPOSE and launch-blocking. The three group their arithmetic
-  # differently -- per tensor, per fused group, or in one kernel -- so each
-  # produces DIFFERENT BITS from identical moments.
+  # SET TO foreach on 2026-08-03, matching probes/determinism/train_once.py.
+  # It was null and launch-blocking until then. The three group their
+  # arithmetic differently -- per tensor, per fused group, or in one kernel --
+  # so each produces DIFFERENT BITS from identical moments.
   #
   # THIS FIELD EXISTS BECAUSE ITS ABSENCE ALREADY CAUSED A DIVERGENCE.
   # scripts/train.py hardcoded `foreach=False, fused=False` -- the `single`
@@ -142,7 +155,11 @@ optimizer:
   # `foreach`. The loop meant to inherit that evidence could not have
   # reproduced it, and nothing said so because nothing declared the value.
   # See S78.
-  adamw_impl: null
+  #
+  # foreach is chosen for exactly that reason: it is what the determinism
+  # result was produced under, so the loop can now inherit that evidence
+  # rather than contradict it.
+  adamw_impl: foreach
 
   # NOT 1e-8. PyYAML's float rule requires a decimal point, so `1e-8` parses
   # as the STRING '1e-8' -- see the formatting rule at the top of this file.
@@ -238,8 +255,11 @@ experiment:
 # arm does not: it receives no injection, so it sees these values and ignores
 # them.
 #
-# The launch-blocking nulls in this file are now elsewhere: training.micro_batch,
-# training.dtype and optimizer.adamw_impl, which the pilot settles.
+# AS OF 2026-08-03 THERE ARE NO LAUNCH-BLOCKING NULLS LEFT IN THIS FILE.
+# training.micro_batch, training.dtype and optimizer.adamw_impl were the last
+# three and are now set, to the values probes/determinism/train_once.py uses.
+# The pilot is what turns micro_batch from an inherited value into a measured
+# one; see the note at that field.
 # ---------------------------------------------------------------------------
 injection:
   # DECIDED: 200, from docs/spec-v4.md. Steps are 0-INDEXED, and this is
