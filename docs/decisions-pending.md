@@ -495,7 +495,8 @@ says what would finish it.
 **Status: CLOSED 2026-08-03 by a decision rule, not by a pick.**
 `docs/preregistration.md` §8 rules it. The headline metric is selected by a
 **single-checkpoint measurement** taken at the pilot -- `canonicalization_error.py`
-against a real step-200 checkpoint at eps=1e-6 over ten directions -- branching
+against the last checkpoint at or before the injection step (step 199 under the
+shipped config) at eps=1e-6 over ten directions -- branching
 on the spread and median of the distortion factor. Three of the four branches
 give the **plain loss barrier**; only `spread <= 2 and median >= 1.01` selects
 the permutation-aligned barrier, and that branch is the one that would require

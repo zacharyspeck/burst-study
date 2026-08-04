@@ -186,7 +186,7 @@ So the question separating the plain barrier from the aligned one is not a matte
 
 ### 8.4 The decision rule
 
-**What gets measured.** `scripts/canonicalization_error.py`, run against a real step-200 checkpoint produced by the pilot, at ε = 1e-6 across ten random perturbation directions — matching the epsilon and seed count of the existing sections D, E and F so the numbers are comparable to the public-GPT-2 table. This measurement involves a single checkpoint. It requires no arm-vs-twin comparison and produces no outcome data.
+**What gets measured.** `scripts/canonicalization_error.py`, run against the last checkpoint at or before the injection step (step 199 under the shipped config), at ε = 1e-6 across ten random perturbation directions — matching the epsilon and seed count of the existing sections D, E and F so the numbers are comparable to the public-GPT-2 table. A pre-injection checkpoint is bit-identical across all seven arms at the same seed, so it structurally cannot carry outcome information. This measurement involves a single checkpoint. It requires no arm-vs-twin comparison and produces no outcome data.
 
 **Two criteria, taken from the measurement:**
 
@@ -224,7 +224,7 @@ Both are conditions on the validity of this section:
 ### 8.7 What would invalidate this section
 
 - Any checkpoint predating the commit of this document.
-- The canonicalization measurement being taken on a model other than a step-200 checkpoint from this study's own configuration.
+- The canonicalization measurement being taken on a model other than the last checkpoint at or before the injection step, from this study's own configuration.
 - The thresholds in 8.4 being revised after the measurement is seen.
 - Any arm-vs-twin displacement being examined before the branch is recorded.
 

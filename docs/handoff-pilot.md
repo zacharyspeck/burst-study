@@ -123,11 +123,14 @@ by a decision rule. And the model swap does not block — see the note at the to
 > **One thing the pilot must do for D-7, and it is not a decision.**
 > `docs/preregistration.md` §8.4 selects the headline metric from a
 > **single-checkpoint** measurement — `scripts/canonicalization_error.py`
-> against a real step-200 checkpoint at ε = 1e-6 over ten directions. §8.5
-> requires that measurement to be run and its branch recorded **before any
-> arm-vs-twin distance is examined**. It needs no arm-vs-twin comparison and
-> produces no outcome data, so it can be done as soon as the first pilot
-> checkpoint exists.
+> against the last checkpoint at or before the injection step — **step 199**
+> under the shipped config, not step 200; the schedule fires at `(s+1) % 50 == 0`
+> and never lands on 200 — at ε = 1e-6 over ten directions. §8.5 requires that
+> measurement to be run and its branch recorded **before any arm-vs-twin
+> distance is examined**. A pre-injection checkpoint is bit-identical across all
+> seven arms at the same seed, so it needs no arm-vs-twin comparison and
+> structurally cannot carry outcome information. It can be done as soon as the
+> first pilot run reaches step 199.
 
 **Critical path: transfer and verify the corpus → emit → run.** The three
 reduction-order values are set as of 2026-08-03, so nothing in this repo now
