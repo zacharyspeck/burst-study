@@ -63,10 +63,16 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT / "scripts") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+for _p in (str(REPO_ROOT), str(REPO_ROOT / "scripts")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 import canonicalize as C  # noqa: E402
+
+# burst/ imports nothing heavier than PyYAML, so this stays importable on a
+# machine with no ML stack -- which is what lets the report be re-rendered
+# without torch. The dependency runs scripts -> burst and never back.
+from burst.config import ARMS, INJECTING_ARMS  # noqa: E402
 
 DEFAULT_REPORT_DIR = REPO_ROOT / "docs" / "measurements"
 REPORT_STEM = "9-canonicalization-error"
@@ -1021,6 +1027,556 @@ def measure_dispersion_sweep(build, arch, levels, stream) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# G. the injection-point ruler -- docs/preregistration.md section 8.4
+#
+# EVERYTHING IN THIS SECTION IS FIXED BY THAT DOCUMENT AND MAY NOT BE TUNED
+# HERE. The epsilon, the direction count, and both thresholds are quoted from
+# it as named constants so that changing one is a visible edit to a
+# pre-registered value rather than a number drifting inside a function.
+#
+# What this measures: the same distortion factor sections D and F report for
+# the shipped recipe -- ||canon(M) - canon(M+eps)|| / ||M - (M+eps)|| -- but
+# against a checkpoint from THIS STUDY'S OWN training run rather than against
+# public GPT-2. Section 8.3 is the argument for why that difference matters:
+# public GPT-2 is fully trained, and the study injects where LayerNorm gains
+# have barely moved from 1.0.
+#
+# WHAT IT CANNOT TELL YOU. It is a property of the RULER at one point in
+# training, measured against synthetic isotropic perturbations. It is not a
+# twin-vs-twin distance, it is not calibrated to anything the study will
+# actually measure, and it says nothing about whether a burst moves a model.
+# ---------------------------------------------------------------------------
+
+
+INJECTION_POINT_STEM = "12-injection-point-ruler"
+
+#: Section 8.4: "at eps = 1e-6 across ten random perturbation directions".
+#: Both quoted, not chosen. `SEEDS` supplies the ten directions -- the SAME ten
+#: the committed public-GPT-2 table used, which is what makes the two
+#: comparable rather than merely similar. See S92 for why derived_seed lost.
+INJECTION_POINT_EPSILON = 1e-6
+INJECTION_POINT_N_DIRECTIONS = 10
+
+#: Section 8.4's two thresholds, quoted. Changing either is an amendment to a
+#: pre-registered decision rule and is not a code change.
+SPREAD_THRESHOLD = 2.0
+MEDIAN_THRESHOLD = 1.01
+
+#: The two outcomes. Strings rather than an enum so they land in JSON unchanged.
+PLAIN_BARRIER = "plain_loss_barrier"
+ALIGNED_BARRIER = "permutation_aligned_loss_barrier"
+
+
+class InjectionPointError(Exception):
+    """Raised for every refusal in this section. Never an assert."""
+
+
+def target_checkpoint_step(cfg) -> int:
+    """The last checkpoint at or before the injection step. DERIVED, never typed.
+
+    Section 8.4 names "the last checkpoint at or before the injection step
+    (step 199 under the shipped config)". 199 is the ANSWER, not the rule --
+    it falls out of `(s + 1) % weights_only_interval == 0` with the interval at
+    50, and it moves if the interval does. Deriving it here means a pilot that
+    changes the interval retargets automatically instead of silently measuring
+    the wrong file.
+
+    WHY A PRE-INJECTION CHECKPOINT IS THE CORRECT TARGET AND NOT MERELY THE
+    AVAILABLE ONE: the burst lands AT `injection_step`, so a checkpoint written
+    before it holds a state that is bit-identical across all seven arms sharing
+    a seed. It therefore cannot carry outcome information, which is what makes
+    running this before any arm-vs-twin distance is examined a structural fact
+    rather than a promise. Section 8.5.
+    """
+    injection_step = cfg.injection.injection_step
+    if injection_step is None:
+        raise InjectionPointError(
+            "injection.injection_step is null, so there is no injection point "
+            "to target. Decide it in configs/base.yaml first.")
+    for step in range(injection_step, -1, -1):
+        if cfg.checkpoint_kind_at(step) is not None:
+            return step
+    raise InjectionPointError(
+        f"no checkpoint fires at or before step {injection_step} under this "
+        f"config: weights_only_interval="
+        f"{cfg.checkpointing.weights_only_interval}, full_interval="
+        f"{cfg.checkpointing.full_interval}. There is nothing to measure.")
+
+
+def _read_run_provenance(directory: Path) -> dict:
+    """`run_provenance.yaml` beside the checkpoint, or {} when absent."""
+    import yaml
+
+    path = Path(directory) / "run_provenance.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:                       # pragma: no cover
+        raise InjectionPointError(
+            f"{path} exists but could not be read: {exc}. Refusing rather "
+            "than proceeding without the record it was going to be checked "
+            "against.")
+
+
+def verify_measurable(payload: dict, cfg, provenance: dict,
+                      target_step: int) -> dict:
+    """Refuse anything that is not the one checkpoint section 8.4 permits.
+
+    REFUSES, NEVER WARNS. Section 8.5 requires this measurement to be taken
+    before any arm-vs-twin distance is examined; a warning at that point is a
+    warning nobody acts on, and the whole value of the ordering constraint is
+    that it cannot be violated by accident.
+
+    Returns the agreed identity as a dict; raises InjectionPointError otherwise.
+    """
+    arm = payload.get("arm")
+    seed = payload.get("seed")
+    step = payload.get("step")
+    family = payload.get("family")
+
+    if arm in INJECTING_ARMS:
+        raise InjectionPointError(
+            f"REFUSED: this checkpoint is from arm {arm!r}, which injects.\n"
+            "Section 8.4's measurement takes a single checkpoint and produces "
+            "no outcome data. Running it against an injecting arm would make "
+            "the ruler's calibration contingent on a run that carries the "
+            "burst -- which is exactly the ordering section 8.5 forbids.\n"
+            f"Use the {ARMS[-1] if ARMS[-1] not in INJECTING_ARMS else 'twin'!r}"
+            " arm, or any arm's checkpoint at or before the injection step, "
+            "which are bit-identical to each other anyway.")
+
+    if arm not in ARMS:
+        raise InjectionPointError(
+            f"REFUSED: checkpoint records arm {arm!r}, which is not one of "
+            f"{ARMS}. This is not a checkpoint from this study.")
+
+    if step != target_step:
+        raise InjectionPointError(
+            f"REFUSED: checkpoint is at step {step}, but section 8.4's target "
+            f"is step {target_step} -- the last checkpoint at or before the "
+            f"injection step ({cfg.injection.injection_step}).\n"
+            "A later checkpoint has seen the burst and carries outcome "
+            "information. A different earlier one is not the point the rule "
+            "names. Neither is measured here.")
+
+    if family is None:
+        raise InjectionPointError(
+            "REFUSED: the checkpoint records `family: null`, so which model "
+            "built it is unknown. The two families reach an identical "
+            "parameter count, so nothing downstream could detect a mix-up. "
+            "See S86.")
+
+    if seed != cfg.seed or arm != cfg.arm:
+        raise InjectionPointError(
+            f"REFUSED: the checkpoint is seed={seed} arm={arm!r} but the "
+            f"config given is seed={cfg.seed} arm={cfg.arm!r}. Measuring one "
+            "run's weights under another run's config would silently use the "
+            "wrong architecture or the wrong injection step.")
+
+    # The provenance file is a SECOND record of the same three facts. When both
+    # exist and disagree, neither is preferred -- a directory whose two records
+    # contradict each other cannot be described by picking one.
+    if provenance:
+        for key, mine in (("arm", arm), ("seed", seed), ("family", family)):
+            theirs = provenance.get(key)
+            if theirs is not None and theirs != mine:
+                raise InjectionPointError(
+                    f"REFUSED: the checkpoint says {key}={mine!r} and "
+                    f"run_provenance.yaml in the same directory says "
+                    f"{key}={theirs!r}.\n"
+                    "These are two records of one run and they disagree. "
+                    "Neither is preferred, because a directory that "
+                    "contradicts itself is not described by either half.")
+
+    return {"arm": arm, "seed": seed, "step": step, "family": family}
+
+
+def load_target_model(checkpoint: Path, cfg, seam, *, torch_mod=None):
+    """Build through the SEAM and load the checkpoint's weights into it.
+
+    THE SAME CONSTRUCTION PATH `scripts/train.py` USES. A loading path that
+    differs from the training path measures something other than what trains,
+    and the parameter-count check inside `build_model` is what catches that.
+
+    `load_checkpoint` is deliberately NOT used: it refuses weights-only files
+    because they carry no optimizer or RNG state and cannot be resumed from.
+    Nothing here resumes. Only the weights are read, so the refusal does not
+    apply and routing around it is not a weakening of it.
+
+    CAST TO float64 LAST, matching sections D, E and F. Without it the ratio
+    would carry fp32 rounding that the committed public-GPT-2 table does not,
+    and the two would not be comparable.
+    """
+    torch = torch_mod
+    if torch is None:
+        import torch as torch_import
+        torch = torch_import
+
+    path = Path(checkpoint)
+    if not path.is_file():
+        raise InjectionPointError(f"no checkpoint at {path}")
+
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    target_step = target_checkpoint_step(cfg)
+    provenance = _read_run_provenance(path.parent)
+    identity = verify_measurable(payload, cfg, provenance, target_step)
+
+    model = seam.build_model(cfg, identity["family"])
+    state = payload.get("model")
+    if state is None:
+        raise InjectionPointError(
+            f"{path} carries no 'model' key; it is not a checkpoint this "
+            "study wrote.")
+    model.load_state_dict(state)
+    model = model.to(dtype=torch.float64)
+    model.eval()
+    return model, identity
+
+
+def measure_injection_point(build, arch, seeds=SEEDS,
+                            epsilon: float = INJECTION_POINT_EPSILON,
+                            recipe=None, stream=None) -> dict:
+    """The section 8.4 cell: one distortion factor per perturbation direction.
+
+    IDENTICAL ARITHMETIC TO SECTION D's `shipped_recipe` ROW, deliberately:
+    canonicalize a reference, perturb a copy by `epsilon` along direction
+    `seed`, canonicalize it AGAINST that reference, and divide the resulting
+    distance by the perturbation actually applied. Comparability to the
+    committed table is the entire justification for the thresholds in 8.4, so
+    this must not be a similar computation -- it must be the same one.
+
+    `reference=` on the second canonicalize is REQUIRED. Without it
+    AlignFFNNeurons is a no-op and every number collapses to "no permutation
+    step", which is the failure that once made an entire variant table report
+    five identical rows. See S61.
+    """
+    recipe = C.DEFAULT_RECIPE if recipe is None else recipe
+
+    reference = build()
+    C.canonicalize(reference, arch, recipe=recipe)
+    ref_sd = C.canonical_state_dict(reference)
+
+    by_direction = {}
+    for seed in seeds:
+        moved = build()
+        d_raw = perturb(moved, epsilon, "isotropic", seed)
+        C.canonicalize(moved, arch, recipe=recipe, reference=reference)
+        by_direction[str(seed)] = (
+            l2_distance(ref_sd, C.canonical_state_dict(moved)) / d_raw)
+        del moved
+        if stream is not None:
+            print(f"    direction seed={seed:<5} "
+                  f"factor={by_direction[str(seed)]:.9g}",
+                  file=stream, flush=True)
+    del reference, ref_sd
+
+    values = [by_direction[k] for k in sorted(by_direction, key=int)]
+    return {
+        "epsilon": epsilon,
+        "shape": "isotropic",
+        "n_directions": len(values),
+        "direction_seeds": [int(s) for s in sorted(by_direction, key=int)],
+        "by_direction": by_direction,
+        "min": min(values),
+        "median": statistics.median(values),
+        "max": max(values),
+    }
+
+
+def spread_of(cell) -> float | None:
+    """max / min across the ten directions AT ONE EPSILON. Section 8.4.
+
+    NOT across epsilons, and not across anything else. Section 8.4 defines
+    spread as "the ratio of the largest to the smallest distortion factor
+    across the ten directions", and the number its threshold was calibrated
+    against is the committed public-GPT-2 cell's own max/min.
+
+    Returns None when the ratio is undefined rather than substituting a value:
+    a missing cell, no directions, or a non-positive minimum. A spread that
+    cannot be computed must reach the branch as "unavailable", not as a number.
+    """
+    if not isinstance(cell, dict):
+        return None
+    values = list((cell.get("by_direction") or {}).values())
+    if not values:
+        return None
+    try:
+        values = [float(v) for v in values]
+    except (TypeError, ValueError):
+        return None
+    if any(v != v or v in (float("inf"), float("-inf")) for v in values):
+        return None
+    low, high = min(values), max(values)
+    if low <= 0.0:
+        return None
+    return high / low
+
+
+def median_of(cell) -> float | None:
+    """The median distortion factor across the ten directions. Section 8.4."""
+    if not isinstance(cell, dict):
+        return None
+    values = list((cell.get("by_direction") or {}).values())
+    if not values:
+        return None
+    try:
+        values = [float(v) for v in values]
+    except (TypeError, ValueError):
+        return None
+    if any(v != v or v in (float("inf"), float("-inf")) for v in values):
+        return None
+    return statistics.median(values)
+
+
+def branch_for(payload) -> dict:
+    """Section 8.4's decision rule, COMPUTED. Never written down as prose.
+
+    Returns the branch, the two criteria it was taken on, and the reason --
+    all derived from the measurement in `payload` every time this is called.
+    Nothing here reads a stored conclusion, so a hand-edited `branch` key in
+    the JSON cannot change what the report says.
+
+    THE FOURTH BRANCH IS A REAL PATH, not a fallback nobody exercises. A
+    measurement that is absent, the wrong size, at the wrong epsilon, or whose
+    spread is undefined lands on the plain barrier -- because section 8.4 sends
+    every uncertain outcome there, and because the alternative is an unbuilt
+    module chosen on a number nobody can produce.
+    """
+    cell = (payload or {}).get("measurement")
+    spread = spread_of(cell)
+    median = median_of(cell)
+
+    unavailable = None
+    if not isinstance(cell, dict) or not (cell.get("by_direction") or {}):
+        unavailable = "no measurement is present"
+    elif spread is None or median is None:
+        unavailable = ("the measurement is present but its spread or median "
+                       "is undefined -- a non-positive, missing or non-finite "
+                       "distortion factor")
+    elif cell.get("n_directions") != INJECTION_POINT_N_DIRECTIONS:
+        unavailable = (
+            f"the measurement has {cell.get('n_directions')} directions, and "
+            f"section 8.4 fixes {INJECTION_POINT_N_DIRECTIONS}")
+    elif float(cell.get("epsilon", 0.0)) != INJECTION_POINT_EPSILON:
+        unavailable = (
+            f"the measurement is at epsilon {cell.get('epsilon')!r}, and "
+            f"section 8.4 fixes {INJECTION_POINT_EPSILON:g}")
+
+    if unavailable is not None:
+        return {
+            "branch": PLAIN_BARRIER,
+            "rule": "measurement unavailable or ambiguous",
+            "reason": (f"{unavailable}. Section 8.4 sends every uncertain "
+                       "outcome to the plain barrier."),
+            "spread": spread,
+            "median": median,
+            "aligned_as_robustness_check": False,
+            "builds_d6": False,
+            "available": False,
+        }
+
+    if spread > SPREAD_THRESHOLD:
+        return {
+            "branch": PLAIN_BARRIER,
+            "rule": f"spread > {SPREAD_THRESHOLD:g}",
+            "reason": (
+                f"spread is {spread:.6g}, above {SPREAD_THRESHOLD:g}. The "
+                "aligned ruler is inconsistent at the point of injection and "
+                "cannot be corrected for."),
+            "spread": spread,
+            "median": median,
+            "aligned_as_robustness_check": False,
+            "builds_d6": False,
+            "available": True,
+        }
+
+    if median < MEDIAN_THRESHOLD:
+        return {
+            "branch": PLAIN_BARRIER,
+            "rule": (f"spread <= {SPREAD_THRESHOLD:g} and "
+                     f"median < {MEDIAN_THRESHOLD:g}"),
+            "reason": (
+                f"spread is {spread:.6g} and the median is {median:.6g}. "
+                "Alignment moves the number by less than one percent, which "
+                "is not work worth an unbuilt module. The aligned barrier is "
+                "reported as a robustness check."),
+            "spread": spread,
+            "median": median,
+            "aligned_as_robustness_check": True,
+            "builds_d6": False,
+            "available": True,
+        }
+
+    return {
+        "branch": ALIGNED_BARRIER,
+        "rule": (f"spread <= {SPREAD_THRESHOLD:g} and "
+                 f"median >= {MEDIAN_THRESHOLD:g}"),
+        "reason": (
+            f"spread is {spread:.6g} and the median is {median:.6g}. The "
+            "ruler is consistent across directions and alignment moves the "
+            "number by at least one percent, so it is doing work. This is the "
+            "branch spec v4 section 8.1 ruled, and it requires D-6 to be "
+            "built."),
+        "spread": spread,
+        "median": median,
+        "aligned_as_robustness_check": False,
+        "builds_d6": True,
+        "available": True,
+    }
+
+
+def build_injection_provenance(payload) -> str:
+    """Derived, so it describes the file rather than the intent. See S70."""
+    target = payload.get("target") or {}
+    cell = payload.get("measurement") or {}
+    decision = branch_for(payload)
+    bits = [
+        f"stem={INJECTION_POINT_STEM}",
+        f"fixture={payload.get('fixture', 'unknown')}",
+        f"arm={target.get('arm')!r}",
+        f"seed={target.get('seed')}",
+        f"step={target.get('step')}",
+        f"family={target.get('family')!r}",
+        f"epsilon={cell.get('epsilon')}",
+        f"n_directions={cell.get('n_directions')}",
+        f"direction_seeds={cell.get('direction_seeds')}",
+        f"recipe={payload.get('recipe')}",
+        f"branch={decision['branch']}",
+        f"available={decision['available']}",
+        f"python={platform.python_version()}",
+    ]
+    return "; ".join(bits)
+
+
+def format_injection_report(payload) -> str:
+    """Render the section 8.4 report. EVERY CLAIM RECOMPUTED HERE.
+
+    `branch_for(payload)` is called at render time rather than read from
+    `payload['branch']`, so the sentence naming the headline metric is derived
+    from the measurement on every render. A hand-edited conclusion in the JSON
+    changes nothing about what this prints -- which is the property step 9's
+    banner did not have until S70, and the reason that failure recurred inside
+    the module whose docstring claimed immunity.
+    """
+    rule = "=" * 78
+    target = payload.get("target") or {}
+    cell = payload.get("measurement") or {}
+    decision = branch_for(payload)
+
+    lines = [
+        rule,
+        "12. THE INJECTION-POINT RULER -- docs/preregistration.md section 8.4",
+        rule,
+        "",
+        payload.get("LIMITATION", ""),
+        "",
+        "TARGET",
+        "-" * 78,
+        f"  checkpoint step        {target.get('step')}"
+        f"   (last at or before injection step "
+        f"{target.get('injection_step')})",
+        f"  kind                   {target.get('kind')}",
+        f"  arm                    {target.get('arm')!r}",
+        f"  seed                   {target.get('seed')}",
+        f"  family                 {target.get('family')!r}",
+        f"  fixture                {payload.get('fixture')}",
+        "",
+        "MEASUREMENT",
+        "-" * 78,
+        f"  epsilon                {cell.get('epsilon')}",
+        f"  perturbation shape     {cell.get('shape')}",
+        f"  directions             {cell.get('n_directions')}",
+        f"  direction seeds        {cell.get('direction_seeds')}",
+    ]
+
+    by_direction = cell.get("by_direction") or {}
+    if by_direction:
+        lines += ["", f"  {'direction seed':<20}{'distortion factor':>24}"]
+        for key in sorted(by_direction, key=int):
+            lines.append(f"  {key:<20}{by_direction[key]:>24.12g}")
+        lines += [
+            "",
+            f"  {'min':<20}{cell.get('min'):>24.12g}",
+            f"  {'median':<20}{cell.get('median'):>24.12g}",
+            f"  {'max':<20}{cell.get('max'):>24.12g}",
+        ]
+    else:
+        lines += ["", "  no per-direction values recorded"]
+
+    spread = decision["spread"]
+    median = decision["median"]
+    lines += [
+        "",
+        "THE TWO CRITERIA, section 8.4",
+        "-" * 78,
+        f"  spread (max/min)       "
+        f"{'undefined' if spread is None else format(spread, '.12g')}"
+        f"      threshold {SPREAD_THRESHOLD:g}",
+        f"  median                 "
+        f"{'undefined' if median is None else format(median, '.12g')}"
+        f"      threshold {MEDIAN_THRESHOLD:g}",
+        "",
+        "BRANCH -- computed from the measurement above, not stored",
+        "-" * 78,
+        f"  rule matched           {decision['rule']}",
+        f"  HEADLINE METRIC        {decision['branch']}",
+        f"  aligned as robustness  {decision['aligned_as_robustness_check']}",
+        f"  requires D-6 built     {decision['builds_d6']}",
+        "",
+    ]
+    for chunk in decision["reason"].split(". "):
+        if chunk.strip():
+            lines.append(f"  {chunk.strip().rstrip('.')}.")
+
+    comparison = payload.get("public_gpt2_comparison") or {}
+    if comparison:
+        lines += [
+            "",
+            "COMPARISON -- the committed public-GPT-2 cell, section 8.4's anchor",
+            "-" * 78,
+            f"  source                 {comparison.get('source')}",
+            f"  min                    {comparison.get('min')}",
+            f"  median                 {comparison.get('median')}",
+            f"  max                    {comparison.get('max')}",
+            f"  spread                 {comparison.get('spread')}",
+        ]
+
+    lines += ["", "PROVENANCE", "-" * 78,
+              f"  {payload.get('PROVENANCE', '')}"]
+    return "\n".join(lines)
+
+
+def _write_injection_report(payload, reportdir: Path, stem: str, stream) -> int:
+    """Recompute every derived field, then write both files. Mirrors S70."""
+    payload["branch"] = branch_for(payload)
+    payload["PROVENANCE"] = build_injection_provenance(payload)
+
+    reportdir = Path(reportdir)
+    reportdir.mkdir(parents=True, exist_ok=True)
+    (reportdir / f"{stem}.json").write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
+    text = format_injection_report(payload)
+    (reportdir / f"{stem}.md").write_text(text + "\n", encoding="utf-8",
+                                          newline="\n")
+    print(text, file=stream)
+    print(f"\nwrote {reportdir / (stem + '.json')}", file=stream)
+    return 0
+
+
+INJECTION_POINT_LIMITATION = (
+    "THIS MEASURES THE RULER, NOT THE STUDY. It is the distortion factor of "
+    "the shipped canonicalization recipe at one point in training, taken "
+    "against synthetic isotropic perturbations of a single checkpoint. It is "
+    "NOT a twin-vs-twin distance, it is not calibrated to any displacement "
+    "the study will report, and it says nothing about whether an injected "
+    "burst moves a model. Its only job is to choose between the plain and the "
+    "permutation-aligned barrier by the rule pre-registered in "
+    "docs/preregistration.md section 8.4."
+)
+
+
+# ---------------------------------------------------------------------------
 # reporting
 # ---------------------------------------------------------------------------
 
@@ -1516,7 +2072,111 @@ def _build_parser() -> argparse.ArgumentParser:
               "expensive section does not have to be recomputed to correct a "
               "cheap one. The merged file records which sections were "
               "refreshed and when."))
+
+    injection = parser.add_argument_group(
+        "the injection-point ruler (docs/preregistration.md section 8.4)",
+        "A SEPARATE MODE. Takes exactly ONE checkpoint, computes no two-model "
+        "quantity, and writes its own report. There is deliberately no way to "
+        "pass a second checkpoint: section 8.5 requires this to be run before "
+        "any arm-vs-twin distance is examined, and a tool that cannot express "
+        "an arm-vs-twin distance cannot be used to take one early.")
+    injection.add_argument(
+        "--checkpoint", type=Path, default=None,
+        help=("the checkpoint to measure. Must be the last checkpoint at or "
+              "before the injection step; anything else is REFUSED, because a "
+              "later one has seen the burst."))
+    injection.add_argument(
+        "--config", type=Path, default=REPO_ROOT / "configs" / "base.yaml",
+        help="base config, as train.py takes it")
+    injection.add_argument(
+        "--run", type=Path, default=None,
+        help=("the run override for the checkpoint being measured. Required "
+              "with --checkpoint: the target step and the model shape both "
+              "come from the config, and guessing either would measure "
+              "something other than what trained."))
     return parser
+
+
+def _run_injection_point(args, stream) -> int:
+    """Section 8.4's measurement against one real checkpoint."""
+    import copy
+
+    import model_seam as SEAM
+    from burst.config import load_config
+
+    if args.run is None:
+        raise InjectionPointError(
+            "--checkpoint requires --run: the target step and the model shape "
+            "both come from the config, and guessing either would measure "
+            "something other than what trained.")
+
+    cfg = load_config(args.config, args.run, outdir=args.checkpoint.parent,
+                      require_complete=False, write_provenance=False,
+                      stream=stream)
+    model, identity = load_target_model(args.checkpoint, cfg, SEAM)
+    target_step = target_checkpoint_step(cfg)
+
+    print(f"  target step {target_step} "
+          f"({cfg.checkpoint_kind_at(target_step)}), arm "
+          f"{identity['arm']!r}, seed {identity['seed']}", file=stream)
+
+    def build():
+        return copy.deepcopy(model)
+
+    cell = measure_injection_point(build, C.GPT2_124M, stream=stream)
+    payload = {
+        "task": "injection-point ruler -- docs/preregistration.md section 8.4",
+        "LIMITATION": INJECTION_POINT_LIMITATION,
+        "fixture": "real checkpoint",
+        "recipe": [type(s).__name__ for s in C.DEFAULT_RECIPE],
+        "target": {
+            "step": target_step,
+            "kind": cfg.checkpoint_kind_at(target_step),
+            "injection_step": cfg.injection.injection_step,
+            "arm": identity["arm"],
+            "seed": identity["seed"],
+            "family": identity["family"],
+            "checkpoint": str(args.checkpoint),
+        },
+        "measurement": cell,
+        "public_gpt2_comparison": public_gpt2_anchor(),
+    }
+    return _write_injection_report(
+        payload, Path(args.reportdir), INJECTION_POINT_STEM, stream)
+
+
+def public_gpt2_anchor(path: Path | None = None) -> dict:
+    """The committed public-GPT-2 cell section 8.4's thresholds are anchored to.
+
+    READ FROM THE COMMITTED FILE, not restated. Section 8.4 quotes
+    `1.000456 / 1.000391 = 1.00007` from section D's `shipped_recipe` row at
+    1e-6, and a threshold calibrated against a number that this file merely
+    remembers would be exactly the defect this repo keeps logging.
+
+    Returns {} when the file is absent rather than raising: the anchor is
+    context for a reader, and the branch does not depend on it.
+    """
+    path = Path(path or (DEFAULT_REPORT_DIR / f"{REPORT_STEM}.json"))
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        cell = (data["step_attribution"]["variants"]["shipped_recipe"]
+                [f"{INJECTION_POINT_EPSILON:g}"])
+    except Exception:                              # pragma: no cover
+        return {}
+    values = [float(v) for v in (cell.get("by_seed") or {}).values()]
+    if not values or min(values) <= 0:
+        return {}
+    return {
+        "source": (f"{REPORT_STEM}.json :: step_attribution.variants."
+                   f"shipped_recipe.{INJECTION_POINT_EPSILON:g}"),
+        "n_seeds": cell.get("n_seeds"),
+        "min": min(values),
+        "median": statistics.median(values),
+        "max": max(values),
+        "spread": max(values) / min(values),
+    }
 
 
 def _write_report(payload, reportdir: Path, stem: str, stream) -> int:
@@ -1551,6 +2211,28 @@ def main(argv=None) -> int:
     print(rule, file=stream)
     print("canonicalization_error -- step 9 phase 5", file=stream)
     print(rule, file=stream)
+
+    if args.checkpoint is not None:
+        # A SEPARATE MODE, returning before any of section A-F runs. Section
+        # 8.4's measurement is one checkpoint and one epsilon; sharing a code
+        # path with the public-GPT-2 sweep would make it possible to produce
+        # the report from something other than the checkpoint it names.
+        print("injection-point ruler -- preregistration section 8.4",
+              file=stream)
+        if args.render_only:
+            source = Path(args.reportdir) / f"{INJECTION_POINT_STEM}.json"
+            if not source.is_file():
+                print(f"nothing to render: {source} does not exist",
+                      file=stream)
+                return 1
+            payload = json.loads(source.read_text(encoding="utf-8"))
+            return _write_injection_report(
+                payload, Path(args.reportdir), INJECTION_POINT_STEM, stream)
+        try:
+            return _run_injection_point(args, stream)
+        except InjectionPointError as exc:
+            print(f"\nREFUSED\n{exc}", file=sys.stderr)
+            return 1
 
     stem = REPORT_STEM + ("-tiny" if args.tiny else "")
     if args.render_only:

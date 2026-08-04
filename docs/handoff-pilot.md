@@ -277,16 +277,16 @@ otherwise validate corrupted shards.
 ### Step 1 — check the repo is sane
 
 ```bash
-python -m pytest -q                    # 854 tests; see below on pass/skip
+python -m pytest -q                    # 918 tests; see below on pass/skip
 python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mismatched
 ```
 
-**Compare the total, not the pass count.** 854 tests collect everywhere, but
+**Compare the total, not the pass count.** 918 tests collect everywhere, but
 the pass/skip split depends on the host: `test_corpus_tokenize.py` skips until
 a corpus is built locally, and two tests skip *because* CUDA is present, since
 they assert a refusal that only applies to CPU-only hosts. On a CPU-only host
-with a corpus built this is **549 passed, 164 skipped** without torch and
-**854 passed, 0 skipped** with it; on `gpmoo-b1` expect 548/165 and 851/3.
+with a corpus built this is **601 passed, 176 skipped** without torch and
+**918 passed, 0 skipped** with it; on `gpmoo-b1` expect 600/177 and 915/3.
 Or run both at once with `python scripts/check_suites.py`, which reports each
 count and exits nonzero if either environment fails.
 

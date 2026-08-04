@@ -197,6 +197,67 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D28. DUPLICATE S-NUMBERS: S88 to S91 each name two different findings
+
+**Not fixed. Needs a ruling, and renumbering unattended would have been worse
+than reporting it.**
+
+The rebase of my five commits onto Asa's six brought both sets of notes into
+one file, and we had independently used the same four numbers:
+
+| number | mine | Asa's |
+| --- | --- | --- |
+| S88 | "The swap has not landed" was a fact about the probe | `check.py` must never re-pin the GPU it was given |
+| S89 | The last three launch-blocking nulls are set | Two models, one probe, and the stand-in is kept |
+| S90 | Mutation audit of every test 16df210 touched | The probe's digest omitted AdamW's `step` |
+| S91 | A grep that was right about the wrong file | The loader started refusing the probe |
+
+So **"See S88" is now ambiguous**, and there are live cross-references to
+S86–S91 in `scripts/metrics.py`, `scripts/model_seam.py`,
+`docs/decisions-pending.md`, `docs/handoff-pilot.md` and this file.
+
+Tonight's entry is **S92**, which is unambiguous — both sequences stop at 91.
+
+Why not renumber: my four are referenced from committed commit messages, which
+cannot be edited without rewriting published history, and from code comments in
+four files. Renumbering Asa's would rewrite his work. Either is a wide,
+mechanical, cross-reference-breaking edit made while nobody was awake to
+confirm the mapping, and the failure mode — a pointer that silently points at
+the wrong finding — is precisely this repo's logged defect.
+
+**What I would need:** a ruling on which sequence renumbers, then it is a
+mechanical pass with a checked cross-reference sweep.
+
+### D27. Conservative choices taken under the suspended-ambiguity rule
+
+Logged because the suspension means these were taken without confirmation.
+
+1. **`--checkpoint` requires `--config` and `--run`** rather than
+   reconstructing a `Config` from the `resolved_config.yaml` beside the
+   checkpoint. That file is a merged dump, and rebuilding a validated `Config`
+   from it would bypass the loader's own checks. Requiring the two files is
+   what `train.py` does, and the result is cross-checked against both the
+   checkpoint payload and `run_provenance.yaml`.
+2. **`load_checkpoint` is bypassed**, reading the payload with `torch.load`
+   directly. It refuses weights-only files because they cannot be *resumed*
+   from; nothing here resumes, only weights are read, so the refusal does not
+   apply. Documented at the call site so it does not read as routing around a
+   guard.
+3. **`public_gpt2_anchor` returns `{}` when the step 9 file is absent**, rather
+   than raising. The anchor is context for a reader and the branch does not
+   depend on it, so a missing file must not turn a measurable checkpoint into
+   an unmeasurable one.
+4. **Tests use the tiny model.** The real path builds GPT-2 124M in float64 —
+   roughly a gigabyte per copy, and two copies live at once. No real checkpoint
+   exists to test against anyway.
+5. **The interval test uses divisors of `full_interval` only.** The loader
+   refuses a `weights_only_interval` that does not divide it exactly, because
+   the precedence rule when both fire on one step would be undefined. The first
+   draft used 30 and was correctly refused.
+6. **No `docs/measurements/12-*` artifact is committed.** The measurement has
+   not been run and there is nothing to record. The report writer is tested
+   against a temporary directory instead.
+
 ### D26. The `metrics_report.py` stale claim could NOT be corrected in scope
 
 **Asked for:** correct `scripts/metrics_report.py`'s copy of the "layout is
@@ -845,6 +906,138 @@ Three smaller things fixed while in there, none of them requested:
   the scan caught this. `docs/step9-summary.md`'s file-listing annotation
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
+
+### S92. The injection-point ruler: section 8.4's measurement, built and tested
+
+`docs/preregistration.md` §8.4 selects the study's headline metric from a
+single-checkpoint measurement at the pilot. This is that measurement.
+**It has not been run** — no checkpoint exists — and no
+`docs/measurements/12-*` artifact is committed. Building and testing the
+capability was the whole job.
+
+Entry point is `scripts/canonicalization_error.py --checkpoint`, because §8.4
+names that script. It is a **separate mode** that returns before any of
+sections A–F run: sharing a code path with the public-GPT-2 sweep would make it
+possible to produce the report from something other than the checkpoint it
+names.
+
+#### The target is derived, and 199 is the answer rather than the rule
+
+`target_checkpoint_step(cfg)` walks back from `cfg.injection.injection_step`
+and returns the first step where `cfg.checkpoint_kind_at` fires. Under the
+shipped config that is **199**, because `(s+1) % 50 == 0`. It moves when the
+interval moves — tested at 40, 25 and 8 (all still 199) and at 125, where it
+becomes **124**. A pilot that changes the interval retargets automatically
+instead of silently measuring the wrong file.
+
+`cfg.checkpoint_kind_at(200)` is `None`. **There is no step-200 checkpoint and
+there never will be**, which is why §8.4 and §8.7 were amended by hand at
+`942ae1d` before this was built.
+
+Why 199 is *correct* and not merely available: the burst lands **at** step 200,
+so a checkpoint written before it is bit-identical across all seven arms
+sharing a seed. §8.5's ordering constraint is therefore a structural fact about
+the input rather than a promise about behaviour.
+
+#### Spread, and what it is not
+
+`spread_of` is **max/min across the ten directions at one fixed epsilon**. A
+cell holds exactly one epsilon, so there is no axis for an epsilon sweep to
+leak in. Tested operationally per S60 — fabricated factors with a spread known
+by construction — rather than by recomputing it a second way, because a second
+route written by the same person shares the same misunderstanding.
+
+Undefined cases return `None` rather than a substituted number: empty, a
+non-positive minimum, NaN, or infinity. A spread that cannot be computed must
+reach the branch as *unavailable*, never as a value.
+
+#### All four branches are real paths
+
+Demonstrated firing on fabricated input, including the fourth. The
+unavailable/ambiguous branch fires on: no measurement, an undefined spread, the
+wrong number of directions, and the wrong epsilon. Each sends the decision to
+the plain barrier, which is what §8.4 specifies for every uncertain outcome.
+
+The boundaries were got wrong once while writing the tests and are now pinned
+both ways: `spread <= 2` with `median >= 1.01` selects the aligned barrier, and
+`spread <= 2` with `median < 1.01` does not, even at spread exactly 2.0.
+
+#### The branch is recomputed at render time
+
+`format_injection_report` calls `branch_for(payload)` rather than reading
+`payload["branch"]`. `test_a_tampered_branch_in_the_json_does_not_change_the_report`
+writes a different conclusion into the stored JSON and asserts the rendered
+report is byte-identical. That is the property the step 9 banner lacked until
+S70, and the reason that failure recurred inside the module whose docstring
+claimed immunity.
+
+#### Direction seeds: `derived_seed` was considered and LOST
+
+Recorded so this is not revisited blind. The plan recommended deriving ten
+seeds via `make_bursts.derived_seed`, matching `injection.py`'s `batch_slot_for`.
+Zach overrode it, and the override is right: §8.4's thresholds are calibrated
+against the committed public-GPT-2 table, and **the parameter shapes are
+identical**, so reusing `SEEDS = (11 … 110)` produces literally the same ten
+direction tensors rather than ten different ones. That makes "comparable to
+that table" the strong claim §8.4 asserts instead of a claim about two samples
+from the same distribution.
+
+"Derived, not sampled" was already satisfied without `derived_seed`:
+`_unit_direction` draws from `torch.Generator().manual_seed(seed)` and touches
+no global RNG. The AST scan follows calls **across modules** — a helper calling
+`torch.randn` one module over would still count — and asserts every draw in the
+path carries an explicit `generator=`. A subprocess test under three different
+`PYTHONHASHSEED` values pins that nothing routes through `hash()`.
+
+#### THE FIXTURE FINDING, which is the most important thing here
+
+Every model-touching test runs against **both** a fresh model (gains exactly
+1.0, Conv1D biases exactly 0.0) and a dispersed one. `build_tiny_model` already
+disperses by construction — that randomisation exists because of S42 and S48 —
+so the dispersed fixture is the shipped constructor and only "fresh" needed
+building, by resetting the same model rather than by a second constructor.
+
+**They disagree, and the disagreement is in the direction §8.3 predicts:**
+
+| fixture | min | median | max | spread |
+| --- | --- | --- | --- | --- |
+| fresh (gains 1.0, biases 0.0) | 0.9938878 | 0.9948436 | 0.9963681 | **1.0024956** |
+| dispersed | 0.9955371 | 0.9981047 | 1.0002306 | **1.0047146** |
+
+The fresh configuration's spread is roughly **half** the dispersed one's, its
+median sits further below 1.0, and every one of its ten factors is below 1.0
+while the dispersed model's straddles it. Both land on the plain barrier here,
+so nothing about the rule turns on it — but the ruler **behaves measurably
+differently at the initialization configuration**, which is exactly the claim
+§8.3 makes and exactly why §8.4 asks for a measurement at the injection point
+instead of reusing the public-GPT-2 number.
+
+**This is on the TINY model, not GPT-2 124M.** It says the machinery is
+sensitive to the gain/bias configuration; it says nothing about what the real
+step-199 model will produce. Not reconciled away, and not extrapolated.
+
+#### An arithmetic slip in §8.4, recorded and NOT corrected
+
+§8.4 writes "the shipped recipe's spread is 1.000456 / 1.000391 = 1.00007". The
+**operands are exactly right** — they are the committed cell's max and min to
+six decimals, asserted in the regression anchor test. The **quotient is not**:
+those two numbers divide to `1.0000650`, and the full-precision values divide
+to `1.0000644`. Both round to `1.00006`.
+
+Nothing turns on it: the threshold is `2.0` and every value involved is
+`1.00006`-ish. It is **not corrected**, because editing `docs/preregistration.md`
+is prohibited and a pre-registration amended by an agent is worth less than one
+with a known, recorded defect. The test asserts the *true* quotient rather than
+the document's, because silently asserting the document's number is how a wrong
+figure survives.
+
+#### What this measurement cannot tell you
+
+Stated in the report's own `LIMITATION`, which the tests assert is present: it
+is a property of the **ruler** at one point in training, taken against
+synthetic isotropic perturbations of a single checkpoint. It is **not** a
+twin-vs-twin distance, it is not calibrated to any displacement the study will
+report, and it says nothing about whether an injected burst moves a model.
 
 ### S91. A grep that was right about the wrong file, believed over a correct claim
 
@@ -5607,7 +5800,7 @@ or driver.
 
 ## Test coverage
 
-854 tests, counted per file with `--collect-only` rather than from memory.
+918 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -5636,19 +5829,18 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_launch.py` | 55 |
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
-| **total** | **854** |
+| `tests/test_injection_point_ruler.py` | 64 |
+| **total** | **918** |
 
-Measured on the Windows development host, 2026-08-04, after the rebase onto
-Asa's determinism-probe work: **549 passed, 164 skipped** in `.venv/` and
-**854 passed, 0 skipped** in `.venv-ml/`.
+Measured on the Windows development host, 2026-08-04, after the injection-point
+ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
+skipped** in `.venv-ml/`.
 
-On `gpmoo-b1` the same tree is **548 passed, 165 skipped** and **851 passed,
-3 skipped** — DERIVED, not re-measured. Asa's 2026-08-03 figures there were
-546/165 and 849/3, and the two tests the rebased config commit adds
-(`test_the_shipped_config_is_now_launch_ready`,
-`test_provenance_records_which_fields_are_missing`) are neither CUDA- nor
-corpus-conditional, so they add two passes on any host. Marked derived because
-nobody has re-run it there.
+On `gpmoo-b1` the same tree is **600 passed, 177 skipped** and **915 passed,
+3 skipped** — DERIVED, not re-measured, and marked so because nobody has run it
+there. Asa's 2026-08-03 figures were 546/165 and 849/3; the config commit added
+two tests and S92's ruler added 64, of which 52 run without torch and 12 need
+it. Marked derived rather than presented as a measurement.
 
 **The pass/skip split is host-dependent; the total is not.** Three tests decide
 what they do from the machine rather than from the code:
@@ -5657,10 +5849,10 @@ built locally, and `tests/test_rng_state.py:119` and `tests/test_train.py:399`
 skip *because* CUDA is present — they assert a refusal that only applies to
 CPU-only hosts. The counts recorded before 2026-08-03 (531/164 and 836/0) were
 taken on a host with a corpus built and no CUDA. Both reconcile against this
-one exactly: 531+164 = 695 and 549+164 = 713, a difference of the 18 tests
-added; 836+0 = 836 and 854+0 = 854, the same 18 — sixteen from the determinism
-probe, two from the config commit. **Compare totals across machines, not pass
-counts.** Both are produced by
+one exactly: 531+164 = 695 and 601+176 = 777, a difference of the 82 tests
+added; 836+0 = 836 and 918+0 = 918, the same 82 — sixteen from the determinism
+probe, two from the config commit, sixty-four from the injection-point ruler.
+**Compare totals across machines, not pass counts.** Both are produced by
 `python scripts/check_suites.py`, which does not pipe -- see S87. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.

@@ -68,8 +68,8 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `548 passed, 165 skipped` on a fresh clone (one more test skips until
-a corpus is built locally; with one present it is `549 passed, 164 skipped`),
+Expected: `600 passed, 177 skipped` on a fresh clone (one more test skips until
+a corpus is built locally; with one present it is `601 passed, 176 skipped`),
 then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
@@ -325,7 +325,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 713 tests run
+pip install -e ".[dev]"            # config work — no ML stack, 777 tests run
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 
