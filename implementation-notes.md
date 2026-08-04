@@ -2644,6 +2644,101 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S83. The analysis: paired within seed, noise floor across seeds
+
+`scripts/analysis.py`. Per-seed paired differences, the twin-vs-twin noise
+floor, the arm ordering with confidence intervals, and multiple-comparison
+correction.
+
+#### The asymmetry the design turns on, which is easy to get backwards
+
+The **effect** is a paired difference **WITHIN** a seed:
+`metric(arm, seed) - metric(twin, seed)`. The twin shares the seed and
+therefore the initial weights and the data order, so the pairing removes
+seed-to-seed variation rather than averaging over it.
+
+The **noise floor** is twin against twin **ACROSS** seeds -- every distinct
+pair, n(n-1)/2 = 45 at ten seeds -- which is what `docs/spec-v4.md` calls it.
+No burst appears anywhere in it.
+
+They are not two samples of the same quantity. The floor is the wider by
+construction, and under the 2026-08-03 per-seed data-order ruling it bundles
+initialization AND data order. A test fabricates a twin that swings by 25 --
+ten times the effect -- and asserts the paired difference is still exactly 5,
+which is the situation the pairing exists to survive.
+
+Signed differences are kept in the floor rather than absolute ones: taking the
+absolute value would decide one- versus two-sidedness silently and halve the
+apparent spread.
+
+#### Significance and clearing the floor are different questions
+
+Both are reported per arm, because they disagree. On the synthetic ladder,
+`pos-substituted` has p_adj = 0.015 -- significant -- and a mean effect of 1.15
+against a widest twin-vs-twin difference of 1.38, so it does **not** clear the
+floor. A perfectly consistent small effect is statistically significant and
+still not distinguishable from what seed alone produced. A test pins that case.
+
+The floor comparison uses the **widest** twin-vs-twin difference, not its mean:
+an effect smaller than the largest thing seed alone produced has not been
+separated from seed alone.
+
+#### The correction has no default, and that is D-4
+
+`docs/spec-v4.md` has **no section 9.4 and no statistics section at all** --
+eight headings, none about analysis, and grep finds nothing for correction,
+p-value, significance or confidence. So there is no specified correction, and
+which one is applied decides which arms are reported as separated.
+
+`correction` is a required keyword-only parameter with no default; the CLI
+requires it; and the refusal names D-4. Four methods are implemented (Holm,
+BH, BY, none) so that whichever is ruled is a one-line selection, and a test
+asserts the choice actually changes how many arms separate -- which is why it
+is a ruling rather than a default. **The prior question of what the family of
+tests even is** -- 15 pairwise, 6 against twin, or 2 pre-registered contrasts
+-- is queued with it, because it changes every corrected number.
+
+#### Stdlib only, and cross-checked where a second route exists
+
+No numpy, no scipy, no pandas, no matplotlib -- neither environment has
+matplotlib and the torch-free one has none of them. So the t-distribution
+(regularized incomplete beta, Lentz continued fraction) and the four
+corrections are written out, which means **the torch-free suite genuinely
+tests the statistics** rather than skipping them.
+
+scipy exists in the ML environment, so the same numbers are computed both ways
+there and required to agree: `student_t_sf` against `scipy.stats.t.sf` across
+five degrees of freedom and five statistics, `paired_t_test` against
+`ttest_1samp`, and BH/BY against `false_discovery_control`. A second route, not
+a second copy.
+
+The bootstrap draws from SHA-256 in counter mode rather than any library PRNG,
+for `data_order.py`'s reason -- numpy does not guarantee `Generator` stream
+stability across versions, and a confidence interval that moves with a library
+upgrade is not reproducible. A subprocess test under a different
+`PYTHONHASHSEED` pins it.
+
+#### The plot is text and SVG, both written by hand
+
+No matplotlib in either environment, so the ordering plot is monospace text in
+the report plus a standalone SVG written as a string. The SVG commits and diffs
+like text, renders anywhere, needs no plotting stack, and every coordinate is
+derived from the payload. Its grey band is the noise floor, so an arm whose
+interval sits inside it is visibly inside it.
+
+#### Everything is synthetic and says so
+
+No trained model exists. `--synthetic` puts an unmissable banner at the top of
+the report, and every quantity has responsiveness tests in **both** directions:
+fabricate a known effect and assert it is recovered *by size*, fabricate none
+and assert nothing is reported. An analysis that only passes the first is a
+machine for confirming whatever it is shown.
+
+The panel refuses anything ragged -- a missing cell, a duplicate, fewer than
+ten seeds, a missing reference arm, an unknown arm. A paired design with a hole
+in it silently stops being paired for that seed, and the resulting mean is over
+a different study than the one it claims.
+
 ### S82. The launcher emits; it does not orchestrate
 
 `scripts/launch.py`. Prints command lines and writes them to a file. Starts no
@@ -4728,7 +4823,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-774 tests, counted per file with `--collect-only` rather than from memory.
+821 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4755,10 +4850,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_train.py` | 18 |
 | `tests/test_injection.py` | 23 |
 | `tests/test_launch.py` | 46 |
-| **total** | **774** |
+| `tests/test_analysis.py` | 47 |
+| **total** | **821** |
 
-In the base environment (`.venv/`, no torch) the run is **474 passed, 161
-skipped**. In `.venv-ml/` it is **774 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **518 passed, 164
+skipped**. In `.venv-ml/` it is **821 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
