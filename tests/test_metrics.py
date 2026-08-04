@@ -588,4 +588,10 @@ def test_alignment_dependent_metrics_name_their_blocker(name):
     message = str(exc.value)
     assert "Conv1D" in message
     assert "docs/layout-cost.md" in message
-    assert "undecided" in message
+    # Was `assert "undecided" in message`, which pinned a claim the code
+    # contradicts: the study's model is selected by --family, required with no
+    # default, and hf_gpt2 builds a real GPT2LMHeadModel. What the message must
+    # still do is say it is unbuilt and name where the decision is recorded.
+    assert "NOT BUILT" in message
+    assert "D-6" in message
+    assert "SKIPPED" in message

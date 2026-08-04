@@ -424,19 +424,44 @@ of step 10. All three route through `scripts/canonicalize.py`.
 
 ### The gate, and how it was checked
 
-The instruction was to build these **if and only if** the model swap had
-landed. It has not:
+**CORRECTED 2026-08-03. This block said the model swap "has not landed" and
+that the layout question "was not decided". The code contradicts both, and the
+original wording is left below so the correction is visible rather than
+silent.**
 
-    grep -c "nn.Linear" probes/determinism/model.py  ->  6
-    class GPT(nn.Module)                             ->  line 108
+What is actually true:
 
-`probes/determinism/model.py` is still the handwritten `nn.Linear`
-implementation. `scripts/canonicalize.py` is Conv1D-only by deliberate
-decision, and its tripwire REFUSES a transposed model rather than silently
-addressing the wrong axis.
+- `scripts/model_seam.py` builds a real `GPT2LMHeadModel`. `FAMILIES` is
+  `("hf_gpt2", "probe_linear")`, and `--family` is **required with no default**
+  in both `train.py` and `launch.py`.
+- `scripts/canonicalize.py` is Conv1D-only, and its tripwire refuses any model
+  whose `c_attn`, `c_proj` or `c_fc` is not a transformers `Conv1D`, naming
+  `torch.nn.Linear` specifically. **That is the whole of what the tripwire
+  enforces** — passing it is not by itself a claim that the module is correct
+  for a given checkpoint.
+- A checkpoint trained under `hf_gpt2` has Conv1D projections and so passes
+  that layout check. One trained under `probe_linear` is `nn.Linear` and is
+  refused by it.
+- What is still `nn.Linear` is `probes/determinism/model.py` — **the probe, not
+  the study's model.**
 
-**No layout adapter was built and the layout question was not decided**, per
-instruction. `docs/layout-cost.md` prices both directions and is unchanged.
+So these three functions are **UNBUILT, and D-6 was SKIPPED on 2026-08-03
+rather than blocked.** Nothing prevented them; nobody built them. The
+distinction matters because "blocked" implies waiting on someone else, and this
+is not waiting on anything.
+
+**No layout adapter was built**, which remains true. `docs/layout-cost.md`
+prices both directions and is unchanged.
+
+> **The original wording, preserved:** *"The instruction was to build these if
+> and only if the model swap had landed. It has not: `grep -c "nn.Linear"
+> probes/determinism/model.py -> 6`, `class GPT(nn.Module)` at line 108.
+> `probes/determinism/model.py` is still the handwritten `nn.Linear`
+> implementation ... No layout adapter was built and the layout question was
+> not decided, per instruction."*
+>
+> The grep was accurate and is still accurate. The error was reading it as a
+> fact about the study's model when it is a fact about the probe.
 
 ### What unblocks it
 

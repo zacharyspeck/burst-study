@@ -197,6 +197,41 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D23. Commit 1 carried more than `configs/base.yaml`
+
+**Asked for:** two commits, the first being `configs/base.yaml` alone — the
+three values — "so the config change is trivially revertable without dragging
+prose with it."
+
+**What happened:** setting the three values turned six tests red and falsified
+prose in `README.md` and `docs/handoff-pilot.md`. Commit 1 therefore contains
+`configs/base.yaml`, the two test files those six live in, and the two
+documents.
+
+**Why this serves the stated goal rather than defeating it.** The point of the
+separation was revertability. A commit that sets three values and leaves the
+suite red is not revertable in any useful sense — reverting it would be
+mandatory rather than optional. Everything added is *caused by* the config
+change and reverts cleanly with it. What was kept out of commit 1 is the
+prose that is independent of it: the stale-text corrections of S88, which are
+commit 2 exactly as asked.
+
+**Not swept in, and needing a ruling:**
+
+- `docs/spec-v4.md:231` says `optimizer.adamw_impl` "is `null` and
+  launch-blocking". The `null` half is now false. **Explicitly out of scope**
+  for this task, so untouched.
+- `scripts/metrics_report.py:554-556` carries a fourth copy of the stale
+  "layout is undecided" claim S88 corrects in three places. Also out of scope.
+
+**Checked and NOT stale, contrary to expectation:**
+`docs/measurements/2026-08-02-determinism-check.md:30-32` says the config
+"declares ... as launch-blocking fields with no defaults, so a future run
+states which of these it used". Setting a value does not make it a default and
+does not stop the field being launch-blocking, so that sentence still holds.
+Verified before assuming, because it sits in `docs/measurements/`, which was
+out of scope and would have forced a stop.
+
 ### D1. Added a `--launch` flag to reconcile two requirements
 
 The spec says the loader "must raise a clear error if a run is launched while a
@@ -727,6 +762,111 @@ Three smaller things fixed while in there, none of them requested:
   the scan caught this. `docs/step9-summary.md`'s file-listing annotation
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
+
+### S89. The last three launch-blocking nulls are set, and what that falsified
+
+`training.micro_batch: 8`, `training.dtype: fp32`, `optimizer.adamw_impl:
+foreach`, set 2026-08-03. **There are now no launch-blocking nulls in
+`configs/base.yaml`.**
+
+The values are `probes/determinism/train_once.py`'s, verified against its
+argparse defaults rather than assumed: `--micro-batch` default 8, `--dtype`
+default `fp32`, `--adamw-impl` default `foreach`. Setting them to match means
+the committed determinism result stays comparable to the loop meant to inherit
+it, instead of the mismatch S78 records.
+
+**8 IS INHERITED, NOT MEASURED, and the config now says so at the field.** It
+is the value the probe invented because the field did not exist (S67). Nothing
+has measured that it fits any real card. The pilot is what turns it into a
+chosen number. Recording that distinction beside the value is the whole reason
+the comment was rewritten rather than deleted.
+
+Verified through the loader rather than by reading YAML back:
+`cfg.training.accumulation_steps` is **32**, read from the property
+`scripts/train.py:403` actually uses — not from arithmetic done here, which
+would have been a different quantity wearing the same name.
+
+#### What setting three values falsified, which was more than three values
+
+Six tests asserted, directly or by using the shipped config as an example, that
+these fields were null. **All six were repaired by giving them an input that
+still blocks, not by deleting them** — a test of the NOT LAUNCH-READY refusal
+that no longer exercises a refusal is worse than no test. New helpers
+`launch_blocked_base` (test_config) and the `unready_base` fixture
+(test_launch) put the three back to null.
+
+Two tests were added so neither direction can rot silently:
+`test_the_shipped_config_is_now_launch_ready` and
+`test_provenance_records_which_fields_are_missing`. That is the entire test
+delta: 836 -> 838.
+
+One assertion was made **derived instead of hardcoded**:
+`test_provenance_files_are_written` asserted `launch_ready is False`, which
+went stale the moment the values were set. It now asserts
+`meta["launch_ready"] == (not cfg.missing_for_launch)`, which cannot go stale
+because it does not encode today's answer.
+
+Prose corrected in `README.md` (the acceptance-command output and the "three
+fields that ARE still undecided" table) and `docs/handoff-pilot.md` (§0.A, §3,
+the critical path, and step 4). The sharpest of these:
+`docs/handoff-pilot.md` said of the determinism result *"the pilot will run
+none of those three, so that result transfers on none of its axes"*. Setting
+the values to match the probe **inverted** that: it now transfers on all three
+of those axes, and still does not transfer on the model, which is the axis that
+matters most. Left uncorrected it would have understated what the evidence
+covers and hidden which gap is the real one.
+
+### S88. "The swap has not landed" was a fact about the probe, read as one about the study
+
+Three pieces of text asserted that the study's model swap to HF GPT-2 had not
+landed and that the layout question was undecided. The code contradicts all
+three, and had done for some time:
+
+- `scripts/model_seam.py` builds a real `GPT2LMHeadModel`
+- `FAMILIES` is `("hf_gpt2", "probe_linear")`
+- `--family` is required with **no default** in both `train.py` and `launch.py`
+
+What is still `nn.Linear` is `probes/determinism/model.py`. **The original
+evidence was correct and the reading was wrong**: D-6's gate cited
+`grep -c "nn.Linear" probes/determinism/model.py -> 6`, which is accurate and
+still is. It is a fact about the *probe*. It was read as a fact about the
+study's model, and three separate documents inherited that reading.
+
+This is S55 at the level of a *referent* rather than a quantity: not a number
+computed as something else, but a true observation attached to the wrong
+subject. Corrected in:
+
+1. `scripts/metrics.py` `_BLOCKED` — the text the three unbuilt metrics raise
+2. `scripts/model_seam.py` module header
+3. `docs/decisions-pending.md` D-6's gate rationale block
+
+**The corrected claim is: the three functions are UNBUILT, and D-6 was SKIPPED
+on 2026-08-03 rather than blocked.** Nothing prevented them; nobody built them.
+"Blocked" implies waiting on someone else and this is not waiting on anything.
+
+**What I deliberately did NOT write.** The instruction was to assert nothing
+about `canonicalize.py`'s support beyond what its tripwire enforces, so I read
+`_check_projection_layout` first. It refuses any model whose `c_attn`,
+`c_proj` or `c_fc` is not a transformers `Conv1D`, naming `torch.nn.Linear`
+specifically — and that is *all* it does. So the text says an `hf_gpt2`
+checkpoint "passes that layout check", **not** that canonicalize supports it.
+Passing a tripwire is not a correctness claim, and writing it as one would have
+been a fresh instance of the defect being repaired.
+
+**A test pinned the falsehood.** `test_alignment_dependent_metrics_name_their_blocker`
+asserted `"undecided" in message`. Keeping that word to keep the test green
+would have been writing text to satisfy a test rather than to be true — the
+exact inversion this repo guards against. The assertion now checks
+`NOT BUILT`, `D-6` and `SKIPPED`, which are what the message must actually say.
+
+**A fourth instance found and NOT fixed, because it was out of scope:**
+`scripts/metrics_report.py:554-556` says the three metrics "need canonicalize,
+which is Conv1D-only while the study's layout is undecided." Same stale claim,
+same correction needed. Left for a ruling rather than swept in.
+
+Also left, and also out of scope: `docs/spec-v4.md:231` still says
+`optimizer.adamw_impl` "is `null` and launch-blocking". The launch-blocking
+half is true; the `null` half stopped being true with S89 below.
 
 ### S87. A green signal that was not measuring the tests, and the GPU field
 
@@ -5244,7 +5384,7 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
 | file | tests |
 | --- | --- |
-| `tests/test_config.py` | 210 |
+| `tests/test_config.py` | 211 |
 | `tests/test_burst_match.py` | 43 |
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
@@ -5264,7 +5404,7 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_rng_state.py` | 17 |
 | `tests/test_train.py` | 19 |
 | `tests/test_injection.py` | 23 |
-| `tests/test_launch.py` | 54 |
+| `tests/test_launch.py` | 55 |
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
 | **total** | **852** |

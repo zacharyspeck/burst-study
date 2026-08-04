@@ -3,10 +3,16 @@
 
 WHY THIS EXISTS
 
-The study will train HF GPT-2, but that decision has not landed in the repo:
-`probes/determinism/model.py` is still an `nn.Linear` implementation and the
-swap is pending. So the loop is written against the smallest interface that
-survives either, and this module is the whole of it.
+This module builds HF GPT-2 today. `_build_hf_gpt2` returns a real
+`GPT2LMHeadModel`, `FAMILIES` is `("hf_gpt2", "probe_linear")`, and `--family`
+is required with no default in both `train.py` and `launch.py`.
+
+This paragraph used to say the swap "has not landed" and was "pending". What
+has not landed is the retirement of `probes/determinism/model.py`, which is
+still an `nn.Linear` implementation and is the OTHER family here -- the probe,
+not the study's model. The loop is written against the smallest interface that
+survives either, and this module is the whole of it. Which family a given
+checkpoint came from is recorded in `run_provenance.yaml`; see S86.
 
 THE INTERFACE, and it is six things
 
