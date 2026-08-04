@@ -5607,7 +5607,7 @@ or driver.
 
 ## Test coverage
 
-852 tests, counted per file with `--collect-only` rather than from memory.
+854 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -5636,11 +5636,19 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_launch.py` | 55 |
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
-| **total** | **852** |
+| **total** | **854** |
 
-In the base environment (`.venv/`, no torch) the run is **546 passed, 165
-skipped**. In `.venv-ml/` it is **849 passed, 3 skipped**, measured on
-`gpmoo-b1`.
+Measured on the Windows development host, 2026-08-04, after the rebase onto
+Asa's determinism-probe work: **549 passed, 164 skipped** in `.venv/` and
+**854 passed, 0 skipped** in `.venv-ml/`.
+
+On `gpmoo-b1` the same tree is **548 passed, 165 skipped** and **851 passed,
+3 skipped** — DERIVED, not re-measured. Asa's 2026-08-03 figures there were
+546/165 and 849/3, and the two tests the rebased config commit adds
+(`test_the_shipped_config_is_now_launch_ready`,
+`test_provenance_records_which_fields_are_missing`) are neither CUDA- nor
+corpus-conditional, so they add two passes on any host. Marked derived because
+nobody has re-run it there.
 
 **The pass/skip split is host-dependent; the total is not.** Three tests decide
 what they do from the machine rather than from the code:
@@ -5649,9 +5657,10 @@ built locally, and `tests/test_rng_state.py:119` and `tests/test_train.py:399`
 skip *because* CUDA is present — they assert a refusal that only applies to
 CPU-only hosts. The counts recorded before 2026-08-03 (531/164 and 836/0) were
 taken on a host with a corpus built and no CUDA. Both reconcile against this
-one exactly: 531+164 = 695 and 546+165 = 711, a difference of the 16 tests
-added; 836+0 = 836 and 849+3 = 852, the same 16. **Compare totals across
-machines, not pass counts.** Both are produced by
+one exactly: 531+164 = 695 and 549+164 = 713, a difference of the 18 tests
+added; 836+0 = 836 and 854+0 = 854, the same 18 — sixteen from the determinism
+probe, two from the config commit. **Compare totals across machines, not pass
+counts.** Both are produced by
 `python scripts/check_suites.py`, which does not pipe -- see S87. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
