@@ -115,10 +115,19 @@ a different family, but it cannot stop a second invocation pointed at a fresh
 
 ### What does NOT block
 
-None of the six open decisions in `docs/decisions-pending.md`. D-3, D-4, D-7 and
+None of the five open decisions in `docs/decisions-pending.md`. D-3, D-4 and
 D-8 are analysis and wording; D-5 is a config edit that stays free until the
-full launch; D-6 affects only the three unbuilt metrics. And the model swap does
-not block — see the note at the top.
+full launch; D-6 affects only the three unbuilt metrics. D-7 is now **closed**
+by a decision rule. And the model swap does not block — see the note at the top.
+
+> **One thing the pilot must do for D-7, and it is not a decision.**
+> `docs/preregistration.md` §8.4 selects the headline metric from a
+> **single-checkpoint** measurement — `scripts/canonicalization_error.py`
+> against a real step-200 checkpoint at ε = 1e-6 over ten directions. §8.5
+> requires that measurement to be run and its branch recorded **before any
+> arm-vs-twin distance is examined**. It needs no arm-vs-twin comparison and
+> produces no outcome data, so it can be done as soon as the first pilot
+> checkpoint exists.
 
 **Critical path: transfer and verify the corpus → emit → run.** The three
 reduction-order values are set as of 2026-08-03, so nothing in this repo now
@@ -411,7 +420,10 @@ Told plainly so you do not discover it at an inconvenient moment.
 - **The multiple-comparison correction is not chosen.** `spec-v4.md` has no
   statistics section at all. `scripts/analysis.py` requires the method as an
   explicit argument and refuses without one. See D-4.
-- **Which metric is the headline is not decided.** See D-7.
+- **Which metric is the headline is decided by a rule, not yet by a value.**
+  `docs/preregistration.md` §8.4 fixes the thresholds in advance; the branch is
+  taken from a single-checkpoint measurement at the pilot, which has to happen
+  before any arm-vs-twin distance is looked at. See D-7, now closed.
 - **The grad-clip obligation is instrumented, not discharged.** `train.py` logs
   the pre-clip gradient norm every step, but discharging it needs a real run
   reaching step 200.

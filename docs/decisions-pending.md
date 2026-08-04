@@ -13,8 +13,12 @@ steps, with `CanonicalizeHeadInternal` and `AbsorbLayerNormGains` gone.
 
 Each entry below carries its own **Status** line and that is the authority.
 Open as of 2026-08-03: D-3 (head sort), D-4 (multiple-comparison correction),
-D-5 (full-checkpoint interval), D-6 (step 10's second half, blocked), D-7
-(which metric is the headline), D-8 (three confirmed wordings).
+D-5 (full-checkpoint interval), D-6 (step 10's second half, skipped),
+D-8 (three confirmed wordings).
+
+**D-7 is CLOSED**, by a decision rule in `docs/preregistration.md` §8 rather
+than by a pick. Kept below with the reasoning, including the fact that the
+premise correction inside it was itself wrong.
 
 > **Why this header used to warn you not to trust it.** Until 2026-08-04 it
 > carried a `PARTLY SUPERSEDED` banner telling the reader to trust the
@@ -356,9 +360,14 @@ by command rather than by assertion.
 
 That makes reading 3 **available**. It does not select it, and this entry is
 still open: the family of tests and the correction method are both still
-yours. Note also that `docs/preregistration.md` §8 states its own gap — the
-outcome metric is D-7 and is not fixed, so the pre-registration is partial
-until D-7 is ruled.
+yours.
+
+**Updated 2026-08-03.** This said `docs/preregistration.md` §8 "states its own
+gap — the outcome metric is D-7 and is not fixed, so the pre-registration is
+partial until D-7 is ruled." §8 has since been replaced by a decision rule that
+closes D-7, so the pre-registration is no longer partial in that respect. D-4
+is unaffected and §8.6 says so explicitly: the correction and its family remain
+open, and `scripts/analysis.py` still requires both with no default.
 
 ### What I would need from you
 
@@ -483,32 +492,71 @@ says what would finish it.
 
 ## D-7. Which metric is the study's headline
 
-**Status: open. Raised 2026-08-03 by item 5. Nothing decided.**
+**Status: CLOSED 2026-08-03 by a decision rule, not by a pick.**
+`docs/preregistration.md` §8 rules it. The headline metric is selected by a
+**single-checkpoint measurement** taken at the pilot -- `canonicalization_error.py`
+against a real step-200 checkpoint at eps=1e-6 over ten directions -- branching
+on the spread and median of the distortion factor. Three of the four branches
+give the **plain loss barrier**; only `spread <= 2 and median >= 1.01` selects
+the permutation-aligned barrier, and that branch is the one that would require
+D-6 to be built.
+
+The rule is in force from the date of that document. The **branch has not been
+taken**, because the measurement needs a checkpoint that does not exist yet.
+That is not the same as the decision being open: what gets measured, what the
+thresholds are, and which way each outcome resolves are all fixed in advance,
+and §8.5 requires the branch to be recorded before any arm-vs-twin distance is
+examined.
 
 ### The decision
 
 Which of the step 10 metrics carries the study's primary claim.
 
-### What raised it, and a correction to the premise
+### ~~What raised it, and a correction to the premise~~ THE CORRECTION WAS WRONG
 
-I was told `docs/spec-v4.md` "names the permutation-aligned barrier as the
-primary metric". **It does not.** `grep -c metric docs/spec-v4.md` returns
-**0** -- the document has eight sections and none of them mentions a metric of
-any kind, let alone names one as primary. There was no claim to rewrite.
+**Corrected 2026-08-03. The text below is preserved because it is the error,
+and because it is the second time in this entry's life that a `grep` decided
+something it was not competent to decide.**
 
-So the situation is not a stale statement. It is an **absence**: the metrics
-exist in code, none is designated, and a reader could reasonably assume the
-spec had chosen. `docs/spec-v4.md` now has a Metrics section stating that
-absence and pointing here.
+The claim below -- that `docs/spec-v4.md` names no metric, on the evidence of
+`grep -c metric` returning `0` -- is **false**, and the thing it "corrected"
+was right all along. Design Spec v4 §8.1 **does** name the permutation-aligned
+loss barrier as the primary readout, and §2's hypothesis is stated in its
+terms.
+
+The grep was run against `docs/spec-v4.md`, which is an **incomplete copy of
+the spec, missing §8 and §9 entirely**. The command was executed correctly and
+reported truthfully about the file it was given. The file was not the document
+whose contents were being asserted.
+
+So D-7 never rested on an absence of decision. It rested on a **measurement
+artifact** -- and the artifact was believed over the original claim precisely
+because it came with a number attached. Logged as S91.
+
+> **The original text, preserved:** *"I was told `docs/spec-v4.md` 'names the
+> permutation-aligned barrier as the primary metric'. **It does not.**
+> `grep -c metric docs/spec-v4.md` returns **0** -- the document has eight
+> sections and none of them mentions a metric of any kind, let alone names one
+> as primary. There was no claim to rewrite. So the situation is not a stale
+> statement. It is an **absence**: the metrics exist in code, none is
+> designated, and a reader could reasonably assume the spec had chosen.
+> `docs/spec-v4.md` now has a Metrics section stating that absence and pointing
+> here."*
+>
+> The Metrics section that was added to `docs/spec-v4.md` on the strength of
+> this therefore documents an absence that is an artifact of that file being
+> partial. Correcting it means reconciling the partial copy against the full
+> spec, which is a larger job than this entry and is **not done**.
 
 ### What exists
 
 Built and tested (`scripts/metrics.py`): interpolation barrier, raw L2,
 activation cosine similarity, per-layer CKA.
 
-Not built, raising `NotImplementedError` and blocked on the model swap
-(see D-6): permutation-aligned barrier, permutation-aligned L2, RSF subspace
-probe.
+Not built, raising `NotImplementedError`: permutation-aligned barrier,
+permutation-aligned L2, RSF subspace probe. (This said "blocked on the model
+swap". They are **unbuilt, not blocked** -- D-6 was skipped on 2026-08-03, and
+`--family hf_gpt2` builds a real `GPT2LMHeadModel` today. See S88.)
 
 ### The evidence that bears on it, which points away from the aligned metrics
 
@@ -539,13 +587,19 @@ cut the other way:
    not against real twin-vs-twin distances, which do not exist yet. The 1.00041
    is a property of the ruler, not of the comparison it will be used for.
 
-### What I would need from you
+### ~~What I would need from you~~ RESOLVED — what happens instead
 
-A ruling on which metric is primary, or a decision to defer it until trained
-checkpoints exist and the aligned-versus-raw question can be measured rather
-than argued. Deferring is defensible: nothing downstream needs it before the
-pilot, and `scripts/analysis.py` takes the metric name as an argument, so no
-default is in force in the meantime.
+**Nothing further is needed.** The option this section described as defensible
+-- deferring until the aligned-versus-raw question can be measured rather than
+argued -- is what `docs/preregistration.md` §8 does, with the deferral written
+as a rule fixed in advance rather than as a judgement made later. The evidence
+above is what the rule's thresholds were calibrated against.
+
+`scripts/analysis.py` still takes the metric name as an argument and still has
+no default, so nothing is silently in force between now and the pilot.
+
+**Still open, and unaffected by this:** D-4, the multiple-comparison correction
+and its family. `docs/preregistration.md` §8.6 says so explicitly.
 
 
 ---

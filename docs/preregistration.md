@@ -156,26 +156,77 @@ If an exploratory comparison produces the most interesting result in the study,
 it is still reported as exploratory. That is the commitment; it costs nothing
 to make now and everything to make later.
 
-## 8. THE INCOMPLETE PART, stated rather than buried
+## 8. The outcome metric: a ruling, a complication, and a decision rule
 
-**A contrast is only fully pre-registered if its outcome measure is also
-fixed, and ours is not yet.**
+*Written 3 August 2026, before any checkpoint has existed in this repository.*
 
-`docs/decisions-pending.md` **D-7 — which metric is the study's headline — is
-open.** Four metrics are built (interpolation barrier, raw L2, activation
-cosine, per-layer CKA) and three more raise `NotImplementedError` pending D-6.
-This document fixes *which arms are compared*; it does not fix *what is
-measured about them*.
+### 8.1 What was already ruled
 
-So the pre-registration is real but partial, and the gap is exactly the
-researcher-degrees-of-freedom that choosing a metric after seeing data would
-open. **To close it, D-7 must be ruled before any checkpoint is examined** —
-not merely before the numbers are written up. If D-7 is instead deferred until
-checkpoints exist, as its own entry says is defensible, then the confirmatory
-status claimed here is weakened accordingly, and the write-up must say so.
+Design Spec v4, dated 2 August 2026, §8.1, names the **permutation-aligned loss barrier** between a burst run's final weights and its seed-matched twin's as the study's primary readout. §2's hypothesis and wrongness condition are stated in its terms. That ruling was made before any training run existed and stands as the default.
 
-Recording this now so that it is a known, dated limitation rather than
-something a reader reconstructs later.
+An earlier note in `docs/decisions-pending.md` recorded that the spec does not name a primary metric, on the basis of a `grep` returning zero matches. That grep was run against `docs/spec-v4.md`, which is an incomplete copy of the spec missing §8 and §9 entirely. The original claim was correct; the correction was not. This is recorded here because the reason D-7 appeared open was a measurement artifact, not an absence of decision.
+
+### 8.2 What changed after the ruling
+
+Infrastructure step 9, completed 2–3 August, measured how much work permutation alignment actually does. On models sharing an initialization — which every arm and its twin do — the shipped four-step canonicalization recipe contributes a factor of **1.00041** [1.00039, 1.00046] across ten seeds, against an empty recipe's exactly **1.00000**.
+
+The mechanism: twins share an initialization, and the coordinates a permutation would move are ones gradient descent does not spontaneously scramble. There is almost nothing for alignment to correct.
+
+If that finding holds at the point of injection, the permutation-aligned barrier and the plain barrier are, for practical purposes, the same number — and the aligned version is unbuilt (`aligned_barrier` raises `NotImplementedError`) while the plain version is built and tested.
+
+### 8.3 Why that finding is not yet sufficient to overturn 8.1
+
+Three limitations, all recorded in `docs/measurements/9-canonicalization-error.json`:
+
+1. **Everything in step 9 was measured on public, fully-trained GPT-2.** This study injects at step 200, roughly 52M tokens into a from-scratch run — far closer to initialization.
+2. **The dispersion sweep says conditioning is worse where we inject.** At the initialization configuration, the FFN deciding margin is roughly two orders of magnitude smaller than at the trained model where every other conditioning number in that file was taken.
+3. **There is a cliff.** At ε = 1e-3 one seed of ten reads 83.99 against a median of 1.0004, traced to a single head-order flip. Nobody knows where real twin-vs-twin displacement lands relative to that cliff.
+
+So the question separating the plain barrier from the aligned one is not a matter of preference. It is a measurement that has never been taken on a model resembling the one this study trains.
+
+### 8.4 The decision rule
+
+**What gets measured.** `scripts/canonicalization_error.py`, run against a real step-200 checkpoint produced by the pilot, at ε = 1e-6 across ten random perturbation directions — matching the epsilon and seed count of the existing sections D, E and F so the numbers are comparable to the public-GPT-2 table. This measurement involves a single checkpoint. It requires no arm-vs-twin comparison and produces no outcome data.
+
+**Two criteria, taken from the measurement:**
+
+- **Spread** — the ratio of the largest to the smallest distortion factor across the ten directions.
+- **Magnitude** — the median distortion factor.
+
+**The rule, in force from the date of this document:**
+
+| Condition | Headline metric |
+|---|---|
+| Spread > 2 | **Plain loss barrier.** The aligned ruler is inconsistent at the point of injection and cannot be corrected for |
+| Spread ≤ 2 and median < 1.01 | **Plain loss barrier**, with the aligned barrier reported as a robustness check |
+| Spread ≤ 2 and median ≥ 1.01 | **Permutation-aligned loss barrier**, as spec v4 §8.1 ruled. D-6 gets built |
+| The measurement cannot be produced, or is ambiguous against these thresholds | **Plain loss barrier** |
+
+**Where the thresholds come from.** On public GPT-2 the shipped recipe's spread is 1.000456 / 1.000391 = 1.00007 — essentially none. The retired head-internal step, which was removed *because* of its inconsistency, showed 2450 / 3.09 = 793. A spread threshold of 2 sits enormously above the observed-good case and far below the observed-bad one. The 1.01 magnitude threshold asks whether alignment moves the number by more than one percent; below that it is not doing work worth an unbuilt module.
+
+Three of the four branches land on the plain barrier. That asymmetry is deliberate: the more elaborate ruler has to earn its place, and every uncertain outcome defaults to the simpler, built, tested one.
+
+### 8.5 Ordering constraints
+
+Both are conditions on the validity of this section:
+
+1. The canonicalization measurement is run and its branch recorded **before any arm-vs-twin distance from the pilot is examined**. The pilot produces real checkpoints; looking at displacement first and the ruler second would make the choice contingent on the result.
+2. This document is committed before the pilot launches. A decision rule written after the measurement is not a decision rule.
+
+### 8.6 What this section does and does not close
+
+**Closes:** D-7. The headline metric is determined by the rule above, not by inspection of results.
+
+**Does not close:** D-4, the multiple-comparison correction and its family. `scripts/analysis.py` continues to take both the metric name and the correction method as required parameters with no default, so nothing is silently in force.
+
+**Does not change:** the two confirmatory contrasts registered in §5 and §6 — fluent-false vs fluent-true as primary, pooled fluent vs pos-substituted as secondary. This section fixes what is measured about them; §5 and §6 fix which arms are compared.
+
+### 8.7 What would invalidate this section
+
+- Any checkpoint predating the commit of this document.
+- The canonicalization measurement being taken on a model other than a step-200 checkpoint from this study's own configuration.
+- The thresholds in 8.4 being revised after the measurement is seen.
+- Any arm-vs-twin displacement being examined before the branch is recorded.
 
 ## 9. What would invalidate this document
 
@@ -202,5 +253,5 @@ falsified is decoration:
 | exploratory | `scrambled-false`, `scrambled-true`, `random-chars`, the full ladder, all other pairs |
 | reference / noise floor | `twin` |
 | pairing | within seed, 10 seeds |
-| outcome metric | **NOT YET FIXED — D-7 open, see §8** |
+| outcome metric | **FIXED BY RULE — see §8.4.** Branch selected by a single-checkpoint measurement at the pilot; three of its four branches give the plain loss barrier |
 | correction method | **NOT RULED HERE — D-4 is Zach's, see §2** |

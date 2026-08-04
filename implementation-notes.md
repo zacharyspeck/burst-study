@@ -846,6 +846,66 @@ Three smaller things fixed while in there, none of them requested:
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
 
+### S91. A grep that was right about the wrong file, believed over a correct claim
+
+**D-7 is closed**, by a decision rule in `docs/preregistration.md` §8 rather
+than by a pick. Zach wrote §8; this entry records the defect it exposed.
+
+#### The defect
+
+D-7's entry contained a section headed "a correction to the premise". It said:
+
+> I was told `docs/spec-v4.md` "names the permutation-aligned barrier as the
+> primary metric". **It does not.** `grep -c metric docs/spec-v4.md` returns
+> **0**.
+
+**The correction was wrong and the thing it corrected was right.** Design Spec
+v4 §8.1 does name the permutation-aligned loss barrier as the primary readout,
+and §2's hypothesis is stated in its terms.
+
+`docs/spec-v4.md` is an **incomplete copy of the spec, missing §8 and §9
+entirely**. The grep ran correctly and reported truthfully about the file it
+was handed. The file was not the document whose contents were being asserted.
+
+#### Why this one is worse than the usual instance
+
+The usual S55 shape is a quantity computed as something other than its name.
+This is narrower and nastier: **the command was correct, its output was
+correct, and the inference drawn from it was false**, because the input was a
+partial artifact standing in for the real thing. Nothing about the number was
+wrong. `grep -c` returning `0` is not evidence of absence in a document; it is
+evidence of absence in a *file*, and the two were silently treated as the same.
+
+And it **beat a correct human claim**. Someone said the spec names the metric.
+The grep said otherwise, came with a number, and won. A measurement outranked a
+recollection, which is normally right and was exactly wrong here. That is the
+part worth remembering: an instrument pointed at the wrong specimen produces a
+confident reading, and confidence is what makes it persuasive.
+
+    THE RULE. `grep`, `wc -l` and friends report on the FILE you gave them.
+    Before concluding a document does not contain something, establish that the
+    file IS the document. A partial copy answers every question truthfully and
+    every question wrong.
+
+#### What it cost, and what is still owed
+
+D-7 spent time in the queue as an open decision when the spec had already ruled
+it. `docs/spec-v4.md` also had a "Metrics section" added on the strength of
+this, stating an absence that is an artifact of that file being partial.
+
+**That is not fixed.** Reconciling the partial copy against the full spec is a
+larger job than closing D-7, and it is recorded in D-7's entry rather than
+quietly patched. Anything else in `docs/spec-v4.md` inferred from what the file
+does *not* contain is suspect for the same reason.
+
+#### What §8 actually does
+
+It does not pick a metric. It fixes a **rule** — a single-checkpoint
+measurement at the pilot, thresholds set in advance, three of four branches
+landing on the plain barrier, and an ordering constraint requiring the branch
+to be recorded before any arm-vs-twin distance is examined. A deferral written
+as a rule in advance is a decision; the same deferral taken later is not.
+
 ### S90. Mutation audit of every test 16df210 touched, and two more instances
 
 16df210 removed the premise of six tests at once: they had all been written
@@ -1206,6 +1266,9 @@ and was updated in place.
 `docs/preregistration.md` §8 records the part that is genuinely incomplete: a
 contrast is only pre-registered if its outcome measure is fixed too, and D-7 is
 open. Stating that is worth more than the tidier document would have been.
+(**Superseded 2026-08-03:** §8 was replaced by a decision rule that closes D-7,
+so the pre-registration is no longer partial in that respect. The paragraph
+stands because the gap was real when written. See S91.)
 
 **Two findings from tracing the launch gates, neither of them requested.**
 
