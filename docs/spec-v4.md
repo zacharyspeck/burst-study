@@ -228,10 +228,16 @@ implementation default:
    the cosine and anisotropy measurements this entry warned about.
 
    **What remains open here is one thing, and it is new:**
-   `optimizer.adamw_impl` is `null` and launch-blocking. `foreach`, `fused` and
+   `optimizer.adamw_impl` is launch-blocking. `foreach`, `fused` and
    `single` group their arithmetic differently and produce different bits from
    identical moments, so it is part of the study's definition rather than a
-   performance knob. The pilot settles it. See S78.
+   performance knob. See S78.
+
+   **Corrected 2026-08-04:** this said the field "is `null` and
+   launch-blocking". Launch-blocking is still true — the loader refuses a run
+   where it is null. `null` stopped being true on 2026-08-03, when it was set
+   to `foreach` to match `probes/determinism/train_once.py`. The pilot confirms
+   or replaces that value rather than supplying it.
 
    Also still open, and **not** settled by implementation default: whether
    clipping actually engages at step 200. `scripts/train.py` logs the pre-clip

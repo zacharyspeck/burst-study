@@ -14,11 +14,25 @@ What the report DOES establish is that each metric responds: that identical
 models score identically, that different models do not, and that the two
 independent routes to layer activations agree. That is the whole claim.
 
-Every derived number in this report is computed from the payload. Nothing is
-hardcoded prose. Five separate times in step 9 a hardcoded interpretation
-outlived the number it described, and the fifth was shipping a claim
-contradicted by a table one screen below it -- so the S70 pattern is built in
-here from the first commit rather than retrofitted after the sixth.
+Every derived NUMBER in this report is computed from the payload. Five separate
+times in step 9 a hardcoded interpretation outlived the number it described,
+and the fifth was shipping a claim contradicted by a table one screen below it
+-- so the S70 pattern is built in here from the first commit rather than
+retrofitted after the sixth.
+
+THIS DOCSTRING USED TO SAY "Nothing is hardcoded prose". THAT WAS FALSE, AND IT
+WAS FALSE IN A WAY THAT MATTERED. `cannot_answer` and `report_banner` each
+carried a hand-written sentence saying the three absent metrics were waiting on
+an undecided layout. Both went stale, both survived the 2026-08-03 correction
+that fixed the same claim in `scripts/metrics.py`, and both were still here on
+2026-08-04. See S90.
+
+The accurate statement is narrower: the NUMBERS are derived, and so is the LIST
+of absent metrics -- `cannot_answer` asks the module which functions raise
+rather than hardcoding their names. The PROSE AROUND THEM IS NOT DERIVED and
+can rot exactly like any other comment. An immunity claim broader than the
+mechanism that backs it is worse than no claim, because it stops the next
+reader looking.
 """
 
 from __future__ import annotations
@@ -126,6 +140,11 @@ def cannot_answer(payload) -> str:
     return (
         "THIS IS HALF OF STEP 10 AND THE METRICS MODULE IS NOT DONE. "
         f"Built and measured here: {', '.join(built)}. "
+        # STALE, AND DELIBERATELY LEFT SO -- same reason as the banner below.
+        # This string is STORED into docs/measurements/10-metrics.json at
+        # generation time, so correcting it here without regenerating would
+        # leave the function and the committed artifact disagreeing. Out of
+        # scope; see S90 and D26.
         f"NOT built, and still raising NotImplementedError: "
         f"{', '.join(blocked) if blocked else 'none'} -- all of which route "
         "through scripts/canonicalize.py, which is Conv1D-only, while which "
@@ -551,6 +570,12 @@ def report_banner(payload) -> list:
         "  against a synthetic curve with a peak in it, in",
         "  tests/test_metrics.py -- not by this file.",
         "",
+        # STALE, AND DELIBERATELY LEFT SO. "the study's layout is undecided" is
+        # the claim d07d163 corrected in scripts/metrics.py; this is a surviving
+        # copy. Correcting it changes rendered output, and the committed
+        # docs/measurements/10-metrics.md is asserted equal to what this
+        # function renders -- so the fix requires REGENERATING that report,
+        # which is out of scope. See S90 and D26.
         "NOT BUILT: aligned barrier, aligned L2, RSF subspace probe. All three",
         "need canonicalize, which is Conv1D-only while the study's layout is",
         "undecided. This is HALF of step 10.",
