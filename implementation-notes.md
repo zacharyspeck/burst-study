@@ -2359,6 +2359,30 @@ Three things that measurement changed about this entry:
 and must stay that way. What has changed is that the obligation on the training
 loop is now backed by a measurement instead of an argument.
 
+**Update 2026-08-03 — repeated on the real GPT-2, and the stand-in turned out
+not to have covered it.** `--model hf` trains the released `gpt2` checkpoint
+through transformers rather than the `model.py` re-implementation. **Identical
+at bf16 and at fp32**, on an allocated `gpmoo-b1` A6000. Full record:
+`docs/measurements/2026-08-03-determinism-check-real-gpt2.md`.
+
+Two more corrections to this entry:
+
+- **The 2026-08-02 kernel evidence was the stand-in's, and the real model does
+  not launch the same kernels.** The released checkpoint carries dropout 0.1;
+  the re-implementation has none, and dropout changes the attention backward
+  that gets selected — `fmha_cutlassB_f32_aligned_64x64_k64_dropout_sm80`
+  rather than `..._k64_sm80`. 92 kernels vs 66 at fp32, 107 vs 74 at bf16. The
+  earlier result was not wrong; it was about a program the study will not run.
+- **Dropout was the only CUDA RNG consumer in play, and the stand-in had
+  none.** At `p = 0` nothing draws from the CUDA RNG during a forward pass, so
+  the 2026-08-02 result could not speak to whether that stream reproduces
+  across processes. The `hf` runs do, and it does.
+
+Also narrower than stated on 2026-08-02: the two 2026-08-03 passes landed on
+two physically different A6000s in the same node and produced identical
+digests, so "a different GPU" is now untested only for a different GPU *model*
+or driver.
+
 ---
 
 ## Environment as built

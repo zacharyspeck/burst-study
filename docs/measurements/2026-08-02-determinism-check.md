@@ -1,5 +1,22 @@
 # Determinism check — `determinism: true` holds, on this machine, at both dtypes
 
+> **Superseded in part on 2026-08-03** by
+> [`2026-08-03-determinism-check-real-gpt2.md`](2026-08-03-determinism-check-real-gpt2.md),
+> which repeats this on the **released `gpt2` checkpoint** rather than on the
+> `model.py` re-implementation. Two things below need reading in that light:
+>
+> - The kernel evidence in "Why 20 steps at full size" is the stand-in's. The
+>   real model launches a **different attention backward** — the `_dropout_`
+>   cutlass variant — because the released checkpoint has dropout 0.1 and the
+>   re-implementation has none. 92 kernels vs 66 at fp32, 107 vs 74 at bf16.
+> - "A different GPU" under "What this does not cover" is narrower than stated:
+>   the 2026-08-03 runs reproduced across two physically different A6000s on
+>   `gpmoo-b1`. Different GPU *model* and different driver remain untested.
+>
+> Also: this run was made on the login node, not on an allocated cluster GPU,
+> and `check.py` at the time hardcoded `CUDA_VISIBLE_DEVICES=0`. That was fixed
+> on 2026-08-03; see S53 in `implementation-notes.md`.
+
 **Date:** 2026-08-02
 **Code:** commit `27dc517` (tree clean; `run_provenance.yaml` in each run
 directory records `dirty: false`)
