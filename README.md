@@ -64,7 +64,7 @@ python -m pytest -q
 # 2. run the acceptance command
 python -m burst.config \
     --config configs/base.yaml \
-    --run    configs/runs/seed03_coherent.yaml \
+    --run    configs/runs/seed03_fluent-false.yaml \
     --outdir /tmp/testrun
 ```
 
@@ -96,7 +96,7 @@ working directory.
 ## Verify the whole thing in one command
 
 ```bash
-python -m pytest -q && python -m burst.config --config configs/base.yaml --run configs/runs/seed03_coherent.yaml --outdir /tmp/testrun
+python -m pytest -q && python -m burst.config --config configs/base.yaml --run configs/runs/seed03_fluent-false.yaml --outdir /tmp/testrun
 ```
 
 ---
@@ -106,8 +106,8 @@ python -m pytest -q && python -m burst.config --config configs/base.yaml --run c
 ```bash
 python -m burst.config \
     --config configs/base.yaml \
-    --run    configs/runs/seed03_coherent.yaml \
-    --outdir /scratch/burst/seed03_coherent
+    --run    configs/runs/seed03_fluent-false.yaml \
+    --outdir /scratch/burst/seed03_fluent-false
 ```
 
 | flag | meaning |
@@ -130,19 +130,27 @@ Several values in `configs/base.yaml` are still `null` on purpose — they have
 not been decided yet:
 
 ```
-injection.injection_step
-injection.burst_length_tokens
-injection.burst_text_paths.{coherent,noise,ordinary}
+training.micro_batch
+training.dtype
+optimizer.adamw_impl
 ```
+
+All three change **reduction order**, which is what bitwise reproducibility is
+made of, so none of them has a default anywhere and every arm — including
+`twin` — refuses to launch without them. The pilot settles them; see
+[`docs/handoff-pilot.md`](docs/handoff-pilot.md).
+
+The injection fields were decided on 2026-08-03 and are no longer null:
+`injection_step: 200`, `burst_length_tokens: 194`, `burst_position: 400`, and
+one `burst_text_paths` entry per injecting arm pointing into `bursts/`.
 
 Without `--launch`, the loader lets you inspect a config while those are
 undecided, and prints a `NOT LAUNCH-READY` block listing what is missing. With
 `--launch`, a missing value that this arm needs is a hard failure.
 
 `twin` receives no injection, so it does **not** need `injection_step`,
-`burst_length_tokens`, or a burst text, and is launch-ready without them. The
-other three arms each need all three — and only *their own* burst text, not the
-other arms'.
+`burst_length_tokens`, `burst_position` or a burst text. The other **six** arms
+each need all of them — and only *their own* burst text, not the other arms'.
 
 `model.tie_embeddings` (`true`) and the two `checkpointing` intervals (`50` and
 `1000`) are decided; see the field tables below.
@@ -154,9 +162,9 @@ train something:
 ```python
 from burst.config import load_config
 cfg = load_config("configs/base.yaml",
-                  "configs/runs/seed03_coherent.yaml",
-                  outdir="/scratch/burst/seed03_coherent")
-print(cfg.run_name, cfg.training.total_steps)   # seed03_coherent 9536
+                  "configs/runs/seed03_fluent-false.yaml",
+                  outdir="/scratch/burst/seed03_fluent-false")
+print(cfg.run_name, cfg.training.total_steps)   # seed03_fluent-false 9536
 ```
 
 The returned object is a frozen dataclass. `cfg.seed = 4` raises.
@@ -234,10 +242,10 @@ implementation-notes.md              decisions, assumptions, open questions
 
 ### Run naming
 
-`seed{NN}_{arm}`, seed zero-padded to two digits: `seed03_coherent`,
-`seed00_twin`. **Seeds are 0-indexed** — `seed00` through `seed09` for the ten
+`seed{NN}_{arm}`, seed zero-padded to two digits: `seed03_fluent-false`,
+`seed00_twin`. Arm names contain hyphens, which the run-name pattern allows. **Seeds are 0-indexed** — `seed00` through `seed09` for the ten
 seeds. The loader derives the run name from the file's contents and, when the
-filename looks like a run name, checks the two agree; `seed05_noise.yaml`
+filename looks like a run name, checks the two agree; `seed05_scrambled-false.yaml`
 containing `seed: 4` is a copy-paste error and fails.
 
 ### Regenerating the override files
