@@ -1,0 +1,118 @@
+{
+  "task": "step 11 -- the data pipeline",
+  "spec": {
+    "dataset": "Skylion007/openwebtext",
+    "revision": "79d93d786212f7344586290adb811d4ae6a1762c",
+    "seq_len": 1024,
+    "dtype": "uint16",
+    "byte_order": "little",
+    "eot_token": 50256,
+    "heldout": {
+      "tokens": 10485760,
+      "sequences": 10240,
+      "bytes": 20971520,
+      "token_range": [
+        0,
+        10485760
+      ],
+      "filename": "heldout.bin"
+    },
+    "training": {
+      "tokens": 2499805184,
+      "sequences": 2441216,
+      "shards": 149,
+      "sequences_per_shard": 16384,
+      "bytes_per_shard": 33554432,
+      "bytes": 4999610368,
+      "token_range": [
+        10485760,
+        2510290944
+      ]
+    },
+    "total": {
+      "tokens": 2510290944,
+      "sequences": 2451456,
+      "bytes": 5020581888
+    }
+  },
+  "source": {
+    "files_used": 25,
+    "bytes": 7572655845,
+    "revision": "79d93d786212f7344586290adb811d4ae6a1762c"
+  },
+  "manifest_sha256": "e305bea71aa68c8ad355b7da3915125530b65a5de391f8dc08766b8b9dd5b255",
+  "manifest_summary": {
+    "blocks": 150,
+    "tokenizer": {
+      "name": "gpt2",
+      "probe_source": "bursts/context.txt",
+      "probe_file_sha256": "b55dbe00537f0e448574e089333d8aaf9d6b7e2dcf5f8bf0a5549a4b196f2119",
+      "probe_token_sha256": "e47ede6a3794902a8a86360e35bb26a823c128ba15a7f54b05d116efcfb34857",
+      "probe_n_tokens": 1024,
+      "transformers_version": "5.14.1",
+      "tokenizers_version": "0.22.2"
+    }
+  },
+  "verification": {
+    "outdir": ".corpus-cache\\tokenized",
+    "manifest_sha256": "e305bea71aa68c8ad355b7da3915125530b65a5de391f8dc08766b8b9dd5b255",
+    "blocks_present": 150,
+    "blocks_expected": 150,
+    "blocks_hashed": 150,
+    "size_arithmetic": "checked",
+    "tokens_from_manifest": 2510290944,
+    "tokens_from_disk": 2510290944,
+    "training_tokens": 2499805184,
+    "heldout_tokens": 10485760,
+    "expected_training_tokens": 2499805184,
+    "complete": true,
+    "boundaries_checked": 149,
+    "heldout": {
+      "heldout_tokens": [
+        0,
+        10485760
+      ],
+      "training_tokens": [
+        10485760,
+        2510290944
+      ],
+      "gap_tokens": 0,
+      "disjoint": true,
+      "structural": "the held-out slice is in a separate file and the sampler's index space covers the training shards only, so this is an absence rather than a check"
+    },
+    "tokenizer": {
+      "probe": "ran",
+      "probe_token_sha256": "e47ede6a3794902a8a86360e35bb26a823c128ba15a7f54b05d116efcfb34857",
+      "recorded_token_sha256": "e47ede6a3794902a8a86360e35bb26a823c128ba15a7f54b05d116efcfb34857",
+      "built_by": {
+        "transformers": "5.14.1",
+        "tokenizers": "0.22.2"
+      },
+      "agrees": true
+    },
+    "findings": [],
+    "ok": true
+  },
+  "bytes_total": 5020581888,
+  "data_order": {
+    "n_sequences": 2441216,
+    "derivation": "sha256 counter mode, stdlib only",
+    "permutation_digests": {
+      "0": "7e7121d15745824e5de6ed6ee65959782b8b60fba0a60968736760a48e8ba7b7",
+      "1": "cd9993e6c67ea75e5ecd630128880047336302a32eb4fec0910638b36fdb96cb",
+      "2": "417ba42248019f35c411c1de6fb855a1549d20c849a96e1c9aaec55462163872",
+      "3": "5dce4e667fcadd49dc5821e97a531b35e26b88109c1871e38d8fe258864e3ebd",
+      "4": "7a8f08bbed270f3101ca2067ba268d8aa15306e259589c88f1d9e89b76fc4ed0",
+      "5": "9e033f016de13f2ffb1672ed0b533d43e1c4b8f708af026a6659b51b43e9bb4f",
+      "6": "a369c1ceafaef3ca43c8c25fbf20af9e30fc2a8252289cbb5638b09e0acb2508",
+      "7": "3941d630ed209b1d4694525cbc0abbf26accb83fc811af87242afa78a0962127",
+      "8": "f12d537d483f0cbcf191538eb6192a029d722c762ae3b0c5beb01fbefda6fd05",
+      "9": "fba21ac6eb9d3cebeada7783e0e0aec54b51056a1de2370f911220352c5da03f"
+    }
+  },
+  "environment": {
+    "python": "3.13.14",
+    "platform": "Windows-11-10.0.26200-SP0"
+  },
+  "PROVENANCE": "Corpus: Skylion007/openwebtext at revision 79d93d786212f7344586290adb811d4ae6a1762c, 25 of 80 pinned Parquet files, 7,572,655,845 source bytes. Tokenized to 2,510,290,944 tokens in 150 blocks: a 10,485,760-token held-out slice and 149 training shards totalling 2,499,805,184 tokens. The training slice is exactly configs/base.yaml's expected_token_budget (2,499,805,184 = 256 x 1024 x 9536), so the loader's assertion holds. THE HELD-OUT SLICE IS AT THE FRONT, and that is load-bearing rather than cosmetic: it places the corpus-derived texts this repo already committed (bursts/context.txt is document 73, and two arm texts are documents 104 and 193) OUTSIDE the training slice. Placed at the end every one of them would have been trained on, and every step 10 metric would have been measuring memorisation while reporting representation. Disjointness is structural: the sampler permutes range(2,441,216), which indexes the training shards only, and the held-out slice is a separate file. assert_heldout_disjoint_from_training reports True. Every number was checked by more than one route: block hashes (150 re-hashed), file size against recorded token count, the total summed from the manifest (2,510,290,944) against the total summed from disk (2,510,290,944), and 149 shard boundaries against arithmetic. Data order is PER-SEED: 10 seeds, each a permutation of the same 2,441,216 training sequences derived from SHA-256 rather than any library PRNG. The digests below are what the training loop must check its own order against before consuming a batch -- cross-module obligation 4. Tokenizer drift is guarded by a probe rather than a version string: the committed passage tokenizes to e47ede6a3794902a here, matching what built the corpus (True). A tokenizer that would produce a different corpus produces a different probe hash whatever it calls itself. Verification found no problems."
+}

@@ -9,7 +9,15 @@ through burst.config, so this is the first thing in the repo that consumes the
 config the way a training loop would. The values that are NOT in that config
 and had to be supplied here -- micro-batch size, dtype, the AdamW
 implementation -- are command-line arguments, printed in the header, and
-recorded in environment_asserted.yaml. They are assumptions, not decisions;
+recorded in environment_asserted.yaml. They were assumptions, not decisions.
+AS OF 2026-08-03 ALL THREE ARE CONFIG FIELDS -- training.micro_batch,
+training.dtype and optimizer.adamw_impl -- so a future run declares them
+instead of inheriting whatever this probe happened to pass. This probe still
+supplies its own, which is why its result describes a configuration nobody
+chose. See S67 and S78.
+
+The originally recorded wording follows:
+they are assumptions, not decisions;
 see probes/determinism/README.md.
 """
 
@@ -317,9 +325,23 @@ def main() -> int:
     }
     opt_digests = {}
     for i, (p, state) in enumerate(optimizer.state.items()):
-        for key in ("exp_avg", "exp_avg_sq"):
-            if key in state:
-                opt_digests[f"param{i:03d}.{key}"] = tensor_digest(state[key])
+        # `step` is hashed alongside the moments, and until 2026-08-03 it was
+        # not. Bias correction is 1 - beta**step, so two optimizer states
+        # holding identical moments at different step counts produce different
+        # next updates -- and digested identically here. The blind spot was
+        # found and recorded upstream against scripts/train.py::state_digest;
+        # the amendment at the top of
+        # docs/measurements/2026-08-02-determinism-check.md says closing it
+        # here needs an A6000. This run had one. See S90.
+        for key in ("step", "exp_avg", "exp_avg_sq"):
+            if key not in state:
+                continue
+            value = state[key]
+            # torch stores `step` as a 0-dim tensor on the modern path and as a
+            # plain int on others. Hash whichever it is rather than assuming.
+            opt_digests[f"param{i:03d}.{key}"] = (
+                tensor_digest(value) if torch.is_tensor(value)
+                else hashlib.sha256(repr(value).encode()).hexdigest())
 
     combined = hashlib.sha256()
     for name, d in param_digests.items():

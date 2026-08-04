@@ -3,35 +3,37 @@
 > **⚠ The design changed on 2026-08-01. This README describes the code, and the
 > code implements the retired Spec v3.**
 >
-> The current design is **v4**: a five-way categorical comparison
-> (fluent-false, fluent-true, scrambled, POS-substituted, random-characters)
-> plus twin, **60 runs**, injection fixed at **step 200**. The arm named
-> `ordinary` is gone. Read **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
-> **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)** for what stands
-> between the code and that design.
+> **RECONCILED 2026-08-03.** `burst/`, `configs/` and `bursts/` now agree.
+> The arm list below is the live one.
 >
-> **Task 8b-i is built** (see `docs/measurements/8b-i-in-context-match.md`):
-> `bursts/` now holds all five v4 arms at 194 tokens each, measured in context.
-> **`burst/` and `configs/` were deliberately NOT updated** and still describe
-> the v3 arms — see S29 in `implementation-notes.md`. Do not read the config
-> and `bursts/` as agreeing with each other; they now actively disagree.
->
-> Everything below about the config system is accurate. The arm list and the
-> run arithmetic in it are v3.
+> The design is **v4**: six injecting arms (fluent-false, fluent-true,
+> scrambled-false, scrambled-true, POS-substituted, random-characters) plus
+> twin, **70 runs**, injection fixed at **step 200**. The arms named `coherent`,
+> `noise` and `ordinary` are gone, and `scrambled-corpus` was cut — its text
+> stays in `bursts/` but it is not a run condition. Read
+> **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
+> **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)**.
 
-The config system for a study that trains 40 GPT-2 Base models from scratch.
-The 40 runs must be identical except for two things: a random **seed** and
-which of four **arms** the run belongs to. At a fixed step mid-training, a
+The config system for a study that trains 70 GPT-2 Base models from scratch.
+The 70 runs must be identical except for two things: a random **seed** and
+which of seven **arms** the run belongs to. At a fixed step mid-training, a
 short burst of text is injected into one training batch, then training
 continues.
 
-| arm (v3 — retired) | what gets injected | v4 status |
-| --- | --- | --- |
-| `coherent` | a meaningful passage | renamed **fluent-false** |
-| `noise` | random real words | renamed **scrambled** |
-| `ordinary` | normal text | **deleted as an arm** — now only substrate |
-| `twin` | nothing at all — the matched control | unchanged |
-| — | — | **new:** fluent-true, POS-substituted, random-characters |
+| arm | what gets injected |
+| --- | --- |
+| `fluent-false` | grammatical English asserting something specific and false |
+| `fluent-true` | same register and structure, asserting something true |
+| `scrambled-false` | `fluent-false` with word order broken |
+| `scrambled-true` | `fluent-true` with word order broken |
+| `pos-substituted` | each word replaced by one of the same part of speech |
+| `random-chars` | no word structure at all |
+| `twin` | nothing at all — the matched control |
+
+The v3 names `coherent`, `noise` and `ordinary` are retired. `scrambled-corpus`
+was cut as an arm; its text remains in `bursts/`. Because of that cut, all six
+injecting arms share Beatles-derived source material, so **topic is not
+controlled across them** — a stated limitation, see `docs/spec-v4.md`.
 
 **This repo contains the config system and nothing else.** No training loop, no
 model, no data pipeline. Everything that comes later is expected to read its
@@ -62,17 +64,19 @@ python -m pytest -q
 # 2. run the acceptance command
 python -m burst.config \
     --config configs/base.yaml \
-    --run    configs/runs/seed03_coherent.yaml \
+    --run    configs/runs/seed03_fluent-false.yaml \
     --outdir /tmp/testrun
 ```
 
-Expected: `295 passed, 141 skipped`, then the resolved config printed, exit
+Expected: `546 passed, 165 skipped` on a fresh clone (one more test skips until
+a corpus is built locally; with one present it is `547 passed, 164 skipped`),
+then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
-with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
+with a `NOT LAUNCH-READY` block — that is correct, not a failure. Three values
 are still undecided; see [`--launch`](#--launch).
 
-The 141 skips are the tests that need torch or `transformers`, which the install
+Those skips are the tests that need torch or `transformers`, which the install
 above deliberately does not include. Skipped, not failed, is the correct result
 here — see
 [Matching candidate burst passages](#matching-candidate-burst-passages).
@@ -94,7 +98,7 @@ working directory.
 ## Verify the whole thing in one command
 
 ```bash
-python -m pytest -q && python -m burst.config --config configs/base.yaml --run configs/runs/seed03_coherent.yaml --outdir /tmp/testrun
+python -m pytest -q && python -m burst.config --config configs/base.yaml --run configs/runs/seed03_fluent-false.yaml --outdir /tmp/testrun
 ```
 
 ---
@@ -104,8 +108,8 @@ python -m pytest -q && python -m burst.config --config configs/base.yaml --run c
 ```bash
 python -m burst.config \
     --config configs/base.yaml \
-    --run    configs/runs/seed03_coherent.yaml \
-    --outdir /scratch/burst/seed03_coherent
+    --run    configs/runs/seed03_fluent-false.yaml \
+    --outdir /scratch/burst/seed03_fluent-false
 ```
 
 | flag | meaning |
@@ -128,19 +132,27 @@ Several values in `configs/base.yaml` are still `null` on purpose — they have
 not been decided yet:
 
 ```
-injection.injection_step
-injection.burst_length_tokens
-injection.burst_text_paths.{coherent,noise,ordinary}
+training.micro_batch
+training.dtype
+optimizer.adamw_impl
 ```
+
+All three change **reduction order**, which is what bitwise reproducibility is
+made of, so none of them has a default anywhere and every arm — including
+`twin` — refuses to launch without them. The pilot settles them; see
+[`docs/handoff-pilot.md`](docs/handoff-pilot.md).
+
+The injection fields were decided on 2026-08-03 and are no longer null:
+`injection_step: 200`, `burst_length_tokens: 194`, `burst_position: 400`, and
+one `burst_text_paths` entry per injecting arm pointing into `bursts/`.
 
 Without `--launch`, the loader lets you inspect a config while those are
 undecided, and prints a `NOT LAUNCH-READY` block listing what is missing. With
 `--launch`, a missing value that this arm needs is a hard failure.
 
 `twin` receives no injection, so it does **not** need `injection_step`,
-`burst_length_tokens`, or a burst text, and is launch-ready without them. The
-other three arms each need all three — and only *their own* burst text, not the
-other arms'.
+`burst_length_tokens`, `burst_position` or a burst text. The other **six** arms
+each need all of them — and only *their own* burst text, not the other arms'.
 
 `model.tie_embeddings` (`true`) and the two `checkpointing` intervals (`50` and
 `1000`) are decided; see the field tables below.
@@ -152,9 +164,9 @@ train something:
 ```python
 from burst.config import load_config
 cfg = load_config("configs/base.yaml",
-                  "configs/runs/seed03_coherent.yaml",
-                  outdir="/scratch/burst/seed03_coherent")
-print(cfg.run_name, cfg.training.total_steps)   # seed03_coherent 9536
+                  "configs/runs/seed03_fluent-false.yaml",
+                  outdir="/scratch/burst/seed03_fluent-false")
+print(cfg.run_name, cfg.training.total_steps)   # seed03_fluent-false 9536
 ```
 
 The returned object is a frozen dataclass. `cfg.seed = 4` raises.
@@ -192,10 +204,10 @@ the record of what produced everything else in that directory. Re-running the
 ## Layout
 
 ```
-configs/base.yaml                    every value shared by all 40 runs
+configs/base.yaml                    every value shared by all 70 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
-scripts/generate_overrides.py        regenerates all 40 override files
+scripts/generate_overrides.py        regenerates all 70 override files
 scripts/burst_match.py               measurement primitives, in context
 scripts/make_bursts.py               generates the three generated arms
 scripts/build_pos_pool.py            one-time POS pool build (nltk)
@@ -205,6 +217,7 @@ scripts/position_sweep.py            8b-ii: burst position + gradient diagnostic
 scripts/tune_arms.py                 8b-iii: tunes arms toward the median
 scripts/gradient_direction.py        8b-iv: pairwise gradient cosine + profiles
 scripts/canonicalize.py              step 9: symmetry canonicalization
+scripts/canonicalization_error.py    step 9: the ruler's own error bar
 bursts/fluent_false.txt              hand-written, fixed, never regenerated
 bursts/fluent_true.txt               hand-written, fixed, fact-checked
 bursts/scrambled_false.txt           fluent_false, word order broken
@@ -220,24 +233,27 @@ tests/test_config.py                 172 tests (still v3, deliberately)
 tests/test_burst_match.py            43 tests
 tests/test_make_bursts.py            45 tests
 tests/test_sequence_assembly.py      33 tests (splice, seeds, regeneration)
-tests/test_canonicalize.py           70 tests (step 9: tripwire, symmetries)
-tests/test_canonicalize_recipe.py    41 tests (step 9: the canonical form)
+tests/test_canonicalize.py           72 tests (step 9: tripwire, symmetries)
+tests/test_canonicalize_recipe.py    44 tests (step 9: the canonical form)
 tests/test_canonicalize_mutations.py 16 tests (step 9: injected faults)
+tests/test_canonicalize_diagnostics.py 10 tests (step 9: S55 guard)
+docs/step9-summary.md                step 9 in two pages, for a reader
+docs/decisions-pending.md            decisions raised but NOT taken
 implementation-notes.md              decisions, assumptions, open questions
 ```
 
 ### Run naming
 
-`seed{NN}_{arm}`, seed zero-padded to two digits: `seed03_coherent`,
-`seed00_twin`. **Seeds are 0-indexed** — `seed00` through `seed09` for the ten
+`seed{NN}_{arm}`, seed zero-padded to two digits: `seed03_fluent-false`,
+`seed00_twin`. Arm names contain hyphens, which the run-name pattern allows. **Seeds are 0-indexed** — `seed00` through `seed09` for the ten
 seeds. The loader derives the run name from the file's contents and, when the
-filename looks like a run name, checks the two agree; `seed05_noise.yaml`
+filename looks like a run name, checks the two agree; `seed05_scrambled-false.yaml`
 containing `seed: 4` is a copy-paste error and fails.
 
 ### Regenerating the override files
 
 ```bash
-python scripts/generate_overrides.py            # write all 40
+python scripts/generate_overrides.py            # write all 70
 python scripts/generate_overrides.py --check    # verify, change nothing
 ```
 
@@ -246,6 +262,16 @@ running before a launch batch. The seed count and arm names come from
 `configs/base.yaml`, so the study's shape is written down in one place only.
 
 ### Matching candidate burst passages
+
+> **⚠ THIS SECTION IS v3 AND ITS FILENAMES NO LONGER EXIST.** It documents
+> `scripts/burst_match.py` against `coherent.txt`, `ordinary.txt` and
+> `noise.txt`. Only `bursts/ordinary.txt` still exists, retained as substrate;
+> `coherent.txt` and `noise.txt` were replaced by the v4 arm texts
+> (`fluent_false.txt`, `fluent_true.txt`, `scrambled_false.txt`,
+> `scrambled_true.txt`, `pos_substituted.txt`, `random_chars.txt`). The tool
+> still works — pass it the v4 filenames. The prose below is kept as the record
+> of why the matching criterion is what it is, and its reasoning carries over;
+> its file names do not. Found by the 2026-08-03 contradiction pass.
 
 The coherent-vs-noise comparison only means anything if both passages deliver
 the same size shove to the weights. `scripts/burst_match.py` measures that shove
@@ -298,7 +324,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 295 tests run
+pip install -e ".[dev]"            # config work — no ML stack, 711 tests run
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 
@@ -384,7 +410,7 @@ script's job — a highlighted row would become the decision by default.
 | field | type | meaning |
 | --- | --- | --- |
 | `seed` | int, 0–9 | The single stochastic knob. Controls **both weight initialization and data order** — two runs sharing a seed see the same initial weights and the same batches in the same order. That is what makes an arm-to-arm comparison a matched pair. |
-| `arm` | str | Exactly one of `coherent`, `noise`, `ordinary`, `twin`. Case-sensitive. |
+| `arm` | str | Exactly one of `fluent-false`, `fluent-true`, `scrambled-false`, `scrambled-true`, `pos-substituted`, `random-chars`, `twin`. Case-sensitive. |
 
 ### `model` — GPT-2 Base
 
@@ -448,20 +474,37 @@ arrives, the corpus location belongs on its command line.
 | field | value | meaning |
 | --- | --- | --- |
 | `n_seeds` | 10 | valid seeds are `0 .. n_seeds - 1` |
-| `arms` | the four names | must match `ARMS` in `burst/config.py` |
+| `arms` | the seven names | must match `ARMS` in `burst/config.py` |
 
-### `injection` — both undecided
+### `injection` — decided 2026-08-03
 
 | field | value | meaning |
 | --- | --- | --- |
-| `injection_step` | **null** | the step at which the burst enters one training batch |
-| `burst_length_tokens` | **null** | how many tokens the burst is |
-| `burst_text_paths.coherent` | **null** | repo-relative path to the coherent arm's burst text |
-| `burst_text_paths.noise` | **null** | repo-relative path to the noise arm's burst text |
-| `burst_text_paths.ordinary` | **null** | repo-relative path to the ordinary arm's burst text |
+| `injection_step` | `200` | the step at which the burst enters one training batch |
+| `burst_length_tokens` | `194` | how many tokens the burst is |
+| `burst_position` | `400` | where in the 1024-token sequence the burst starts |
+| `burst_text_paths.fluent-false` | `bursts/fluent_false.txt` | repo-relative path to this arm's burst text |
+| `burst_text_paths.fluent-true` | `bursts/fluent_true.txt` | |
+| `burst_text_paths.scrambled-false` | `bursts/scrambled_false.txt` | |
+| `burst_text_paths.scrambled-true` | `bursts/scrambled_true.txt` | |
+| `burst_text_paths.pos-substituted` | `bursts/pos_substituted.txt` | |
+| `burst_text_paths.random-chars` | `bursts/random_chars.txt` | |
 
 There is deliberately no `burst_text_paths.twin`; twin receives no text, and
 adding one is rejected by the schema check.
+
+### The three fields that ARE still undecided
+
+| field | value | why it has no default |
+| --- | --- | --- |
+| `training.micro_batch` | **null** | accumulation sums partial gradients in sequence, and float addition is not associative, so `8 x 32` and `16 x 16` give different bits from identical data |
+| `training.dtype` | **null** | changes which CUDA kernels are selected — the determinism probe measured 66 kernels against 74 between fp32 and bf16 |
+| `optimizer.adamw_impl` | **null** | `foreach`, `fused` and `single` group their arithmetic differently and produce different bits from identical moments |
+
+All three are launch-blocking for **every** arm including `twin`, because all
+three change reduction order and reduction order is what bitwise
+reproducibility is made of. The pilot settles them; see
+[`docs/handoff-pilot.md`](docs/handoff-pilot.md).
 
 **Burst text paths must be relative and must resolve inside this repository.**
 The loader rejects an absolute path (checked as absolute on *both* POSIX and
@@ -475,7 +518,11 @@ committed alongside the code so the git commit hash in `run_provenance.yaml`
 covers the text as well. A path outside the repo leaves the injected text
 unversioned, and points somewhere that will not exist on the other machine.
 
-Suggested home: `configs/burst_texts/<arm>.txt`.
+Actual home: `bursts/<arm>.txt`, where the texts already live with a sha256
+per arm in `bursts/provenance.json`. An earlier draft of this line suggested
+`configs/burst_texts/`, which was never built and which `configs/base.yaml`
+explicitly retires — moving them would mean regenerating provenance and
+re-verifying every step 8 measurement for nothing.
 
 Once `injection_step` and `burst_length_tokens` are filled in they apply to
 every arm, including `twin`. Twin simply ignores them — the loader does not
@@ -528,7 +575,7 @@ plan.last_step                 # 9535
 plan.weights_only_count        # 181
 plan.full_count                # 10
 plan.estimated_bytes_per_run   # 105_500_000_000   (105.5 GB)
-plan.estimated_bytes_all_runs  # 4_220_000_000_000 (4.22 TB)
+plan.estimated_bytes_all_runs  # 7_385_000_000_000 (7.385 TB)
 
 cfg.checkpoint_kind_at(49)     # "weights_only"
 cfg.checkpoint_kind_at(999)    # "full"   <- precedence
@@ -615,8 +662,8 @@ what the instructions above do) rather than executing it directly.
 
 ## What is tracked
 
-Tracked: the configs (`configs/base.yaml`, all 40 overrides), the burst texts
-once they exist (`configs/burst_texts/*.txt`), the package, the tests, the
+Tracked: the configs (`configs/base.yaml`, all 70 overrides), the burst texts
+(`bursts/*.txt`), the package, the tests, the
 generator, and the docs.
 
 Not tracked: checkpoints and weights (`*.pt`, `*.ckpt`, `*.safetensors`,

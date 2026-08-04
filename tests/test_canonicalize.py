@@ -252,9 +252,79 @@ def test_validate_architecture_rejects_linear_in_place_of_conv1d(tiny):
         canonicalize.validate_architecture(model, TINY)
     message = str(exc.value)
     assert "Conv1D" in message
-    assert "TRANSPOSED" in message, (
+    assert "TRANSPOSE" in message, (
         "the error must state the layout difference, which is the whole reason "
         "this check exists")
+
+
+class _LinearLayoutStandIn:
+    """A model with nn.Linear projections and NO .transformer attribute.
+
+    Fails both the layout check and the attribute-path check. Which error comes
+    back is precisely what the ordering test below pins.
+    """
+
+    def __new__(cls):
+        import torch
+        from torch import nn
+
+        class _Attn(nn.Module):
+            def __init__(self, d):
+                super().__init__()
+                self.c_attn = nn.Linear(d, 3 * d)
+                self.c_proj = nn.Linear(d, d)
+
+        class _Block(nn.Module):
+            def __init__(self, d):
+                super().__init__()
+                self.attn = _Attn(d)
+
+        class _StandIn(nn.Module):
+            def __init__(self, d=16):
+                super().__init__()
+                self.h = nn.ModuleList([_Block(d)])
+
+        return _StandIn()
+
+
+@requires_torch
+def test_the_layout_check_runs_before_any_attribute_path_check():
+    """CONTRACT CHANGE, pinned. The ordering here was changed deliberately.
+
+    Run against a real nn.Linear model, the previous order refused on its first
+    check -- "no .transformer attribute" -- and never reached the layout check.
+    That refusal was correct by accident of ordering rather than by design, and
+    its message invited someone to rename an attribute when the real objection
+    is that every axis is transposed. It is the exact failure shape S55
+    describes: a check reporting something plausible and adjacent to the real
+    problem.
+
+    Structural layout is now checked FIRST, by scanning module names rather
+    than walking a fixed path, so a model with different attribute naming still
+    gets the layout objection.
+    """
+    with pytest.raises(CanonicalizeError) as exc:
+        canonicalize.validate_architecture(_LinearLayoutStandIn(), TINY)
+    message = str(exc.value)
+    assert "nn.Linear" in message or "torch.nn.Linear" in message
+    assert "TRANSPOSE" in message, (
+        "the layout objection must name the transposition explicitly")
+    assert "c_attn" in message, "and name which module it found"
+    assert ".transformer" not in message.split("\n")[0], (
+        "the FIRST line must be the layout objection, not a complaint about "
+        "the attribute path -- that ordering is the whole point of this test")
+
+
+@requires_torch
+def test_the_layout_check_says_a_rename_will_not_fix_it():
+    """The message has to close off the wrong fix, not merely state the right
+    diagnosis."""
+    with pytest.raises(CanonicalizeError) as exc:
+        canonicalize.validate_architecture(_LinearLayoutStandIn(), TINY)
+    message = str(exc.value)
+    assert "renaming an attribute" in message
+    assert "WOULD NOT CRASH" in message, (
+        "the message must say the failure is silent, which is why it matters")
 
 
 @requires_torch

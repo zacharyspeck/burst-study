@@ -1,18 +1,22 @@
 #!/usr/bin/env python
-"""Generate the five burst passages of spec v4, all at one token length.
+"""Generate the burst passages of spec v4, all at one token length.
 
     python scripts/make_bursts.py --k 5
     python scripts/make_bursts.py --k 5 --seed 3 --outdir /tmp/try
 
-THE FIVE ARMS, in descending order of linguistic structure:
+THE SIX INJECTING ARMS, in descending order of linguistic structure.
+(This module also still generates scrambled-corpus, which was CUT as an
+arm on 2026-08-03. Its text stays in bursts/ so measurements taken from
+it remain reproducible; it is not a run condition. See S79.)
 
     fluent-false      grammatical English asserting something specific and
                       false. Hand-written, fixed, NEVER generated. Its token
                       count is the target length N.
     fluent-true       same register and structure, asserting something true.
                       Hand-written, fixed, NEVER generated.
-    scrambled         real text, word order broken inside non-overlapping
-                      windows of size k.
+    scrambled-false   fluent-false with word order broken inside
+                      non-overlapping windows of size k.
+    scrambled-true    fluent-true, same treatment.
     pos-substituted   each word replaced by a random word of the same part of
                       speech. Grammar kept, lexical content destroyed.
     random-chars      random printable ASCII, no word structure at all.
@@ -20,7 +24,8 @@ THE FIVE ARMS, in descending order of linguistic structure:
 The no-injection twin is not a burst and does not appear here.
 
 WHAT IS GUARANTEED
-- All five files come out at exactly N tokens under the GPT-2 tokenizer,
+- Every generated file comes out at exactly N tokens under the GPT-2
+  tokenizer,
   asserted by re-reading them from disk before this script exits.
 - Same --seed and --k gives byte-identical output, provenance.json included.
 - Each arm draws from its OWN generator seeded independently (see
@@ -29,11 +34,13 @@ WHAT IS GUARANTEED
   everything, so it could and did.
 - The two hand-written arms are opened read-only, behind an explicit guard.
 
-THIS SCRIPT DOES NOT TOUCH THE CONFIG SYSTEM'S ARM LIST. configs/base.yaml
-still enumerates the v3 arms (coherent, noise, ordinary, twin) and
-injection.burst_text_paths is still three nulls. That inconsistency is
-deliberate and is recorded in implementation-notes.md. Do not read the two as
-agreeing with each other.
+THE CONFIG SYSTEM'S ARM LIST NOW AGREES WITH THIS ONE. Until 2026-08-03
+configs/base.yaml enumerated the retired v3 arms while this script generated
+v4's, and that inconsistency was deliberate and recorded. It has been
+reconciled: burst/config.py's ARMS, configs/base.yaml's experiment.arms and
+this module now name the same six injecting arms plus twin.
+injection.burst_text_paths is one null per injecting arm and is still
+undecided, which is a different thing from being inconsistent.
 """
 
 from __future__ import annotations

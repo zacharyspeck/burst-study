@@ -1,9 +1,9 @@
 # burst study -- base configuration
 #
-# Every value shared by all 40 runs lives here. A run override file
+# Every value shared by all 70 runs lives here. A run override file
 # (configs/runs/seedNN_arm.yaml) may set ONLY `seed` and `arm`; anything else
 # is rejected by the loader. That restriction is the whole point: the study's
-# central claim is that the 40 runs were identical except for seed and arm,
+# central claim is that the 70 runs were identical except for seed and arm,
 # and this file is the evidence.
 #
 # FORMATTING RULE, non-obvious and load-bearing:
@@ -26,8 +26,8 @@
 # the same order, which is what makes an arm-to-arm comparison a matched pair.
 seed: null
 
-# One of the four arms listed under experiment.arms below. Exact lowercase
-# match; "Coherent" is rejected.
+# One of the seven arms listed under experiment.arms below. Exact lowercase
+# match; "Fluent-False" is rejected.
 arm: null
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,45 @@ training:
   batch_size: 256
   seq_len: 1024
 
+  # Sequences per forward pass. batch_size / micro_batch is the number of
+  # gradient accumulation steps that make up one optimizer step.
+  #
+  # UNSET ON PURPOSE, and the training loop REFUSES to run without it. There
+  # is no default and no inferred value, because this number is part of the
+  # study's definition rather than a performance knob:
+  #
+  # ACCUMULATION SUMS PARTIAL GRADIENTS IN SEQUENCE, AND FLOATING-POINT
+  # ADDITION IS NOT ASSOCIATIVE. 8 x 32 and 16 x 16 produce DIFFERENT BITS
+  # from identical data. Two runs that agree on every other value here and
+  # differ in this one are not the same run, and nothing downstream would
+  # notice: resolved_config.yaml would be byte-identical between them.
+  #
+  # Accumulation is mandatory rather than optional. A full batch of logits is
+  # 256 x 1024 x 50257 x 4 B = 52.70 GB against 48 GiB on the card the
+  # determinism probe used, so micro_batch == batch_size cannot run at all.
+  #
+  # The determinism result in docs/measurements/2026-08-02-determinism-check.md
+  # was established at micro_batch 8 -- a value probes/determinism/train_once.py
+  # INVENTED because this field did not exist. That result therefore describes
+  # a configuration nobody chose, and it does NOT transfer to any other value
+  # here. See S67. The pilot settles this on real hardware.
+  micro_batch: null
+
+  # The loader asserts batch_size % micro_batch == 0 when micro_batch is set.
+
+  # Compute dtype for the forward and backward pass: fp32 or bf16.
+  #
+  # UNSET ON PURPOSE, and the training loop REFUSES without it, for the same
+  # reason as micro_batch: it CHANGES WHICH CUDA KERNELS RUN, and therefore
+  # reduction order. The determinism probe measured this directly -- fp32
+  # selected fmha_cutlassF/B, bf16 selected pytorch_flash::flash_fwd/bwd, 66
+  # kernels against 74.
+  #
+  # NOTE: scripts/train.py implements fp32 ONLY. It has no autocast, and it
+  # refuses bf16 explicitly rather than training fp32 while this field claims
+  # bf16. probes/determinism covers both; the loop does not. See S78.
+  dtype: null
+
   # Optimizer steps for the whole run.
   #
   # Steps are 0-INDEXED: the first step is 0 and the LAST STEP IS 9535
@@ -89,6 +128,21 @@ optimizer:
   # keeps influencing updates after the injection step.
   beta1: 0.9
   beta2: 0.95
+
+  # Which AdamW implementation: foreach, fused, or single.
+  #
+  # UNSET ON PURPOSE and launch-blocking. The three group their arithmetic
+  # differently -- per tensor, per fused group, or in one kernel -- so each
+  # produces DIFFERENT BITS from identical moments.
+  #
+  # THIS FIELD EXISTS BECAUSE ITS ABSENCE ALREADY CAUSED A DIVERGENCE.
+  # scripts/train.py hardcoded `foreach=False, fused=False` -- the `single`
+  # implementation -- while the committed determinism result in
+  # docs/measurements/2026-08-02-determinism-check.md was produced under
+  # `foreach`. The loop meant to inherit that evidence could not have
+  # reproduced it, and nothing said so because nothing declared the value.
+  # See S78.
+  adamw_impl: null
 
   # NOT 1e-8. PyYAML's float rule requires a decimal point, so `1e-8` parses
   # as the STRING '1e-8' -- see the formatting rule at the top of this file.
@@ -140,7 +194,7 @@ corpus:
 
   # The loader asserts batch_size * seq_len * total_steps == this number.
   # 256 * 1024 * 9536 = 2499805184. If someone edits one of the three and not
-  # the others, load fails immediately rather than 40 runs later.
+  # the others, load fails immediately rather than every run later.
   expected_token_budget: 2499805184
 
 # ---------------------------------------------------------------------------
@@ -154,23 +208,76 @@ determinism:
 # ---------------------------------------------------------------------------
 experiment:
   n_seeds: 10
+  # Spec v4. Reconciled 2026-08-03; this list held the retired v3 four until
+  # then, while bursts/ held v4 texts and README warned they disagreed.
+  #
+  # scrambled-corpus is CUT. Its text stays in bursts/ so the measurements
+  # taken from it remain reproducible, but it is not a run condition -- topic
+  # control across the scrambled family was traded for run count. The three
+  # remaining scrambled/fluent arms are all Beatles-derived, which is a stated
+  # limitation of the design rather than an oversight. See S79.
   arms:
-    - coherent            # a meaningful passage
-    - noise               # random real words
-    - ordinary            # normal text
+    - fluent-false        # grammatical English asserting something FALSE
+    - fluent-true         # same register and structure, asserting something TRUE
+    - scrambled-false     # fluent-false with word order broken
+    - scrambled-true      # fluent-true with word order broken
+    - pos-substituted     # grammar preserved, lexical content destroyed
+    - random-chars        # no word structure at all
     - twin                # no injection at all -- the matched control
 
 # ---------------------------------------------------------------------------
 # Injection
 #
-# Everything here is UNSET ON PURPOSE -- decided later. The coherent, noise and
-# ordinary arms all require these to be non-null before launch. The twin arm
-# does not: it receives no injection, so it launches fine with these still
-# null, and simply ignores them once they are filled in.
+# DECIDED 2026-08-03. This header previously said "everything here is UNSET ON
+# PURPOSE" and named the coherent, noise and ordinary arms -- all three of which
+# were retired the same day, and all four values below were set hours later in
+# step 14. Corrected rather than left.
+#
+# The six INJECTING arms require injection_step, burst_length_tokens,
+# burst_position and their own burst_text_paths entry before launch. The twin
+# arm does not: it receives no injection, so it sees these values and ignores
+# them.
+#
+# The launch-blocking nulls in this file are now elsewhere: training.micro_batch,
+# training.dtype and optimizer.adamw_impl, which the pilot settles.
 # ---------------------------------------------------------------------------
 injection:
-  injection_step: null
-  burst_length_tokens: null
+  # DECIDED: 200, from docs/spec-v4.md. Steps are 0-INDEXED, and this is
+  # compared by direct equality against the loop's step counter -- no
+  # adjustment. learning_rate.warmup_steps is also 200, so step 200 is the
+  # first step on the cosine tail rather than inside warmup.
+  #
+  # The anchor that makes an off-by-one visible: a weights-only checkpoint
+  # lands at step 199, because (199 + 1) % 50 == 0, and checkpoints are written
+  # AFTER the optimizer step. So the step-199 file holds the state after steps
+  # 0..199 and BEFORE this injection -- which is what makes "identical through
+  # 199, different from 200" a checkable claim rather than a described one.
+  injection_step: 200
+  # DECIDED: 194. Every arm text in bursts/ is exactly this long under the
+  # GPT-2 tokenizer, asserted by make_bursts.py on write and recorded per arm
+  # in bursts/provenance.json. The hook re-checks it on load and refuses on a
+  # mismatch rather than splicing a burst of the wrong length into a sequence
+  # that would still be 1024 tokens for a different reason.
+  burst_length_tokens: 194
+
+  # Where in the 1024-token sequence the burst starts. DECIDED: 400.
+  #
+  # This value lived as `POSITION = 400` in three separate scripts and in the
+  # step 8 measurement files, and the injection hook would have been a fourth
+  # copy -- which is exactly how S67's three undeclared values happened. It is
+  # a study-defining quantity: docs/measurements/8b-ii-position-sweep.md swept
+  # 1, 100, 200, 400, 600 and 830, and every arm-matching number in step 8 was
+  # measured at 400. Injecting at any other position would mean the arms were
+  # matched at a position the study does not use.
+  #
+  # A test asserts this equals the `burst_position` recorded in
+  # docs/measurements/8b-i-in-context-match.json, so drift breaks the suite
+  # rather than the study.
+  #
+  # Range: 1 <= burst_position <= seq_len - burst_length_tokens (830). Position
+  # 0 is invalid -- the token at index 0 has nothing before it to be predicted
+  # from, so the burst region would have 193 predictions instead of 194.
+  burst_position: 400
 
   # Where the burst text for each injecting arm lives. One entry per injecting
   # arm; twin has no entry because it receives no text at all.
@@ -183,11 +290,23 @@ injection:
   # outside the repo, would differ between a laptop and a cluster, and would
   # leave the injected text unversioned, which makes the run unreproducible.
   #
-  # Example, once decided:  coherent: configs/burst_texts/coherent.txt
+  # DECIDED 2026-08-03: the texts stay at bursts/, where make_bursts.py writes
+  # them and where bursts/provenance.json already records a sha256 for each.
+  # This comment previously suggested configs/burst_texts/, which was never
+  # built -- moving them would mean regenerating provenance and re-verifying
+  # every step 8 measurement for no benefit.
+  #
+  # NOTE: bursts/ holds SEVEN arm texts and provenance records seven. Only the
+  # six listed below are run conditions. scrambled-corpus was cut as an arm on
+  # 2026-08-03; its text and measurements stay reproducible and it is not
+  # reachable from a run -- the loader refuses `arm: scrambled-corpus`.
   burst_text_paths:
-    coherent: null
-    noise: null
-    ordinary: null
+    fluent-false: bursts/fluent_false.txt
+    fluent-true: bursts/fluent_true.txt
+    scrambled-false: bursts/scrambled_false.txt
+    scrambled-true: bursts/scrambled_true.txt
+    pos-substituted: bursts/pos_substituted.txt
+    random-chars: bursts/random_chars.txt
 
 # ---------------------------------------------------------------------------
 # Checkpointing

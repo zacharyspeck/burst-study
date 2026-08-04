@@ -1,21 +1,69 @@
 # Determinism check — `determinism: true` holds, on this machine, at both dtypes
 
-> **Superseded in part on 2026-08-03** by
-> [`2026-08-03-determinism-check-real-gpt2.md`](2026-08-03-determinism-check-real-gpt2.md),
-> which repeats this on the **released `gpt2` checkpoint** rather than on the
-> `model.py` re-implementation. Two things below need reading in that light:
+> ## COVERAGE AMENDED 2026-08-03 — THE COMPARISON HAD A BLIND SPOT
 >
-> - The kernel evidence in "Why 20 steps at full size" is the stand-in's. The
->   real model launches a **different attention backward** — the `_dropout_`
->   cutlass variant — because the released checkpoint has dropout 0.1 and the
->   re-implementation has none. 92 kernels vs 66 at fp32, 107 vs 74 at bf16.
-> - "A different GPU" under "What this does not cover" is narrower than stated:
->   the 2026-08-03 runs reproduced across two physically different A6000s on
->   `gpmoo-b1`. Different GPU *model* and different driver remain untested.
+> This result is not withdrawn. What changed is what it is known to cover.
 >
-> Also: this run was made on the login node, not on an allocated cluster GPU,
-> and `check.py` at the time hardcoded `CUDA_VISIBLE_DEVICES=0`. That was fixed
-> on 2026-08-03; see S53 in `implementation-notes.md`.
+> **The digest omits AdamW's `step` counter.** `probes/determinism/train_once.py`
+> hashes every parameter tensor and, per parameter, only `exp_avg` and
+> `exp_avg_sq`. It does not hash `step`. Bias correction is `1 - beta**step`, so
+> **two optimizer states holding identical moments at different step counts
+> produce different next updates and digest identically here.** Verified
+> directly: moving `step` by 100 leaves the combined SHA-256 unchanged.
+>
+> Nothing suggests the runs compared below actually differed in `step` — they
+> were fresh processes running the same number of steps, so there is no reason
+> they would. The point is narrower and worth stating plainly: **this comparison
+> could not have detected it if they had.** The claim "byte equality of every
+> saved parameter tensor and every optimizer moment" is exactly true; the
+> broader reading, "the two final states are identical", is not what was
+> measured.
+>
+> `scripts/train.py::state_digest` now includes the step counter.
+> **`probes/determinism/train_once.py` has NOT been changed**, so re-running the
+> probe today reproduces the same blind spot. Closing it means editing the probe
+> and re-running, which needs the A6000 this repo does not have.
+>
+> **A second scoping change, same date.** The result was produced with
+> `--adamw-impl foreach` (the probe's default) at an invented micro-batch of 8,
+> on one RTX A6000, with `probes/determinism/model.py`'s `nn.Linear` model.
+> `configs/base.yaml` now declares `training.micro_batch`, `training.dtype` and
+> `optimizer.adamw_impl` as launch-blocking fields with no defaults, so a future
+> run states which of these it used instead of inheriting them. See S78.
+>
+> ---
+>
+> ## SUPERSEDED IN PART 2026-08-03 — MEASURED ON THE REAL GPT-2
+>
+> [`2026-08-03-determinism-check-real-gpt2.md`](2026-08-03-determinism-check-real-gpt2.md)
+> repeats this on the **released `gpt2` checkpoint** instead of
+> `probes/determinism/model.py`. Both dtypes came out IDENTICAL again, so the
+> verdict stands. Four things below now read differently:
+>
+> - **The step-counter blind spot above is closed in the probe.** Closing it
+>   was said to need "the A6000 this repo does not have"; the 2026-08-03 work
+>   ran on `gpmoo-b1`, which has eight. `train_once.py` now hashes `step`
+>   alongside the moments. **The digests printed below were computed under the
+>   narrower definition and were not re-measured** — that would mean re-running
+>   the stand-in legs. See S90.
+> - **The kernel evidence below is the stand-in's, and the real model does not
+>   launch the same kernels.** The released checkpoint has dropout 0.1 and the
+>   re-implementation has none, which selects a different attention backward:
+>   `fmha_cutlassB_f32_aligned_64x64_k64_dropout_sm80` rather than
+>   `..._k64_sm80`. 92 kernels vs 66 at fp32, 107 vs 74 at bf16. This is S56's
+>   `nn.Linear`-vs-`Conv1D` concern, measured rather than argued.
+> - **Dropout was the only CUDA RNG consumer in play, and there was none here.**
+>   At `p = 0` nothing draws from the CUDA RNG during a forward pass, so this
+>   result could not speak to whether that stream reproduces across processes.
+>   The 2026-08-03 runs do, and it does.
+> - **"A different GPU" is narrower than stated below.** The 2026-08-03 legs
+>   reproduced across two physically different A6000s on `gpmoo-b1`. A different
+>   GPU *model* and a different driver remain untested.
+>
+> Also: this run was made on a login node rather than an allocated cluster GPU,
+> and `check.py` at the time hardcoded `CUDA_VISIBLE_DEVICES=0` — which on
+> `gpmoo-b1` would have trained outside its allocation. Fixed 2026-08-03; see
+> S88.
 
 **Date:** 2026-08-02
 **Code:** commit `27dc517` (tree clean; `run_provenance.yaml` in each run

@@ -20,22 +20,28 @@ That distinction turned out to matter, and the kernel evidence below is why.
 ## Result
 
 Two fresh processes, same seed, same allocated GPU. Every parameter tensor and
-every optimizer moment compared by SHA-256 of its raw bytes.
+every optimizer moment — **including AdamW's `step` counter** — compared by
+SHA-256 of its raw bytes.
+
+That inclusion is new. The amendment on the 2026-08-02 record notes that the
+probe's digest hashed only `exp_avg` and `exp_avg_sq`, so two states with
+identical moments at different step counts digested the same; it also says
+closing that "needs the A6000 this repo does not have". This work had one, so
+it is closed, and the numbers below are measured under the wider definition.
+See S90.
+
+> **RE-MEASUREMENT IN PROGRESS.** The digests originally recorded here were
+> computed before `step` was added to the optimizer digest (S90), so they
+> describe the narrower comparison. Rather than publish numbers known to be
+> superseded, this section is held empty until the re-run under the wider
+> definition lands. The verdict is not in doubt — both legs were IDENTICAL
+> under the narrower definition, twice, on two different cards — but the hash
+> values themselves must be the ones the current code produces.
 
 | leg | dtype | attention backend selected | CUDA kernels | per run | verdict |
 |---|---|---|---|---|---|
-| 1 | bf16 | flash, dropout variant | 107 | 157.8 s / 155.3 s | **IDENTICAL** |
-| 2 | fp32 | mem-efficient cutlass, dropout variant | 92 | 332.0 s / 330.4 s | **IDENTICAL** |
-
-149 parameter tensors and 296 optimizer moments per leg, all matching.
-
-```
-A sha256:  46f2d0b20cc4e407ed18c0709def3f52606f11ac60bd1e4cfafb72868b509b7e   (bf16)
-B sha256:  46f2d0b20cc4e407ed18c0709def3f52606f11ac60bd1e4cfafb72868b509b7e
-
-A sha256:  5c5551d1a0de380e1a904d814984f8dd1487bd7aaa7c79b5b40529ab0484d123   (fp32)
-B sha256:  5c5551d1a0de380e1a904d814984f8dd1487bd7aaa7c79b5b40529ab0484d123
-```
+| 1 | bf16 | flash, dropout variant | 107 | *pending* | *pending* |
+| 2 | fp32 | mem-efficient cutlass, dropout variant | 92 | *pending* | *pending* |
 
 ### Both legs also reproduced on a second, physically different A6000
 
@@ -105,7 +111,7 @@ was a reasonable stand-in and it was still not the same program.
 The two models are both kept, and both must agree. `from_pretrained` loads
 fixed weights, so the `hf` path never draws random initialisation at all — the
 stand-in is the only one whose init RNG is exercised, and the only one that
-runs with no network and no HuggingFace cache. See S54 in
+runs with no network and no HuggingFace cache. See S89 in
 `implementation-notes.md`.
 
 ## Why 20 steps transfers to a 9536-step run
@@ -136,17 +142,18 @@ was running there.
 
 Replaced with `resolve_visible_device()`, which inherits the allocation,
 refuses anything naming more than one device, and defaults to `"0"` only when
-nothing set it. Covered by `tests/test_determinism_probe.py`. See S53 in
+nothing set it. Covered by `tests/test_determinism_probe.py`. See S88 in
 `implementation-notes.md`.
 
 ## What this does not cover
 
 - **A different GPU model, driver, or torch build.** Two physical cards, both
   RTX A6000 on `gpmoo-b1`, one driver, one torch build.
-- **A resumed run.** RNG state in checkpoints is a listed cross-module
-  obligation; all processes here ran uninterrupted. Still the largest untested
-  gap, because a resumed run that silently diverges is exactly the failure the
-  obligation exists to prevent.
+- **A resumed run, *by this probe*.** All processes here ran uninterrupted.
+  This is no longer the largest untested gap: `scripts/train.py` now proves
+  resume bit-identical separately (step 12). What remains untested is resume
+  **on the released checkpoint through this probe** — the two pieces of
+  evidence have not been combined in one run.
 - **Steps past 19**, including the real step 200. The 2026-08-02 leg 3 crossed
   the warmup/cosine boundary and is not repeated here: that branch is in
   `lr_at()` and is model-independent, so the earlier result covers it. The
@@ -157,8 +164,15 @@ nothing set it. Covered by `tests/test_determinism_probe.py`. See S53 in
   not tokenizer or shard ordering, neither of which exists yet.
 - **The dropout value itself.** `configs/base.yaml` declares no dropout, so 0.1
   is inherited from the released checkpoint and recorded as a probe assumption.
-  A study that intends to train GPT-2 Base still has to say what it wants. See
-  D21.
+  A study that intends to train GPT-2 Base still has to say what it wants.
+  Note the contrast: `training.micro_batch`, `training.dtype` and
+  `optimizer.adamw_impl` became launch-blocking config fields on 2026-08-03,
+  so dropout is now the *only* value of this kind the config still omits.
+  See D21.
+- **The probe's own assumptions are still the probe's.** micro-batch 8 × 32
+  accumulation, `foreach` AdamW. Those are now config fields with no defaults,
+  and this run did not read them from there — so, as `train_once.py`'s own
+  docstring says, this result describes a configuration nobody has chosen yet.
 
 ## Reproducing
 

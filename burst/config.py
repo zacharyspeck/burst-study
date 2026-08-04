@@ -45,7 +45,9 @@ from typing import Any
 import yaml
 
 __all__ = [
+    "ADAMW_IMPLS",
     "ARMS",
+    "DTYPES",
     "INJECTING_ARMS",
     "Config",
     "ConfigError",
@@ -58,24 +60,57 @@ __all__ = [
 # Constants that describe the study
 # ---------------------------------------------------------------------------
 
-#: The four arms, exactly as they must appear in a run override file.
-ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary", "twin")
+#: The seven arms, exactly as they must appear in a run override file.
+#:
+#: Reconciled to spec v4 on 2026-08-03. Until then this held the retired v3
+#: four -- coherent, noise, ordinary, twin -- while `bursts/` held v4 texts and
+#: README.md warned that the two "actively disagree". They now agree.
+#:
+#: `scrambled-corpus` is CUT. Its text and provenance entry stay in `bursts/`
+#: so the measurements taken from it remain reproducible, but it is not a run
+#: condition. See S79 for the cost of that cut.
+ARMS: tuple[str, ...] = (
+    "fluent-false",
+    "fluent-true",
+    "scrambled-false",
+    "scrambled-true",
+    "pos-substituted",
+    "random-chars",
+    "twin",
+)
 
 #: The arms that actually receive a burst. `twin` is the matched control: it
 #: gets no injection, so it does not need injection_step or
 #: burst_length_tokens filled in before it can be launched.
-INJECTING_ARMS: tuple[str, ...] = ("coherent", "noise", "ordinary")
+INJECTING_ARMS: tuple[str, ...] = tuple(a for a in ARMS if a != "twin")
+
+#: Compute dtypes the loader will accept. Closed set, validated by hand in
+#: _validate_semantics because the loader has no enum helper -- the same
+#: pattern `arm` uses against ARMS. `bf16` is accepted by the CONFIG and is
+#: NOT IMPLEMENTED by scripts/train.py, which has no autocast; the loop
+#: refuses it explicitly rather than training fp32 while the record says bf16.
+DTYPES: tuple[str, ...] = ("fp32", "bf16")
+
+#: AdamW implementations. Each groups its arithmetic differently -- per tensor,
+#: per fused group, or in one kernel -- so each produces different bits from
+#: identical moments.
+ADAMW_IMPLS: tuple[str, ...] = ("foreach", "fused", "single")
 
 #: A run override file may set these top-level keys and nothing else. This is
 #: stricter than "unknown keys are rejected" on purpose -- the study's claim is
-#: that the 40 runs differ only in seed and arm, and an override that quietly
+#: that the runs differ only in seed and arm, and an override that quietly
 #: changed the learning rate for one run would invalidate that claim without
 #: leaving a trace. If a future experiment genuinely needs a third per-run
 #: knob, add it here deliberately.
 OVERRIDE_ALLOWED_KEYS: frozenset[str] = frozenset({"seed", "arm"})
 
 #: Canonical run name: seed{NN}_{arm}, seed zero-padded to two digits.
-RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z]+)$")
+#: Hyphens are allowed in the arm segment because every v4 arm name has one
+#: (fluent-false, pos-substituted, random-chars). Under the retired v3 names
+#: this was `[a-z]+`, which would silently DECLINE TO CHECK every v4 override
+#: file -- the filename-vs-contents check only runs when the name matches, so a
+#: stricter pattern here does not reject bad files, it stops examining them.
+RUN_NAME_PATTERN = re.compile(r"^seed(\d{2})_([a-z-]+)$")
 
 #: The two kinds of checkpoint, returned by Config.checkpoint_kind_at().
 CHECKPOINT_FULL = "full"
@@ -311,7 +346,7 @@ def _check_override_scope(override: dict, source: Path) -> None:
         raise ConfigError(
             f"{source}: a run override may only set {allowed}, but this file "
             f"also sets: {', '.join(extra)}.\n"
-            "The study's claim is that all 40 runs are identical except for "
+            "The study's claim is that all runs are identical except for "
             "seed and arm. Changing anything else per-run would break that "
             "claim silently. If you genuinely need another per-run knob, add "
             "it to OVERRIDE_ALLOWED_KEYS in burst/config.py on purpose."
@@ -344,6 +379,40 @@ class TrainingConfig:
     batch_size: int
     seq_len: int
     total_steps: int
+    #: Sequences per forward pass, or None while undecided.
+    #:
+    #: Deliberately has no default, for the same reason grad_clip has none:
+    #: guessing it would put a study-defining value in the code rather than in
+    #: the record. batch_size / micro_batch gradient accumulation steps make up
+    #: one optimizer step, and BECAUSE FLOATING-POINT ADDITION IS NOT
+    #: ASSOCIATIVE, two accumulation shapes over identical data give different
+    #: bits. A default here would silently decide part of the experiment.
+    micro_batch: int | None = None
+    #: Compute dtype for the forward and backward pass, or None while undecided.
+    #:
+    #: No default, for the same reason micro_batch has none: it CHANGES WHICH
+    #: CUDA KERNELS ARE SELECTED, and therefore reduction order. The
+    #: determinism probe measured this directly -- fp32 chose
+    #: fmha_cutlassF/B, bf16 chose pytorch_flash::flash_fwd/bwd, 66 kernels
+    #: against 74. A run that inherited a dtype rather than declaring one would
+    #: be reproducible only by accident.
+    dtype: str | None = None
+
+    @property
+    def accumulation_steps(self) -> int:
+        """How many micro-batches make one optimizer step.
+
+        Raises rather than guessing when micro_batch is undecided, so a caller
+        cannot accidentally get 1 and train on a batch 32x smaller than the one
+        the config describes.
+        """
+        if self.micro_batch is None:
+            raise ConfigError(
+                "training.micro_batch is null, so the number of gradient "
+                "accumulation steps is undefined. It has no default: see the "
+                "comment in configs/base.yaml for why guessing it would change "
+                "the experiment rather than merely its speed.")
+        return self.batch_size // self.micro_batch
 
 
 @dataclass(frozen=True)
@@ -363,6 +432,16 @@ class OptimizerConfig:
     #: rejected at launch, exactly like the injection fields, so no run can
     #: start without someone having decided.
     grad_clip: float | None
+    #: Which AdamW implementation to use, or None while undecided.
+    #:
+    #: No default, and this one has already caused a divergence: the training
+    #: loop hardcoded `single` while the committed determinism result was
+    #: produced under `foreach`. The three implementations group their
+    #: arithmetic differently -- per tensor, per fused group, or in one kernel
+    #: -- so THEY PRODUCE DIFFERENT BITS from identical moments. That made the
+    #: only determinism evidence this study has inapplicable to the loop meant
+    #: to inherit it, silently, because nothing declared the value.
+    adamw_impl: str | None = None
 
 
 @dataclass(frozen=True)
@@ -400,23 +479,25 @@ class BurstTextPaths:
     around looking meaningful. The schema check rejects one if it appears.
     """
 
-    coherent: str | None
-    noise: str | None
-    ordinary: str | None
+    #: One entry per injecting arm, keyed by the arm name exactly as it
+    #: appears in ARMS. A mapping rather than named fields because every v4 arm
+    #: name contains a hyphen and so cannot be a Python identifier -- and
+    #: because keying by the arm name means this structure cannot drift out of
+    #: step with ARMS the way three hardcoded fields did.
+    paths: dict
 
     def for_arm(self, arm: str) -> str | None:
-        """The burst text path this arm will use, or None if it has none."""
-        # Written out rather than getattr(self, arm) so that the twin case is
-        # visible instead of being an AttributeError waiting to happen.
-        if arm == "coherent":
-            return self.coherent
-        if arm == "noise":
-            return self.noise
-        if arm == "ordinary":
-            return self.ordinary
+        """The burst text path this arm will use, or None if it has none.
+
+        `twin` is handled explicitly rather than by a missing-key lookup, so
+        the control arm having no burst text is a visible decision rather than
+        a KeyError that happens to be caught somewhere.
+        """
         if arm == "twin":
             return None
-        raise ConfigError(f"no burst text path defined for arm {arm!r}")
+        if arm not in self.paths:
+            raise ConfigError(f"no burst text path defined for arm {arm!r}")
+        return self.paths[arm]
 
 
 @dataclass(frozen=True)
@@ -424,6 +505,15 @@ class InjectionConfig:
     injection_step: int | None
     burst_length_tokens: int | None
     burst_text_paths: BurstTextPaths
+    #: Token offset where the burst starts inside the sequence, or None while
+    #: undecided.
+    #:
+    #: No default, for the same reason micro_batch and dtype have none: it is a
+    #: study-defining quantity, not a knob. Every arm-matching number in step 8
+    #: was measured at one position, so injecting at another would mean the
+    #: arms were matched somewhere the study does not use -- and nothing would
+    #: crash. It lived as a duplicated constant in three scripts before this.
+    burst_position: int | None = None
 
 
 @dataclass(frozen=True)
@@ -591,11 +681,12 @@ _SECTION_CLASSES: dict[str, type] = {
     "checkpointing": CheckpointingConfig,
 }
 
-#: Nested mappings inside a section, keyed by dotted path. Same purpose as
-#: _SECTION_CLASSES, one level deeper.
-_SUBSECTION_CLASSES: dict[str, type] = {
-    "injection.burst_text_paths": BurstTextPaths,
-}
+#: Nested mappings inside a section whose keys are the ARM NAMES rather than a
+#: fixed dataclass schema, keyed by dotted path. `burst_text_paths` is one
+#: entry per injecting arm, so its expected keys come from INJECTING_ARMS --
+#: which means cutting or adding an arm updates this automatically instead of
+#: leaving a schema that names arms the study no longer has.
+_ARM_KEYED_SUBSECTIONS: tuple[str, ...] = ("injection.burst_text_paths",)
 
 _TOP_LEVEL_SCALARS: frozenset[str] = frozenset({"seed", "arm"})
 
@@ -630,7 +721,7 @@ def _check_shape(merged: dict, source: Path) -> None:
         expected = {f.name for f in dataclasses.fields(cls)}
         _compare_keys(set(value), expected, f"section {section!r}", source)
 
-    for dotted, cls in _SUBSECTION_CLASSES.items():
+    for dotted in _ARM_KEYED_SUBSECTIONS:
         section, key = dotted.split(".")
         value = merged[section][key]
         if not isinstance(value, dict):
@@ -638,8 +729,8 @@ def _check_shape(merged: dict, source: Path) -> None:
                 f"{source}: {dotted!r} must be a mapping, got "
                 f"{type(value).__name__}"
             )
-        expected = {f.name for f in dataclasses.fields(cls)}
-        _compare_keys(set(value), expected, f"section {dotted!r}", source)
+        _compare_keys(set(value), set(INJECTING_ARMS),
+                      f"section {dotted!r}", source)
 
 
 def _compare_keys(
@@ -779,6 +870,9 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             batch_size=_int(merged, "training", "batch_size", source),
             seq_len=_int(merged, "training", "seq_len", source),
             total_steps=_int(merged, "training", "total_steps", source),
+            micro_batch=_int(merged, "training", "micro_batch", source,
+                             allow_null=True),
+            dtype=_str(merged, "training", "dtype", source, allow_null=True),
         ),
         optimizer=OptimizerConfig(
             name=_str(merged, "optimizer", "name", source),
@@ -786,6 +880,8 @@ def _build_config(merged: dict, source: str | Path) -> Config:
             beta1=_float(merged, "optimizer", "beta1", source),
             beta2=_float(merged, "optimizer", "beta2", source),
             eps=_float(merged, "optimizer", "eps", source),
+            adamw_impl=_str(merged, "optimizer", "adamw_impl", source,
+                            allow_null=True),
             grad_clip=_float(merged, "optimizer", "grad_clip", source,
                              allow_null=True),
         ),
@@ -814,14 +910,14 @@ def _build_config(merged: dict, source: str | Path) -> Config:
                                 allow_null=True),
             burst_length_tokens=_int(merged, "injection", "burst_length_tokens",
                                      source, allow_null=True),
-            burst_text_paths=BurstTextPaths(
-                coherent=_str(merged, _BURST_TEXTS, "coherent", source,
-                              allow_null=True),
-                noise=_str(merged, _BURST_TEXTS, "noise", source,
-                           allow_null=True),
-                ordinary=_str(merged, _BURST_TEXTS, "ordinary", source,
-                              allow_null=True),
-            ),
+            # Built from ARMS rather than from a hardcoded list, so adding or
+            # cutting an arm cannot leave this behind.
+            burst_position=_int(merged, "injection", "burst_position", source,
+                                allow_null=True),
+            burst_text_paths=BurstTextPaths(paths={
+                arm: _str(merged, _BURST_TEXTS, arm, source, allow_null=True)
+                for arm in INJECTING_ARMS
+            }),
         ),
         checkpointing=CheckpointingConfig(
             weights_only_interval=_int(merged, "checkpointing",
@@ -841,8 +937,9 @@ def _build_config(merged: dict, source: str | Path) -> Config:
 def _validate_semantics(cfg: Config, source: str | Path) -> None:
     """Checks that need more than one field to make sense."""
 
-    # Requirement 5: the arm must be exactly one of the four literal names.
-    # Compared without any normalisation, so "Coherent" and "COHERENT" fail.
+    # Requirement 5: the arm must be exactly one of the seven literal names.
+    # Compared without any normalisation, so "Fluent-False" and "FLUENT-FALSE"
+    # both fail.
     if cfg.arm not in ARMS:
         hint = ""
         if cfg.arm.lower() in ARMS:
@@ -869,7 +966,7 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
 
     # Requirement 4: the token budget must be the product of the three numbers
     # that produce it. If someone edits total_steps and forgets the budget,
-    # this fails at load rather than 40 runs later.
+    # this fails at load rather than every run later.
     computed = cfg.training.batch_size * cfg.training.seq_len * cfg.training.total_steps
     if computed != cfg.corpus.expected_token_budget:
         raise ConfigError(
@@ -883,6 +980,51 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             "One of these four numbers was edited without the others. "
             f"Source: {source}"
         )
+
+    # Requirement 4b: accumulation must divide the batch exactly.
+    #
+    # A remainder would mean the last micro-batch of every step is a different
+    # size from the others, so the step would train on fewer sequences than
+    # batch_size claims -- and the token-budget identity above, which is what
+    # the whole corpus was built against, would quietly stop describing what
+    # was trained on. Checked here rather than in the training loop so that a
+    # bad pairing fails at load, before a GPU is allocated.
+    micro = cfg.training.micro_batch
+    if micro is not None:
+        if micro <= 0:
+            raise ConfigError(
+                f"training.micro_batch must be positive; got {micro}. "
+                f"Source: {source}")
+        if micro > cfg.training.batch_size:
+            raise ConfigError(
+                f"training.micro_batch ({micro}) exceeds batch_size "
+                f"({cfg.training.batch_size}); a micro-batch is a slice of the "
+                f"batch, not a multiple of it. Source: {source}")
+        if cfg.training.batch_size % micro != 0:
+            raise ConfigError(
+                f"training.batch_size ({cfg.training.batch_size}) is not "
+                f"divisible by training.micro_batch ({micro}); "
+                f"{cfg.training.batch_size % micro} sequences would be left "
+                "over every step, so the step would not train on the batch the "
+                "config describes.\n"
+                f"Source: {source}")
+
+    # Requirement 4c: the two closed-set reduction-order fields.
+    #
+    # Validated by hand against a tuple because the loader has no enum helper,
+    # which is exactly how `arm` is checked against ARMS. Both change which
+    # kernels run and therefore what bits come out, so a typo that fell through
+    # to a default would be a different experiment wearing the same config.
+    if cfg.training.dtype is not None and cfg.training.dtype not in DTYPES:
+        raise ConfigError(
+            f"training.dtype must be exactly one of {', '.join(DTYPES)}; got "
+            f"{cfg.training.dtype!r}. Source: {source}")
+    if (cfg.optimizer.adamw_impl is not None
+            and cfg.optimizer.adamw_impl not in ADAMW_IMPLS):
+        raise ConfigError(
+            f"optimizer.adamw_impl must be exactly one of "
+            f"{', '.join(ADAMW_IMPLS)}; got {cfg.optimizer.adamw_impl!r}. "
+            f"Source: {source}")
 
     # Cheap arithmetic sanity checks in the same spirit as the one above.
     if cfg.training.seq_len > cfg.model.block_size:
@@ -946,6 +1088,32 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
             f"{source}: injection.burst_length_tokens ({burst}) must be "
             "positive."
         )
+
+    # The burst has to FIT, with a token before it to be predicted from.
+    #
+    # Position 0 is rejected for the reason burst_match.assemble_sequence
+    # rejects it: the token at index 0 has nothing preceding it, so the burst
+    # region would carry burst_length - 1 predictions and the burst-region loss
+    # would quietly be an average over a different set of tokens than the one
+    # step 8 measured. Checked here as well as there so a bad pairing fails at
+    # load rather than at step 200 of a multi-day run.
+    position = cfg.injection.burst_position
+    if position is not None:
+        if burst is None:
+            raise ConfigError(
+                f"{source}: injection.burst_position is set ({position}) but "
+                "injection.burst_length_tokens is null, so there is no way to "
+                "tell whether the burst fits.")
+        highest = cfg.training.seq_len - burst
+        if not 1 <= position <= highest:
+            raise ConfigError(
+                f"{source}: injection.burst_position ({position}) must be "
+                f"between 1 and {highest} inclusive, so that a "
+                f"{burst}-token burst fits inside a "
+                f"{cfg.training.seq_len}-token sequence with a token before it "
+                "to be predicted from. Position 0 would give the burst region "
+                f"{burst - 1} predictions instead of {burst}."
+            )
 
     _validate_checkpoint_intervals(cfg, source)
     _validate_burst_text_paths(cfg, source)
@@ -1064,6 +1232,16 @@ def _missing_for_launch(cfg: Config) -> list[str]:
         missing.append("checkpointing.full_interval")
     if cfg.model.tie_embeddings is None:
         missing.append("model.tie_embeddings")
+    # Every arm needs it: accumulation shape is part of what makes two runs the
+    # same run, so no arm can launch without it having been decided.
+    if cfg.training.micro_batch is None:
+        missing.append("training.micro_batch")
+    # Same class as micro_batch: both decide reduction order, so both are part
+    # of what makes two runs the same run, for every arm.
+    if cfg.training.dtype is None:
+        missing.append("training.dtype")
+    if cfg.optimizer.adamw_impl is None:
+        missing.append("optimizer.adamw_impl")
     # Every arm, including twin. Clipping applies to the whole run, not just
     # to the step the burst lands on, so twin is no more exempt from the
     # decision than the injecting arms are.
@@ -1074,6 +1252,8 @@ def _missing_for_launch(cfg: Config) -> list[str]:
             missing.append("injection.injection_step")
         if cfg.injection.burst_length_tokens is None:
             missing.append("injection.burst_length_tokens")
+        if cfg.injection.burst_position is None:
+            missing.append("injection.burst_position")
         # Only this arm's text matters. A coherent run does not care whether
         # the noise text has been written yet.
         if cfg.injection.burst_text_paths.for_arm(cfg.arm) is None:
@@ -1224,6 +1404,7 @@ def _write_provenance(
     *,
     require_complete: bool,
     force: bool,
+    family: str | None,
     stream,
 ) -> None:
     """Write resolved_config.yaml and run_provenance.yaml into outdir."""
@@ -1261,6 +1442,18 @@ def _write_provenance(
         "run_name": cfg.run_name,
         "seed": cfg.seed,
         "arm": cfg.arm,
+        # WHICH MODEL BUILT THIS. Not a config value -- it is a command-line
+        # argument to train.py -- but it is study-defining, and until it was
+        # recorded here it left no trace anywhere. The two families reach the
+        # SAME parameter count (124,439,808), so `expected_param_count` cannot
+        # tell them apart and nothing else would notice a run launched under
+        # the wrong one. See tests/test_model_seam.py, which pins that.
+        #
+        # A string, not a validated enum: `burst/` must not import from
+        # `scripts/`, so the value is recorded as given. `train.py` constrains
+        # it with argparse `choices`, and `model_seam.build_model` refuses an
+        # unknown family -- validation belongs there, the record belongs here.
+        "family": family,
         "written_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_files": {
             "base_config": str(base_path.resolve()),
@@ -1316,6 +1509,7 @@ def load_config(
     require_complete: bool = True,
     force: bool = False,
     write_provenance: bool = True,
+    family: str | None = None,
     stream=None,
 ) -> Config:
     """Load base + override, validate, record provenance, return frozen config.
@@ -1332,6 +1526,13 @@ def load_config(
             friends are still undecided.
         force: allow overwriting an existing, differing resolved_config.yaml.
         write_provenance: set False only in tests that do not care about files.
+        family: which model family is about to be trained, recorded into
+            run_provenance.yaml. REQUIRED when require_complete is True,
+            because a checkpoint whose family is unrecorded cannot be shown to
+            belong to the same study as its seed-matched twin -- the two
+            families build to an identical parameter count, so nothing
+            downstream could detect the mix-up. Optional when merely inspecting
+            a config, which is why `python -m burst.config` may omit it.
         stream: where warnings go; defaults to stderr.
 
     Returns:
@@ -1387,6 +1588,21 @@ def load_config(
                 )
             )
         _check_burst_text_exists(cfg)
+        # LAST of the launch checks, deliberately. A config with null fields
+        # has a more fundamental problem than an unrecorded family, and the
+        # error listing those fields is the more useful one to surface first.
+        if family is None:
+            raise ConfigError(
+                f"run {cfg.run_name!r} cannot be launched: no model family "
+                "was given, so run_provenance.yaml would record "
+                "`family: null`.\n"
+                "The family is study-defining and leaves no other trace. Both "
+                "families build to exactly 124,439,808 parameters, so "
+                "model.expected_param_count cannot tell them apart, and a "
+                "checkpoint trained under the wrong one would compare against "
+                "its seed-matched twin as though nothing were wrong.\n"
+                "Pass family= (train.py takes --family)."
+            )
 
     if write_provenance:
         # Written before anything downstream is allowed to happen, so a run
@@ -1394,7 +1610,8 @@ def load_config(
         # it was trying to do.
         _write_provenance(
             merged, cfg, outdir, base_path, run_path,
-            require_complete=require_complete, force=force, stream=stream,
+            require_complete=require_complete, force=force, family=family,
+            stream=stream,
         )
 
     return cfg
