@@ -108,6 +108,34 @@ def test_both_families_hit_expected_param_count_exactly(cfg, family):
     assert MS.parameter_count(model) == 124_439_808
 
 
+def test_the_two_families_are_indistinguishable_by_parameter_count(cfg):
+    """WHY `family` IS A PROVENANCE FIELD. Pinned, not remembered.
+
+    `expected_param_count` is the seam's guard against training the wrong
+    architecture, and `scripts/model_seam.py` used to claim it was "the only
+    thing that would notice" a family mix-up. It would notice nothing: both
+    families land on exactly the same count, so the guard is blind to the one
+    distinction that decides whether two checkpoints are comparable.
+
+    That is what makes `run_provenance.yaml`'s `family` field load-bearing
+    rather than decorative, and what `launch.py::conflicting_family` exists to
+    enforce.
+
+    IF THIS TEST EVER FAILS, the counts have diverged and the rationale above
+    has changed. Do not "fix" it by loosening the assertion -- go and re-read
+    the docstring in `scripts/model_seam.py` and this repo's S85, because the
+    reasoning they record would no longer hold.
+    """
+    pytest.importorskip("transformers")
+    counts = {
+        family: MS.parameter_count(MS.build_model(cfg, family))
+        for family in MS.FAMILIES
+    }
+    assert len(set(counts.values())) == 1, (
+        f"families no longer share a parameter count: {counts}")
+    assert set(counts.values()) == {124_439_808}
+
+
 @pytest.mark.parametrize("family", MS.FAMILIES)
 def test_a_wrong_parameter_count_is_refused(tiny_cfg, family):
     """The check that catches training the wrong architecture."""

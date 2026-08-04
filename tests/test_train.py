@@ -144,7 +144,8 @@ def _load_cfg(tmp_path, base_path, run_path):
     from burst.config import load_config
 
     return load_config(base_path, run_path, outdir=tmp_path / "out",
-                       require_complete=True, stream=io.StringIO())
+                       require_complete=True, family=SEAM.FAMILY_HF_GPT2,
+                       stream=io.StringIO())
 
 
 def _run(tmp_path, corpus, outdir, **kwargs):

@@ -75,7 +75,24 @@ def write_run(tmp_path: Path, text: str, name: str = "run.yaml") -> Path:
 
 def load(tmp_path: Path, base: Path, run: Path, **kwargs):
     kwargs.setdefault("require_complete", False)
+    # A launch-time load refuses without a family, because the family is
+    # otherwise unrecorded anywhere. These tests are about field validation
+    # rather than about the family, so the helper supplies one; the refusal
+    # itself is covered by test_launching_without_a_family_is_refused.
+    kwargs.setdefault("family", "hf_gpt2")
     return load_config(base, run, tmp_path / "out", **kwargs)
+
+
+def launch_ready_base(tmp_path: Path, **extra) -> Path:
+    """A base config with every launch-blocking field decided."""
+    return write_base(tmp_path,
+                      checkpointing__weights_only_interval=50,
+                      checkpointing__full_interval=1000,
+                      training__micro_batch=8,
+                      training__dtype="fp32",
+                      optimizer__adamw_impl="foreach",
+                      optimizer__grad_clip=1.0,
+                      **extra)
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +599,64 @@ def test_checkpoint_plan_is_frozen(tmp_path):
     plan = real_cfg(tmp_path).checkpoint_plan
     with pytest.raises(dataclasses.FrozenInstanceError):
         plan.full_count = 999
+
+
+def test_family_is_recorded_in_provenance(tmp_path):
+    """Which model built a checkpoint has to leave a trace somewhere.
+
+    It is not a config value -- it is a train.py command-line argument -- so
+    before this field existed it left no trace at all.
+    """
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    outdir = tmp_path / "out"
+    load_config(base, run, outdir, require_complete=False, family="hf_gpt2")
+    meta = yaml.safe_load(
+        (outdir / "run_provenance.yaml").read_text(encoding="utf-8"))
+    assert meta["family"] == "hf_gpt2"
+
+
+def test_family_is_null_in_provenance_when_merely_inspecting(tmp_path):
+    """Inspecting a config does not require a family, and records that it had
+    none rather than guessing one."""
+    base = write_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    outdir = tmp_path / "out"
+    load_config(base, run, outdir, require_complete=False)
+    meta = yaml.safe_load(
+        (outdir / "run_provenance.yaml").read_text(encoding="utf-8"))
+    assert "family" in meta, "the key must exist even when unset"
+    assert meta["family"] is None
+
+
+def test_launching_without_a_family_is_refused(tmp_path):
+    """require_complete means "about to train", and training without recording
+    the family produces a checkpoint nothing can attribute."""
+    base = launch_ready_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError, match="no model family was given"):
+        load_config(base, run, tmp_path / "out", require_complete=True)
+
+
+def test_the_missing_family_refusal_explains_why_nothing_else_catches_it(tmp_path):
+    """The message has to carry the reason, because the reason is unobvious:
+    both families build to the same parameter count."""
+    base = launch_ready_base(tmp_path)
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(base, run, tmp_path / "out", require_complete=True)
+    assert "124,439,808" in str(exc.value)
+
+
+def test_null_fields_are_reported_before_the_missing_family(tmp_path):
+    """Ordering is deliberate: a config with null fields has the more
+    fundamental problem, and that error is the more useful one."""
+    base = write_base(tmp_path)          # micro_batch etc. still null
+    run = write_run(tmp_path, "seed: 3\narm: twin\n")
+    with pytest.raises(ConfigError) as exc:
+        load_config(base, run, tmp_path / "out", require_complete=True)
+    assert "training.micro_batch" in str(exc.value)
+    assert "no model family" not in str(exc.value)
 
 
 def test_checkpoint_plan_is_recorded_in_provenance(tmp_path):

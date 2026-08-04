@@ -26,7 +26,8 @@ the tracker. Every state below is a fact about files that `train.py` and
     RESUMABLE               >= 1 *_full.pt, highest < last_step
     STARTED_NOT_RESUMABLE   resolved_config.yaml, but no *_full.pt at all
     NOT_STARTED             no outdir, or an outdir with nothing in it
-    CONFLICT                resolved_config.yaml is for a different seed/arm
+    CONFLICT                resolved_config.yaml is for a different seed/arm,
+                            or run_provenance.yaml names a different family
 
 `checkpoint_kind_at` guarantees the final step is a full checkpoint whatever
 the intervals say, so "the final full checkpoint exists" IS completion rather
@@ -229,6 +230,52 @@ def conflicting_run(outdir: Path, seed: int, arm: str) -> str | None:
     if (found_seed, found_arm) != (seed, arm):
         return (f"holds a run for seed={found_seed} arm={found_arm!r}, but "
                 f"this is seed={seed} arm={arm!r}")
+    return None
+
+
+def conflicting_family(outdir: Path, family: str) -> str | None:
+    """Does this outdir already hold a run built by a DIFFERENT model family?
+
+    The family is not in `resolved_config.yaml` -- it is a command-line
+    argument, not a config value -- so this reads `run_provenance.yaml`, which
+    is where `burst/config.py` stamps it.
+
+    WHY THIS REFUSAL EXISTS. The two families build to an identical parameter
+    count (124,439,808), so `model.expected_param_count` cannot distinguish
+    them; `scripts/model_seam.py` lists four things that do not survive the
+    choice, including that the seed -> weights map is family-specific. Emitting
+    an hf_gpt2 command into a directory a probe_linear run already wrote would
+    produce checkpoints that are not comparable to their seed-matched twin,
+    with nothing downstream able to notice. Same class as the seed/arm clash
+    directly above, and reported through the same CONFLICT state.
+
+    A provenance file with `family: null` predates this field. That is reported
+    rather than passed, because "cannot tell" and "matches" are different
+    answers and only one of them is safe to act on.
+    """
+    import yaml
+
+    provenance = Path(outdir) / PROVENANCE_FILENAME
+    if not provenance.is_file():
+        return None
+    try:
+        existing = yaml.safe_load(provenance.read_text(encoding="utf-8")) or {}
+    except Exception as exc:                       # pragma: no cover
+        return f"{PROVENANCE_FILENAME} is unreadable: {exc}"
+    if "family" not in existing:
+        return None
+    found = existing.get("family")
+    if found is None:
+        return (f"{PROVENANCE_FILENAME} records `family: null`, so which model "
+                f"built it is unknown; this emission is {family!r}. The two "
+                "families are indistinguishable by parameter count, so this "
+                "cannot be resolved by inspecting the checkpoints. Use a fresh "
+                "--outdir.")
+    if found != family:
+        return (f"was built by family {found!r}, but this emission is "
+                f"{family!r}. Checkpoints are not interchangeable between "
+                "families and the seed -> weights map differs, so the two are "
+                "not comparable. Use a fresh --outdir.")
     return None
 
 
@@ -451,7 +498,8 @@ def build(selection, *, outroot: Path, corpus: Path, family: str, device: str,
 
         state, resume_from, last_full, n_full, n_wo, partials = classify(
             outdir, cfg.last_step)
-        clash = conflicting_run(outdir, seed, arm)
+        clash = conflicting_run(outdir, seed, arm) or conflicting_family(
+            outdir, family)
         if clash:
             emission.conflicts.append((name, clash))
             emission.statuses.append(RunStatus(

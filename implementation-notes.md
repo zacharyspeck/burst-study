@@ -707,6 +707,68 @@ Three smaller things fixed while in there, none of them requested:
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
 
+### S86. The family hazard from S85, fixed. Not a decision — a missing field
+
+Ruled on 2026-08-03: this was never Zach's to decide. A study that cannot say
+which model family produced a checkpoint has a **missing provenance field**,
+and the fix is mechanical. Three parts.
+
+**1. `family` is recorded in `run_provenance.yaml`.** `load_config` takes
+`family=` and stamps it beside the commit hash and the dirty flag. It is not a
+config value — output-shaped and hardware-shaped things never are, and the
+family is a `train.py` command-line argument — but it is study-defining, and it
+was the only such value leaving no trace anywhere.
+
+It is recorded as a **plain string, not a validated enum**, because `burst/`
+must not import from `scripts/` and `FAMILIES` lives in `scripts/model_seam.py`.
+Validation stays where it already was: argparse `choices` on `train.py
+--family`, and `build_model`'s refusal. The record belongs in `burst/`, the
+vocabulary does not.
+
+**Required only when `require_complete=True`** — i.e. when about to train.
+Inspecting a config still works without one and records `family: null`, which
+is why `python -m burst.config` needs no new argument.
+
+**Ordering, and it was not the first thing I tried.** The refusal initially
+fired *before* the null-field check and broke 21 existing tests, because every
+launch-time test hit the family error instead of the error it was asserting.
+That was the wrong order on the merits too, not just inconvenient: a config
+with `micro_batch: null` has a more fundamental problem than an unrecorded
+family, and the error listing those fields is the more useful one to surface.
+Moved to last of the launch checks and pinned by
+`test_null_fields_are_reported_before_the_missing_family`.
+
+**2. `launch.py::conflicting_family` refuses to emit** into a directory whose
+provenance names a different family, reported through the existing CONFLICT
+state alongside the seed/arm clash. It reads `run_provenance.yaml` rather than
+`resolved_config.yaml`, since the family is not in the merged config.
+
+A provenance file recording `family: null` is **reported, not waved through**:
+"cannot tell" and "matches" are different answers and only one is safe to act
+on. A file with no `family` key at all predates the field and is not a
+conflict — distinguishing those two cases is the point, and both are tested.
+
+**3. The reason is pinned rather than remembered.**
+`test_the_two_families_are_indistinguishable_by_parameter_count` asserts both
+families reach the same count and that the count is 124,439,808. Its docstring
+says what to do if it ever fails: not loosen it, but re-read the rationale it
+supports, because that rationale would no longer hold.
+
+`scripts/model_seam.py`'s docstring claimed `expected_param_count` was "the
+only thing that would notice a mix-up". Corrected in place, with the old
+sentence quoted and named as S55 — a guard named for catching what it cannot
+catch. The check it relied on is the same check that disproves it.
+
+**A gap found while doing this: `conflicting_run` had NO test coverage.** The
+CONFLICT state was found unreachable by the 2026-08-03 contradiction pass and
+made real the same day, but nothing pinned that it fires. Covered now, since
+the new refusal sits directly beside it and would have inherited the same
+blind spot.
+
+Tests: 821 -> 835. `test_config.py` 205 -> 210, `test_launch.py` 46 -> 54,
+`test_model_seam.py` 24 -> 25. Counts in `README.md`, `docs/handoff-pilot.md`
+and the table below updated to match.
+
 ### S85. Pre-registration recorded; two findings from checking what blocks a launch
 
 Two things, both from the same session as S84.
@@ -738,7 +800,11 @@ open. Stating that is worth more than the tidier document would have been.
    through `launch.py` and `train.py`, and it is required with no default. What
    is still `nn.Linear` is `probes/determinism/model.py` — the probe, not the
    study's model.
-2. **STANDING RISK, not fixed, needs a ruling.** `scripts/model_seam.py`'s
+2. ~~**STANDING RISK, not fixed, needs a ruling.**~~ **RESOLVED same day by
+   S86 — it was not a decision but a missing provenance field.** The original
+   text stands below as written, because the fact that this was first written
+   up as something to defer, and was corrected, is part of the record.
+   `scripts/model_seam.py`'s
    docstring says a family mix-up would be caught: *"`expected_param_count` is
    the only thing that would notice a mix-up."* It would notice nothing.
    `tests/test_model_seam.py::test_both_families_hit_expected_param_count_exactly`
@@ -4918,13 +4984,13 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-821 tests, counted per file with `--collect-only` rather than from memory.
+835 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
 | file | tests |
 | --- | --- |
-| `tests/test_config.py` | 205 |
+| `tests/test_config.py` | 210 |
 | `tests/test_burst_match.py` | 43 |
 | `tests/test_make_bursts.py` | 45 |
 | `tests/test_sequence_assembly.py` | 33 |
@@ -4940,16 +5006,16 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_fetch.py` | 19 |
 | `tests/test_corpus_tokenize.py` | 20 |
 | `tests/test_corpus_verify.py` | 13 |
-| `tests/test_model_seam.py` | 24 |
+| `tests/test_model_seam.py` | 25 |
 | `tests/test_rng_state.py` | 17 |
 | `tests/test_train.py` | 18 |
 | `tests/test_injection.py` | 23 |
-| `tests/test_launch.py` | 46 |
+| `tests/test_launch.py` | 54 |
 | `tests/test_analysis.py` | 47 |
-| **total** | **821** |
+| **total** | **835** |
 
-In the base environment (`.venv/`, no torch) the run is **518 passed, 164
-skipped**. In `.venv-ml/` it is **821 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **531 passed, 164
+skipped**. In `.venv-ml/` it is **835 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

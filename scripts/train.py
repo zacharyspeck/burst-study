@@ -587,7 +587,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
     cfg = load_config(args.config, args.run, outdir=args.outdir,
-                      require_complete=True, stream=io.StringIO())
+                      require_complete=True, family=args.family,
+                      stream=io.StringIO())
     started = time.perf_counter()
     record = train(cfg, family=args.family, corpus_dir=args.corpus,
                    outdir=args.outdir, steps=args.steps, resume=args.resume,

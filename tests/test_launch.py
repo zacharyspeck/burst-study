@@ -313,6 +313,89 @@ def _build(tmp_path, base, selection, **kwargs):
                    **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# CONFLICT: this directory already belongs to a different run
+#
+# `conflicting_run` had NO test coverage at all -- found while adding
+# `conflicting_family` beside it. It was made reachable on 2026-08-03 after the
+# contradiction pass found the CONFLICT state unreachable; nothing then pinned
+# that it fires.
+# ---------------------------------------------------------------------------
+
+
+def _write_provenance(outdir: Path, **fields) -> Path:
+    outdir.mkdir(parents=True, exist_ok=True)
+    path = outdir / "run_provenance.yaml"
+    path.write_text(yaml.safe_dump(fields, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def test_a_directory_holding_another_seed_arm_is_a_conflict(tmp_path):
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    (outdir / "resolved_config.yaml").write_text(
+        yaml.safe_dump({"seed": 7, "arm": "twin"}), encoding="utf-8")
+    clash = L.conflicting_run(outdir, seed=3, arm="twin")
+    assert clash is not None
+    assert "seed=7" in clash
+
+
+def test_a_matching_seed_arm_is_not_a_conflict(tmp_path):
+    outdir = tmp_path / "out"
+    outdir.mkdir()
+    (outdir / "resolved_config.yaml").write_text(
+        yaml.safe_dump({"seed": 3, "arm": "twin"}), encoding="utf-8")
+    assert L.conflicting_run(outdir, seed=3, arm="twin") is None
+
+
+def test_a_directory_built_by_another_family_is_a_conflict(tmp_path):
+    """The failure this exists to stop: hf_gpt2 emitted over a probe_linear
+    run, producing checkpoints nothing downstream can tell apart."""
+    outdir = tmp_path / "out"
+    _write_provenance(outdir, seed=3, arm="twin", family="probe_linear")
+    clash = L.conflicting_family(outdir, "hf_gpt2")
+    assert clash is not None
+    assert "probe_linear" in clash and "hf_gpt2" in clash
+
+
+def test_a_matching_family_is_not_a_conflict(tmp_path):
+    outdir = tmp_path / "out"
+    _write_provenance(outdir, seed=3, arm="twin", family="hf_gpt2")
+    assert L.conflicting_family(outdir, "hf_gpt2") is None
+
+
+def test_a_null_family_in_provenance_is_reported_not_waved_through(tmp_path):
+    """"Cannot tell" and "matches" are different answers, and a provenance
+    file predating the field can only give the first."""
+    outdir = tmp_path / "out"
+    _write_provenance(outdir, seed=3, arm="twin", family=None)
+    clash = L.conflicting_family(outdir, "hf_gpt2")
+    assert clash is not None
+    assert "null" in clash
+
+
+def test_provenance_without_the_family_key_at_all_is_not_a_conflict(tmp_path):
+    """A file written before the field existed omits the key entirely. That is
+    a different case from an explicit null and must not block re-emission."""
+    outdir = tmp_path / "out"
+    _write_provenance(outdir, seed=3, arm="twin")
+    assert L.conflicting_family(outdir, "hf_gpt2") is None
+
+
+def test_no_provenance_file_is_not_a_conflict(tmp_path):
+    assert L.conflicting_family(tmp_path / "nothing-here", "hf_gpt2") is None
+
+
+def test_build_reports_a_family_clash_as_CONFLICT(tmp_path, ready_base):
+    """End to end: the refusal reaches the emission, not just the helper."""
+    outdir = tmp_path / "runs" / run_name_for(0, "twin")
+    _write_provenance(outdir, seed=0, arm="twin", family="probe_linear")
+    emission = _build(tmp_path, ready_base, [(0, "twin")], family="hf_gpt2")
+    assert emission.commands == []
+    assert emission.statuses[0].state == L.CONFLICT
+    assert "probe_linear" in emission.statuses[0].note
+
+
 def test_a_not_launch_ready_run_is_refused_by_default(tmp_path):
     """All 70 currently refuse: micro_batch, dtype and adamw_impl are null."""
     with pytest.raises(L.LaunchError, match="NOT LAUNCH-READY"):

@@ -149,7 +149,8 @@ def _cfg(tmp_path, arm, burst_path, **overrides):
 
     b, r = _write_configs(tmp_path, arm, burst_path, **overrides)
     return load_config(b, r, outdir=tmp_path / f"out_{arm}",
-                       require_complete=True, stream=io.StringIO())
+                       require_complete=True, family=SEAM.FAMILY_HF_GPT2,
+                       stream=io.StringIO())
 
 
 def _run(tmp_path, corpus, arm, burst_path, outdir, steps=None):

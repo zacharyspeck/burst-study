@@ -128,12 +128,12 @@ otherwise validate corrupted shards.
 ### Step 1 — check the repo is sane
 
 ```bash
-python -m pytest -q                    # expect 518 passed, 164 skipped
+python -m pytest -q                    # expect 531 passed, 164 skipped
 python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mismatched
 ```
 
 The skips are the tests needing torch or `transformers`. If you have the ML
-environment, `python -m pytest -q` there should be **821 passed, 0 skipped**.
+environment, `python -m pytest -q` there should be **835 passed, 0 skipped**.
 
 ### Step 2 — emit the pilot
 

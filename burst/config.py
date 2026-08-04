@@ -1404,6 +1404,7 @@ def _write_provenance(
     *,
     require_complete: bool,
     force: bool,
+    family: str | None,
     stream,
 ) -> None:
     """Write resolved_config.yaml and run_provenance.yaml into outdir."""
@@ -1441,6 +1442,18 @@ def _write_provenance(
         "run_name": cfg.run_name,
         "seed": cfg.seed,
         "arm": cfg.arm,
+        # WHICH MODEL BUILT THIS. Not a config value -- it is a command-line
+        # argument to train.py -- but it is study-defining, and until it was
+        # recorded here it left no trace anywhere. The two families reach the
+        # SAME parameter count (124,439,808), so `expected_param_count` cannot
+        # tell them apart and nothing else would notice a run launched under
+        # the wrong one. See tests/test_model_seam.py, which pins that.
+        #
+        # A string, not a validated enum: `burst/` must not import from
+        # `scripts/`, so the value is recorded as given. `train.py` constrains
+        # it with argparse `choices`, and `model_seam.build_model` refuses an
+        # unknown family -- validation belongs there, the record belongs here.
+        "family": family,
         "written_at_utc": datetime.now(timezone.utc).isoformat(),
         "source_files": {
             "base_config": str(base_path.resolve()),
@@ -1496,6 +1509,7 @@ def load_config(
     require_complete: bool = True,
     force: bool = False,
     write_provenance: bool = True,
+    family: str | None = None,
     stream=None,
 ) -> Config:
     """Load base + override, validate, record provenance, return frozen config.
@@ -1512,6 +1526,13 @@ def load_config(
             friends are still undecided.
         force: allow overwriting an existing, differing resolved_config.yaml.
         write_provenance: set False only in tests that do not care about files.
+        family: which model family is about to be trained, recorded into
+            run_provenance.yaml. REQUIRED when require_complete is True,
+            because a checkpoint whose family is unrecorded cannot be shown to
+            belong to the same study as its seed-matched twin -- the two
+            families build to an identical parameter count, so nothing
+            downstream could detect the mix-up. Optional when merely inspecting
+            a config, which is why `python -m burst.config` may omit it.
         stream: where warnings go; defaults to stderr.
 
     Returns:
@@ -1567,6 +1588,21 @@ def load_config(
                 )
             )
         _check_burst_text_exists(cfg)
+        # LAST of the launch checks, deliberately. A config with null fields
+        # has a more fundamental problem than an unrecorded family, and the
+        # error listing those fields is the more useful one to surface first.
+        if family is None:
+            raise ConfigError(
+                f"run {cfg.run_name!r} cannot be launched: no model family "
+                "was given, so run_provenance.yaml would record "
+                "`family: null`.\n"
+                "The family is study-defining and leaves no other trace. Both "
+                "families build to exactly 124,439,808 parameters, so "
+                "model.expected_param_count cannot tell them apart, and a "
+                "checkpoint trained under the wrong one would compare against "
+                "its seed-matched twin as though nothing were wrong.\n"
+                "Pass family= (train.py takes --family)."
+            )
 
     if write_provenance:
         # Written before anything downstream is allowed to happen, so a run
@@ -1574,7 +1610,8 @@ def load_config(
         # it was trying to do.
         _write_provenance(
             merged, cfg, outdir, base_path, run_path,
-            require_complete=require_complete, force=force, stream=stream,
+            require_complete=require_complete, force=force, family=family,
+            stream=stream,
         )
 
     return cfg

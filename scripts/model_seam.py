@@ -28,8 +28,19 @@ A narrow interface makes the LOOP portable. It does not make the RUNS
 comparable, and four things do not survive the choice:
 
 1. CHECKPOINTS ARE NOT INTERCHANGEABLE. Parameter names differ entirely. A
-   checkpoint written under one family cannot be loaded by the other, and
-   `expected_param_count` is the only thing that would notice a mix-up.
+   checkpoint written under one family cannot be loaded by the other.
+
+   THIS PARAGRAPH USED TO SAY `expected_param_count` "is the only thing that
+   would notice a mix-up". IT WOULD NOTICE NOTHING. Both families build to
+   exactly 124,439,808 parameters -- that is asserted, deliberately, by
+   `tests/test_model_seam.py::test_both_families_hit_expected_param_count_exactly`,
+   so the check this sentence relied on is the same check that proves it wrong.
+   S55 again: a guard named for catching what it cannot catch.
+
+   What notices a mix-up now is the `family` field in `run_provenance.yaml`,
+   written by `burst/config.py` and required whenever a config is loaded for
+   launch. `scripts/launch.py::conflicting_family` refuses to emit into a
+   directory whose provenance names a different family.
 2. THE SEED -> WEIGHTS MAP IS FAMILY-SPECIFIC. HF's init and the probe's
    `_init_weights` differ, so the same seed produces different initial weights.
    Twin comparisons stay valid -- both arms use one family -- but no checkpoint
