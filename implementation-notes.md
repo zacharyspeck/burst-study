@@ -2644,6 +2644,97 @@ key-bias gauge**, so the shipped recipe still has a fault of that class.
 `test_removing_head_internal_did_not_silently_disarm_a_shipped_check` covers
 this removal too, since it iterates whatever is currently in `FAULTY_RECIPES`.
 
+### S82. The launcher emits; it does not orchestrate
+
+`scripts/launch.py`. Prints command lines and writes them to a file. Starts no
+processes, assigns no devices, manages no queue, retries nothing.
+
+#### The reason is not only portability
+
+An emitter survives SLURM, bare SSH, a rented box, `xargs -P` or being pasted
+by hand, and nobody has provisioned the hardware. But the repo forces it
+independently of that preference: **`train.py` refuses to set
+`CUBLAS_WORKSPACE_CONFIG` for itself**, deliberately, because a process that
+fixes its own environment cannot tell you the launcher forgot. So the artifact
+has to be a command line *including its environment* — exactly what an emitter
+produces and exactly what an orchestrator would hide.
+
+Emitted commands carry `CUBLAS_WORKSPACE_CONFIG=:4096:8` and **no
+`CUDA_VISIBLE_DEVICES`**: device assignment is the one part that genuinely
+depends on hardware nobody has provisioned, and inventing one here would be
+this module pretending to orchestrate. Ruled 2026-08-03.
+
+#### Status is read off disk, and every state is structural
+
+No tracking file. A tracking file can disagree with reality, and then the thing
+being debugged is the tracker.
+
+| state | the fact on disk |
+| --- | --- |
+| `done` | `step{last_step}_full.pt` exists |
+| `resumable` | >= 1 `*_full.pt`, highest < `last_step` |
+| `started_not_resumable` | `resolved_config.yaml` or weights-only files, no full |
+| `not_started` | no outdir, or an empty one |
+| `conflict` | `resolved_config.yaml` describes a different config |
+
+**"Done" is exact rather than inferred.** `checkpoint_kind_at` returns
+`CHECKPOINT_FULL` for `step == last_step` whatever the intervals say, so the
+final full checkpoint existing *is* completion. `last_step` is read from the
+config, never hardcoded — a test pins that by classifying the same directory
+against two different `last_step` values and getting `done` then `resumable`.
+
+**A half-written checkpoint cannot look complete.** `save_checkpoint` writes
+`<name>.partial`, then `os.replace`; the rename is atomic and is the commit
+point, so a truncated file is always named `.partial` and never `.pt`.
+
+**Resume comes from the highest FULL checkpoint, not the highest checkpoint.**
+Weights-only files are not resumable — `load_checkpoint` refuses them because
+they carry no optimizer state and no RNG state — and a test builds a directory
+whose *newest* file is weights-only to prove the resume skips it.
+
+#### One thing found while checking that
+
+`corpus_tokenize.py` calls `discard_partials()` at startup; **`train.py` does
+not.** A killed run leaves a stale `.partial` that nothing removes. It cannot
+corrupt a resume, which reads only `.pt`, but it accumulates silently and makes
+the directory lie about what happened in it. The launcher **reports** them;
+making `train.py` discard them at startup is a change to step 12's module and
+is logged rather than folded in here.
+
+#### What it refuses
+
+Dirty working tree (verified against the real repo — it caught its own
+untracked files); `generate_overrides.py --check` failing; a completed run's
+outdir without `--overwrite`; an empty selection; and a run that is not
+launch-ready, naming the missing fields. All 70 currently refuse on
+`training.micro_batch`, `training.dtype` and `optimizer.adamw_impl`.
+
+`--allow-incomplete` previews an emission anyway. It is a named flag rather
+than a default, so the unsafe path is something typed on purpose.
+
+**Classifying a run must not create its output directory.** `load_config`
+writes `resolved_config.yaml` into `--outdir` by default, which would make
+every classified run look `started` after one status call — asking "has this
+started?" would make the answer yes. `write_provenance=False` closes that, and
+a test asserts the file is absent after a build.
+
+#### The pilot and the study differ only in what is typed
+
+    --seeds 0,1 --arms fluent-false,twin     ->  4 runs
+    --all                                    -> 70 runs
+
+Same code path, same emission, same status logic. `--all` must be typed and
+cannot be combined with a filter; there is no implicit default, because the
+difference between four runs and seventy must be something you typed.
+
+#### A test I had to rewrite
+
+`test_the_launcher_starts_no_processes` first asserted
+`source.count("subprocess.run") == 2`, which failed at 3 — two `git` calls and
+the override check, all legitimate. A bare count breaks when a legitimate call
+is added and teaches nothing when it does, so it now walks the AST and asserts
+**what** each `subprocess.run` invokes: `git`, or the override generator.
+
 ### S81. The injection hook, and nine config values decided
 
 `scripts/injection.py`. At step 200 one of the 256 sequences in the batch is
@@ -4637,7 +4728,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-728 tests, counted per file with `--collect-only` rather than from memory.
+774 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -4663,10 +4754,11 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_rng_state.py` | 17 |
 | `tests/test_train.py` | 18 |
 | `tests/test_injection.py` | 23 |
-| **total** | **728** |
+| `tests/test_launch.py` | 46 |
+| **total** | **774** |
 
-In the base environment (`.venv/`, no torch) the run is **428 passed, 161
-skipped**. In `.venv-ml/` it is **728 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **474 passed, 161
+skipped**. In `.venv-ml/` it is **774 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

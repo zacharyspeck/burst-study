@@ -254,3 +254,106 @@ knowable until there are checkpoints.**
 
 A ruling. Option 1 is the same change already made for the FFN and its
 machinery exists; I have not made it.
+
+
+---
+
+## D-4. Multiple-comparison correction: spec-v4 section 9.4 does not exist
+
+**Status: open. Raised 2026-08-03 by step 16. Nothing decided.**
+
+### The decision
+
+Which multiple-comparison correction the analysis applies across arms.
+
+### What raised it
+
+Step 16 was specified as "multiple-comparison correction per spec-v4 section
+9.4". **`docs/spec-v4.md` has eight sections and no section 9.4** — it runs
+from "Why v3 was retired" to "Deliberately still open" and contains no
+statistics section at all. Grep for `correction`, `p-value`, `significan`,
+`confidence` or `paired` returns nothing but one mention of the twin as a noise
+floor.
+
+So the analysis has no specified correction to apply. It is built with the
+method as a **required parameter with no default**, and refuses without one.
+
+### Why this is not mine to take
+
+The correction determines which arms are reported as separated, which is the
+study's headline claim. The comparison count is not obvious either — see below
+— and that choice alone moves every corrected p-value.
+
+### The candidates, and what each assumes
+
+| method | controls | assumes | costs |
+| --- | --- | --- | --- |
+| **Holm–Bonferroni** | family-wise error rate | nothing about dependence | most conservative; with 15 pairwise comparisons the smallest p must clear α/15 |
+| **Benjamini–Hochberg** | false discovery rate | positive dependence between tests (plausible here — the arms share a twin and a seed) | more power; accepts that a stated fraction of the "significant" results are false |
+| **Benjamini–Yekutieli** | false discovery rate | nothing about dependence | safe under any dependence, noticeably weaker than BH |
+| **None, pre-registered contrasts only** | nothing | that the contrasts were fixed in advance | no correction needed if the number of tests is one or two, decided before seeing data |
+
+### The prior question, which changes every number above
+
+**What is the family of tests?** Three readings, and they give different
+denominators:
+
+1. **All pairwise between the six injecting arms** — 15 comparisons.
+2. **Each injecting arm against twin** — 6 comparisons.
+3. **The pre-registered ladder only** — the structure ordering
+   (fluent > scrambled > pos-substituted > random-chars) and the truth contrast
+   (fluent-false vs fluent-true) as two planned contrasts — 2 comparisons.
+
+Reading 3 is the one `docs/spec-v4.md`'s "descending ladder of linguistic
+structure" language implies, and it is by far the most powerful, but only if
+those contrasts were genuinely fixed before data. Nothing in the repo records
+that they were.
+
+### What I would need from you
+
+Two rulings: the family of tests, then the correction method. The analysis
+takes both as explicit parameters and refuses without them, so no default is
+in force in the meantime.
+
+
+---
+
+## D-5. Full-checkpoint interval and the resume gap
+
+**Status: open, deferred to the pilot by your ruling 2026-08-03. Recorded so it
+is not lost.**
+
+### The decision
+
+Whether `checkpointing.full_interval` stays at 1000.
+
+### What raised it
+
+Step 15's status derivation. Weights-only checkpoints are **not resumable** —
+`load_checkpoint` refuses them, because they carry no optimizer state and no
+RNG state. So the maximum work lost to any death is one **full**-checkpoint
+interval: 1000 steps.
+
+A run that dies at step 998 has ten weights-only files and **restarts from
+zero**. `launch.py` reports that state as `started_not_resumable`.
+
+### The arithmetic
+
+At an estimated 10 h per run (arithmetic from peak FLOPs, **not** a
+measurement):
+
+| full_interval | max work lost | full ckpts/run | GB/run | study total (70 runs) |
+| --- | --- | --- | --- | --- |
+| 1000 (current) | ~63 min | 10 | 105.5 | 7.385 TB of 10 |
+| 500 | ~32 min | 20 | 115.5 | 8.085 TB of 10 |
+
+### Why it is deferred rather than open
+
+The 63-minute figure depends on a step time nobody has measured. The pilot
+gives a real one. Changing the interval is a config edit and costs nothing
+before runs start, so there is no reason to decide it early — but there is a
+reason not to forget it, which is this entry.
+
+The input that would settle it independent of step time: **whether the rented
+hardware is spot/preemptible.** Preemptible makes an hour per death expensive;
+on-demand makes it noise.
