@@ -45,7 +45,8 @@ import torch.nn.functional as F  # noqa: E402
 from torch.utils.data import DataLoader, Dataset  # noqa: E402
 
 from burst.config import load_config  # noqa: E402
-from probes.determinism.model import build_model  # noqa: E402
+from probes.determinism import hf_model  # noqa: E402
+from probes.determinism.model import build_model as build_standin  # noqa: E402
 
 
 class SyntheticCorpus(Dataset):
@@ -148,6 +149,13 @@ def main() -> int:
                     help="sequences per forward pass; batch_size/micro-batch "
                          "gradient accumulation steps make up a full batch")
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
+    ap.add_argument("--model", choices=("standin", "hf"), default="standin",
+                    help="'standin' is probes/determinism/model.py, a GPT-2 "
+                         "Base re-implementation. 'hf' is the released gpt2 "
+                         "checkpoint loaded through transformers -- Conv1D "
+                         "projections instead of nn.Linear, and dropout 0.1 "
+                         "active, so it exercises the CUDA RNG stream the "
+                         "stand-in never touches.")
     ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32",
                     help="bf16 runs the forward under autocast with fp32 master "
                          "weights. This is not cosmetic: at bf16 SDPA selects "
@@ -200,6 +208,9 @@ def main() -> int:
     print(f"attn:    {args.attn} | adamw: {args.adamw_impl} | "
           f"dtype: {args.dtype} (PROBE ASSUMPTION -- not in the config)",
           flush=True)
+    print(f"model:   {args.model}"
+          f"{' (released gpt2 checkpoint)' if args.model == 'hf' else ' (model.py re-implementation)'}",
+          flush=True)
 
     import contextlib
     if args.dtype == "bf16":
@@ -208,9 +219,26 @@ def main() -> int:
     else:
         autocast_ctx = contextlib.nullcontext
 
-    model = build_model(cfg, args.attn, device)
+    if args.model == "hf":
+        model = hf_model.build_model(cfg, args.attn, device)
+        facts = hf_model.model_facts(model)
+    else:
+        model = build_standin(cfg, args.attn, device)
+        facts = {
+            "source": "probes/determinism/model.py (re-implementation)",
+            "attn_implementation": args.attn,
+            "activation_function": "gelu_tanh",
+            "projection_module": "Linear",
+            # No dropout at all, which is why the hf path is the stronger test:
+            # with p=0 the CUDA RNG is never drawn from during a forward pass.
+            "resid_pdrop": 0.0,
+            "embd_pdrop": 0.0,
+            "attn_pdrop": 0.0,
+        }
     print(f"params:  {model.parameter_count():,} "
           f"(matches expected_param_count)", flush=True)
+    print(f"loaded:  {facts['source']} | {facts['projection_module']} "
+          f"projections | dropout {facts['resid_pdrop']}", flush=True)
 
     opt_kwargs = {"foreach": False, "fused": False}
     if args.adamw_impl == "foreach":
@@ -313,6 +341,8 @@ def main() -> int:
         "warmup_steps_used": warmup,
         "warmup_overridden": args.warmup_steps is not None,
         "dtype": args.dtype,
+        "model": args.model,
+        "model_facts": facts,
         "param_count": model.parameter_count(),
         "combined_sha256": combined.hexdigest(),
         "param_digests": param_digests,
@@ -349,6 +379,11 @@ def main() -> int:
                             "dtype": args.dtype,
                             "attn_impl": args.attn,
                             "adamw_impl": args.adamw_impl,
+                            "model": args.model,
+                            # Dropout is in here for the same reason dtype is:
+                            # configs/base.yaml declares none, and the released
+                            # gpt2 checkpoint carries 0.1.
+                            "model_facts": facts,
                         }}, sort_keys=True),
         encoding="utf-8")
 

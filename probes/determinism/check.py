@@ -27,6 +27,32 @@ RULE = "=" * 78
 THIN = "-" * 78
 
 
+def resolve_visible_device(inherited: str | None) -> str:
+    """Decide which GPU the two training processes may see. Never re-pin.
+
+    This used to be hardcoded to "0", which was wrong on a cluster and quietly
+    so. On gpmoo-b1 SLURM hands out a GPU by setting CUDA_VISIBLE_DEVICES and
+    by nothing else -- there is no cgroup device isolation, so a job can still
+    enumerate all eight cards with nvidia-smi. Under `srun --gres=gpu:1` that
+    allocates, say, device 2; overwriting the variable with "0" would then have
+    trained on physical GPU 0, outside the allocation and possibly on top of
+    somebody else's job.
+
+    So: inherit whatever the launcher set, insist it names exactly one device,
+    and fall back to "0" only when nothing set it at all.
+    """
+    if inherited is None or not inherited.strip():
+        return "0"
+    devices = [d.strip() for d in inherited.split(",") if d.strip()]
+    if len(devices) != 1:
+        raise SystemExit(
+            f"CUDA_VISIBLE_DEVICES is {inherited!r}, which names "
+            f"{len(devices)} devices. This is a single-GPU measurement and "
+            f"must not be given a choice of cards -- allocate exactly one "
+            f"(srun --gres=gpu:1) and re-run.")
+    return devices[0]
+
+
 def run_one(label: str, outdir: Path, args, python: str) -> dict:
     cmd = [
         python, str(HERE / "train_once.py"),
@@ -36,6 +62,7 @@ def run_one(label: str, outdir: Path, args, python: str) -> dict:
         "--attn", args.attn,
         "--dtype", args.dtype,
         "--adamw-impl", args.adamw_impl,
+        "--model", args.model,
         "--run", args.run,
     ]
     if args.warmup_steps is not None:
@@ -47,8 +74,9 @@ def run_one(label: str, outdir: Path, args, python: str) -> dict:
     # Set here, not inside the training process: cuBLAS reads this at CUDA
     # init, and a process cannot reliably set it for itself.
     env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    # One GPU, pinned. The probe must never reach for a second device.
-    env["CUDA_VISIBLE_DEVICES"] = "0"
+    # One GPU, and specifically the one we were given. See resolve_visible_device.
+    env["CUDA_VISIBLE_DEVICES"] = resolve_visible_device(
+        os.environ.get("CUDA_VISIBLE_DEVICES"))
     env["PYTHONHASHSEED"] = "0"
 
     print(f"\n{THIN}\n[{label}] {' '.join(cmd)}\n{THIN}", flush=True)
@@ -104,6 +132,9 @@ def main() -> int:
     ap.add_argument("--micro-batch", type=int, default=8)
     ap.add_argument("--attn", choices=("sdpa", "math"), default="sdpa")
     ap.add_argument("--dtype", choices=("fp32", "bf16"), default="fp32")
+    ap.add_argument("--model", choices=("standin", "hf"), default="standin",
+                    help="'hf' trains the released gpt2 checkpoint rather than "
+                         "the model.py re-implementation.")
     ap.add_argument("--adamw-impl", choices=("foreach", "fused", "single"),
                     default="foreach")
     ap.add_argument("--warmup-steps", type=int, default=None)
@@ -114,7 +145,7 @@ def main() -> int:
     ap.add_argument("--python", default=sys.executable)
     args = ap.parse_args()
 
-    tag = (f"steps{args.steps}_mb{args.micro_batch}_{args.attn}_"
+    tag = (f"{args.model}_steps{args.steps}_mb{args.micro_batch}_{args.attn}_"
            f"{args.dtype}_{args.adamw_impl}"
            + (f"_warmup{args.warmup_steps}" if args.warmup_steps is not None else ""))
     root = args.outdir_root / tag
@@ -132,6 +163,8 @@ def main() -> int:
     print("RESULT")
     print(RULE)
     print(f"config:    {a['run_name']}  seed={a['seed']}  arm={a['arm']}")
+    print(f"model:     {a.get('model', 'standin')} -- "
+          f"{a.get('model_facts', {}).get('source', 'n/a')}")
     print(f"shape:     {a['param_count']:,} params, {a['steps_run']} steps, "
           f"{a['micro_batch']} micro x {a['accum']} accum, dtype {a['dtype']}")
     print(f"kernels:   attn={a['attn_impl']}  adamw={a['adamw_impl']}"
@@ -139,7 +172,9 @@ def main() -> int:
              if a["kernels"] else ""))
     print(f"device:    {a['environment']['device_name']} "
           f"| torch {a['environment']['torch']} "
-          f"| cuda {a['environment']['cuda']}")
+          f"| cuda {a['environment']['cuda']} "
+          f"| host {a['environment']['hostname']} "
+          f"| CUDA_VISIBLE_DEVICES={a['environment']['driver_visible_devices']}")
     print(f"A sha256:  {a['combined_sha256']}")
     print(f"B sha256:  {b['combined_sha256']}")
     print(THIN)

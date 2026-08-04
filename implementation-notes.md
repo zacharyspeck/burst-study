@@ -555,21 +555,35 @@ What keeps it honest about the boundary it crosses:
   nothing discharges: `build_model()` refuses to run if the model it built is
   not 124,439,808 parameters.
 - Nothing in `burst/` imports it, and `probes/` is not on `testpaths`, so the
-  torch-free guarantee is untouched — `.venv/` still runs 279 tests with no ML
-  stack present.
+  torch-free guarantee is untouched — `.venv/` still runs the whole suite with
+  no ML stack present. `tests/test_determinism_probe.py` does import
+  `probes.determinism.check`, and that is safe precisely because `check.py` is
+  stdlib-only; `train_once.py`, `model.py` and `hf_model.py` import torch and
+  are never imported by the suite.
 
-### D21. The probe supplies three values the config does not have
+### D21. The probe supplies four values the config does not have
 
 `configs/base.yaml` declares `batch_size: 256` and `seq_len: 1024` but says
-nothing about **micro-batch size, dtype, or which AdamW implementation**. All
-three change reduction order, and reduction order is what bitwise
-reproducibility is made of. The probe cannot run without picking them.
+nothing about **micro-batch size, dtype, which AdamW implementation, or
+dropout**. The first three change reduction order, and reduction order is what
+bitwise reproducibility is made of. The probe cannot run without picking them.
 
 It picks micro-batch 8 (× 32 accumulation = 256), float32, and `foreach` AdamW,
 takes all three as command-line arguments rather than config values, prints
 them in the header marked `PROBE ASSUMPTION`, and records them in
 `environment_asserted.yaml`. They are **assumptions, not decisions** — nothing
 was added to `configs/base.yaml`.
+
+**Dropout was added to this list on 2026-08-03**, when `--model hf` began
+training the released `gpt2` checkpoint. That checkpoint carries
+`resid_pdrop = embd_pdrop = attn_pdrop = 0.1`, and `configs/base.yaml` declares
+no dropout at all, so the probe inherits 0.1 by not overriding it. This one
+does not change reduction order — it changes whether the CUDA RNG is drawn from
+during a forward pass at all, which makes it the *stronger* test rather than a
+confound: the re-implementation in `model.py` has no dropout, so its runs never
+exercised the CUDA RNG stream. It is recorded in `model_facts` in both
+`digest.json` and `environment_asserted.yaml`. A study that intends to train
+GPT-2 Base still needs to say what dropout it wants.
 
 The forcing constraint on the first one is arithmetic, not preference:
 `256 × 1024 × 50257 × 4 bytes` of logits is **52.7 GB**, against 49 GB on the
@@ -1931,6 +1945,47 @@ hazard. The floor is tested directly against hand-built spectra instead, and
 the model-level near-degenerate case is tested for the silent disagreement it
 actually produces.
 
+### S53. `check.py` must never re-pin the GPU it was given
+
+`run_one` set `CUDA_VISIBLE_DEVICES = "0"` unconditionally, with the comment
+"One GPU, pinned. The probe must never reach for a second device." The
+intention was right and the implementation was a trap on any real cluster.
+
+`gpmoo-b1` has eight A6000s and **no cgroup device isolation** — verified by
+running `nvidia-smi -L` inside an allocation, which enumerated all eight cards.
+SLURM communicates the allocation *only* by setting `CUDA_VISIBLE_DEVICES`. So
+under `srun --gres=gpu:1`, which handed out device 2, overwriting the variable
+with `"0"` would have trained on physical GPU 0 — outside the allocation, on
+whatever else happened to be there.
+
+Replaced with `resolve_visible_device()`: inherit what the launcher set, refuse
+anything naming more than one device, and fall back to `"0"` only when nothing
+set it at all. It is a pure function so it can be tested without a GPU, and
+`tests/test_determinism_probe.py` covers it, including the eight-device case.
+The allocated device is now printed in the result block and recorded in each
+`digest.json`.
+
+The general form of the lesson: **pinning and allocating are different verbs.**
+A measurement script should assert that it has exactly one device, not choose
+which one.
+
+### S54. Two models, one probe, and the stand-in is kept rather than replaced
+
+`--model hf` trains the released `gpt2` checkpoint through transformers;
+`--model standin` keeps the `model.py` re-implementation. The stand-in was not
+deleted once the real model worked, because the two answer different questions.
+The stand-in is what the study can run without a network or a HuggingFace
+cache, and it is the only one whose init RNG is exercised — `from_pretrained`
+loads fixed weights, so the `hf` path never draws random init at all. Running
+both and getting the same verdict is worth more than running either alone.
+
+Loss is computed in the probe rather than by passing `labels=` to
+`GPT2LMHeadModel`, for two reasons: transformers shifts labels internally and
+`SyntheticCorpus` already returns an offset pair, so `labels` would shift
+twice; and computing it in one place means both models are measured through
+identical loss code, so a difference between the two results is the model
+rather than the objective.
+
 ---
 
 ## Known limitations
@@ -2332,7 +2387,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-420 tests, counted per file with `--collect-only` rather than from memory:
+436 tests, counted per file with `--collect-only` rather than from memory:
 
 | file | tests |
 | --- | --- |
@@ -2343,10 +2398,11 @@ loop is now backed by a measurement instead of an argument.
 | `tests/test_canonicalize.py` | 70 |
 | `tests/test_canonicalize_recipe.py` | 41 |
 | `tests/test_canonicalize_mutations.py` | 16 |
-| **total** | **420** |
+| `tests/test_determinism_probe.py` | 16 |
+| **total** | **436** |
 
-In the base environment (`.venv/`, no torch) the run is **279 passed, 141
-skipped**. In `.venv-ml/` it is **420 passed, 0 skipped**. The 172 config tests
+In the base environment (`.venv/`, no torch) the run is **295 passed, 141
+skipped**. In `.venv-ml/` it is **436 passed, 0 skipped**. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 
