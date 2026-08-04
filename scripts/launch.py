@@ -26,17 +26,26 @@ the tracker. Every state below is a fact about files that `train.py` and
     RESUMABLE               >= 1 *_full.pt, highest < last_step
     STARTED_NOT_RESUMABLE   resolved_config.yaml, but no *_full.pt at all
     NOT_STARTED             no outdir, or an outdir with nothing in it
-    CONFLICT                resolved_config.yaml describes a DIFFERENT config
+    CONFLICT                resolved_config.yaml is for a different seed/arm
 
 `checkpoint_kind_at` guarantees the final step is a full checkpoint whatever
 the intervals say, so "the final full checkpoint exists" IS completion rather
 than evidence for it.
 
 A HALF-WRITTEN CHECKPOINT CANNOT LOOK COMPLETE. `save_checkpoint` writes
-`<name>.partial`, fsyncs, then `os.replace`. The rename is atomic and is the
-commit point, so a truncated file is always named `.partial` and never `.pt`.
-Stale `.partial` files are reported here because nothing removes them -- see
-the note in `classify`.
+`<name>.partial`, then `os.replace`. The rename is atomic and is the commit
+point, so a truncated file is always named `.partial` and never `.pt`. Stale
+`.partial` files are reported here because nothing removes them -- see the note
+in `classify`.
+
+    CAVEAT, corrected 2026-08-03: this paragraph claimed `save_checkpoint`
+    FSYNCS before the rename. It does not -- `scripts/train.py` calls
+    `torch.save` then `os.replace` with no flush. The rename is still atomic
+    with respect to *this process dying*, which is the case that matters for a
+    killed run, but it is NOT durable against a host crash or power loss: the
+    rename can reach disk before the data does. `done` therefore means "this
+    process wrote and renamed it", not "it survived a power cut". Adding the
+    fsync is a change to step 12's module and is logged rather than made here.
 
 NOTHING IS GENERATED HERE. `configs/runs/` holds one override file per run,
 written by `scripts/generate_overrides.py`. This module consumes them. A
@@ -189,6 +198,38 @@ def classify(outdir: Path, last_step: int) -> tuple:
         return (STARTED_NOT_RESUMABLE, None, None, 0, len(weights_only),
                 partials)
     return NOT_STARTED, None, None, 0, len(weights_only), partials
+
+
+def conflicting_run(outdir: Path, seed: int, arm: str) -> str | None:
+    """Does this outdir already hold a run for a DIFFERENT seed/arm?
+
+    CONFLICT was listed as a state from the start and was UNREACHABLE: the only
+    thing that raised it was `_write_provenance`, and `build` loads with
+    `write_provenance=False` so that classifying a run does not create its own
+    output directory. The state was documented, tested for in a docstring, and
+    could never fire. Found by the 2026-08-03 contradiction pass.
+
+    This makes it real by asking the narrow question that actually matters --
+    has this directory been used by another run -- rather than diffing whole
+    configs, which is `_write_provenance`'s job at launch time and would
+    duplicate it here.
+    """
+    import yaml
+
+    resolved = Path(outdir) / RESOLVED_CONFIG_FILENAME
+    if not resolved.is_file():
+        return None
+    try:
+        existing = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
+    except Exception as exc:                       # pragma: no cover
+        return f"{RESOLVED_CONFIG_FILENAME} is unreadable: {exc}"
+    found_seed, found_arm = existing.get("seed"), existing.get("arm")
+    if found_seed is None and found_arm is None:
+        return None
+    if (found_seed, found_arm) != (seed, arm):
+        return (f"holds a run for seed={found_seed} arm={found_arm!r}, but "
+                f"this is seed={seed} arm={arm!r}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +451,13 @@ def build(selection, *, outroot: Path, corpus: Path, family: str, device: str,
 
         state, resume_from, last_full, n_full, n_wo, partials = classify(
             outdir, cfg.last_step)
+        clash = conflicting_run(outdir, seed, arm)
+        if clash:
+            emission.conflicts.append((name, clash))
+            emission.statuses.append(RunStatus(
+                run_name=name, seed=seed, arm=arm, outdir=outdir,
+                state=CONFLICT, note=clash))
+            continue
         missing = tuple(cfg.missing_for_launch)
         status = RunStatus(
             run_name=name, seed=seed, arm=arm, outdir=outdir, state=state,

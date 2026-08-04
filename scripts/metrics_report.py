@@ -325,7 +325,9 @@ def barrier_noise_floor(payload):
     MEASURED, NOT ASSUMED. The barrier evaluates interpolated weights, and
     (1 - a) * w + a * w is not bitwise w in float, so even two copies of one
     model show a small positive excess -- 2.7e-08 median at GPT-2 shapes, and
-    the curve technically "rose above the chord" on half the seeds.
+    the curve technically "rose above the chord" on 9 of the 10 seeds. (This
+    said "half the seeds" until 2026-08-03, which was the per-chunk count of 5
+    read as a total -- the same confusion the derived counts exist to prevent.)
 
     Counting those as barriers would put a defect in the report where there is
     only arithmetic. So every rise is counted against THIS number rather than
@@ -512,14 +514,42 @@ def report_banner(payload) -> list:
             f"Its barrier reads {dev['barrier_noise']:.3e}: interpolation float",
             "noise, not a barrier. No barrier below this floor is meaningful."]
 
+    # DERIVED, not asserted. This block was hardcoded prose claiming "the
+    # curve sags below the chord rather than rising above it and max_excess is
+    # 0" -- while the tables twenty-five lines below reported the curve rising
+    # on 9 of 10 and 8 of 10 seeds, and a zeroed_block max_excess of 9.6e-03.
+    # That is the S70 pattern recurring inside the module whose own docstring
+    # says it was built out from the first commit. Now it reads the data.
+    above = barriers_above_noise(payload)
+    floor = barrier_noise_floor(payload)
+    rose = {k: v for k, v in above.items() if v["n_rose_above_chord"]}
+    cleared = {k: v for k, v in above.items()
+               if k != "identical" and v["n_above_noise_floor"]}
     lines += [
         "",
         "THE BARRIER IS NOT DEMONSTRATED HERE AND CANNOT BE. Junk weights sit",
-        "at chance loss along the whole interpolation, so the curve sags below",
-        "the chord rather than rising above it and max_excess is 0. That is",
-        "the expected outcome for untrained weights. Whether the metric would",
-        "find a real barrier is tested against a synthetic curve with a peak",
-        "in it, in tests/test_metrics.py -- not by this file.",
+        "at chance loss along the whole interpolation, so there is nothing to",
+        "climb over. What the curve does around the chord is reported rather",
+        "than asserted:",
+    ]
+    if rose:
+        lines.append(
+            "  rose above the chord on some seed: "
+            + ", ".join(f"{k} {v['n_rose_above_chord']}/{v['n_seeds']}"
+                        for k, v in sorted(rose.items())))
+    else:
+        lines.append("  the curve never rose above the chord on any seed.")
+    if floor is not None:
+        lines.append(
+            f"  of those, above the {floor:.2e} float-noise floor: "
+            + (", ".join(f"{k} {v['n_above_noise_floor']}/{v['n_seeds']}"
+                         for k, v in sorted(cleared.items()))
+               if cleared else "none"))
+    lines += [
+        "  A rise at or below that floor is interpolation arithmetic, not a",
+        "  barrier. Whether the metric would find a REAL barrier is tested",
+        "  against a synthetic curve with a peak in it, in",
+        "  tests/test_metrics.py -- not by this file.",
         "",
         "NOT BUILT: aligned barrier, aligned L2, RSF subspace probe. All three",
         "need canonicalize, which is Conv1D-only while the study's layout is",

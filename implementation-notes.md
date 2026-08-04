@@ -6,18 +6,25 @@ down here rather than left in the code for you to discover.
 
 ---
 
-> ## ⚠ THIS FILE DOCUMENTS SPEC v3, WHICH IS RETIRED
+> ## ⚠ EARLY ENTRIES DOCUMENT SPEC v3, WHICH IS RETIRED
 >
-> As of 2026-08-01 the study design is **v4**: a five-way categorical
-> comparison (fluent-false, fluent-true, scrambled, POS-substituted,
-> random-characters) plus twin, **60 runs**, injection fixed at **step 200**.
-> The arm named `ordinary` no longer exists. See **`docs/spec-v4.md`**.
+> The study design is **v4**: a **six-way** categorical comparison
+> (fluent-false, fluent-true, scrambled-false, scrambled-true, POS-substituted,
+> random-characters) plus twin, **70 runs**, injection fixed at **step 200**.
+> The arms named `coherent`, `noise` and `ordinary` no longer exist, and
+> `scrambled-corpus` was cut. See **`docs/spec-v4.md`**.
 >
-> Everything below still describes v3, and the code still implements v3.
-> Nothing here has been deleted — the reasoning is still the record of how the
-> scaffold got built, and most of the config, checkpoint and provenance work
-> carries over unchanged. But **the arm list, the 40-run arithmetic, and any
-> claim about the coherent-vs-noise contrast are stale.**
+> **THE CODE NOW IMPLEMENTS v4.** This banner said "the code still implements
+> v3" until 2026-08-03; the arm list was reconciled at commit `c2df6c7` and the
+> run count is now computed from `n_seeds * len(arms)` rather than typed. It
+> also said "five-way" and "60 runs", both of which were wrong once the
+> scrambled family split in two.
+>
+> Nothing below has been deleted — the reasoning is the record of how the
+> scaffold got built, and per rule 2 resolved items are marked in place rather
+> than rewritten. **Early entries describing four arms, the 40-run arithmetic,
+> or the coherent-vs-noise contrast are historical.** Entries from S72 onward
+> describe the current design.
 >
 > What has to move to reach v4 is catalogued file by file in
 > **`docs/v4-gap-analysis.md`**. The one measurement run ever performed is in

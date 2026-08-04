@@ -19,11 +19,15 @@ Its barrier reads 4.804e-08: interpolation float
 noise, not a barrier. No barrier below this floor is meaningful.
 
 THE BARRIER IS NOT DEMONSTRATED HERE AND CANNOT BE. Junk weights sit
-at chance loss along the whole interpolation, so the curve sags below
-the chord rather than rising above it and max_excess is 0. That is
-the expected outcome for untrained weights. Whether the metric would
-find a real barrier is tested against a synthetic curve with a peak
-in it, in tests/test_metrics.py -- not by this file.
+at chance loss along the whole interpolation, so there is nothing to
+climb over. What the curve does around the chord is reported rather
+than asserted:
+  rose above the chord on some seed: identical 9/10, noise 1/10, zeroed_block 8/10
+  of those, above the 4.80e-08 float-noise floor: noise 1/10, zeroed_block 8/10
+  A rise at or below that floor is interpolation arithmetic, not a
+  barrier. Whether the metric would find a REAL barrier is tested
+  against a synthetic curve with a peak in it, in
+  tests/test_metrics.py -- not by this file.
 
 NOT BUILT: aligned barrier, aligned L2, RSF subspace probe. All three
 need canonicalize, which is Conv1D-only while the study's layout is

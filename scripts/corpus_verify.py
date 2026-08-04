@@ -14,9 +14,16 @@ WHAT IS CHECKED, and why each one catches something the others cannot
      route: it catches a truncated file without reading it, and it catches a
      manifest that disagrees with its own data. Raw shards carry no header,
      which is exactly what makes this exact.
-  3. THE TOTAL, three ways. Summed from the manifest, summed from file sizes on
-     disk, and recomputed as batch_size * seq_len * total_steps from the
-     config. Three routes to one number.
+  3. THE TOTAL, two ways. Summed from the manifest, and summed from file
+     sizes on disk. Two independent routes to one number.
+
+     This said THREE ways, the third being "recomputed from the config". That
+     was never true: this module deliberately imports neither yaml nor
+     burst.config, because it has to run on a cluster with no repo checkout
+     beyond itself. It compares against corpus_spec.TRAIN_TOKENS, which is a
+     constant this repo keeps in step with the config via
+     corpus_spec.check_against_config -- a real check, but one that runs
+     elsewhere.
   4. SHARD BOUNDARIES, two ways. What the manifest records against what
      corpus_spec computes. A manifest is a claim; arithmetic is a check.
   5. HELD-OUT DISJOINTNESS. That no training sequence index can address a
@@ -102,7 +109,12 @@ def check_size_arithmetic(outdir: Path, manifest: dict, findings: list) -> dict:
 
 
 def check_total(outdir: Path, manifest: dict, findings: list) -> dict:
-    """The total, three ways: manifest, disk, and the config's own product."""
+    """The total, two ways: summed from the manifest and summed from disk.
+
+    Compared against corpus_spec.TRAIN_TOKENS, which this repo keeps in step
+    with the config via corpus_spec.check_against_config -- a real check that
+    runs elsewhere, because this module imports no config.
+    """
     from_manifest = sum(r["tokens"] for r in manifest["blocks"].values())
     from_disk = 0
     for record in manifest["blocks"].values():

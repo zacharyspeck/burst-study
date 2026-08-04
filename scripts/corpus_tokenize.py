@@ -458,9 +458,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cachedir", type=Path, default=DEFAULT_CACHE)
     parser.add_argument(
         "--blocks", type=int, default=SPEC.N_SHARDS + 1,
-        help=("how many blocks to write this run. One shard measured at 7.2s, "
-              "so 50 is about 360s -- comfortably inside the ~600s cap that "
-              "killed four runs in step 9."))
+        help=("how many blocks to write this run. Measured across the real "
+              "build: 11.0s to 26.7s per shard, median 13.0s -- NOT the 7.2s "
+              "this help text claimed, which was the first shard, the one that "
+              "reads from the start of file 0 and pays no seek. At 13s, 45 "
+              "blocks is about 585s and 50 would exceed a 600s cap."))
     return parser
 
 

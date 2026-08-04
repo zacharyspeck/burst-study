@@ -71,7 +71,7 @@ python -m burst.config \
 Expected: `518 passed, 164 skipped`, then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
-with a `NOT LAUNCH-READY` block — that is correct, not a failure. Four values
+with a `NOT LAUNCH-READY` block — that is correct, not a failure. Three values
 are still undecided; see [`--launch`](#--launch).
 
 The 164 skips are the tests that need torch or `transformers`, which the install
@@ -202,10 +202,10 @@ the record of what produced everything else in that directory. Re-running the
 ## Layout
 
 ```
-configs/base.yaml                    every value shared by all 40 runs
+configs/base.yaml                    every value shared by all 70 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
-scripts/generate_overrides.py        regenerates all 40 override files
+scripts/generate_overrides.py        regenerates all 70 override files
 scripts/burst_match.py               measurement primitives, in context
 scripts/make_bursts.py               generates the three generated arms
 scripts/build_pos_pool.py            one-time POS pool build (nltk)
@@ -251,7 +251,7 @@ containing `seed: 4` is a copy-paste error and fails.
 ### Regenerating the override files
 
 ```bash
-python scripts/generate_overrides.py            # write all 40
+python scripts/generate_overrides.py            # write all 70
 python scripts/generate_overrides.py --check    # verify, change nothing
 ```
 
@@ -260,6 +260,16 @@ running before a launch batch. The seed count and arm names come from
 `configs/base.yaml`, so the study's shape is written down in one place only.
 
 ### Matching candidate burst passages
+
+> **⚠ THIS SECTION IS v3 AND ITS FILENAMES NO LONGER EXIST.** It documents
+> `scripts/burst_match.py` against `coherent.txt`, `ordinary.txt` and
+> `noise.txt`. Only `bursts/ordinary.txt` still exists, retained as substrate;
+> `coherent.txt` and `noise.txt` were replaced by the v4 arm texts
+> (`fluent_false.txt`, `fluent_true.txt`, `scrambled_false.txt`,
+> `scrambled_true.txt`, `pos_substituted.txt`, `random_chars.txt`). The tool
+> still works — pass it the v4 filenames. The prose below is kept as the record
+> of why the matching criterion is what it is, and its reasoning carries over;
+> its file names do not. Found by the 2026-08-03 contradiction pass.
 
 The coherent-vs-noise comparison only means anything if both passages deliver
 the same size shove to the weights. `scripts/burst_match.py` measures that shove
@@ -398,7 +408,7 @@ script's job — a highlighted row would become the decision by default.
 | field | type | meaning |
 | --- | --- | --- |
 | `seed` | int, 0–9 | The single stochastic knob. Controls **both weight initialization and data order** — two runs sharing a seed see the same initial weights and the same batches in the same order. That is what makes an arm-to-arm comparison a matched pair. |
-| `arm` | str | Exactly one of `coherent`, `noise`, `ordinary`, `twin`. Case-sensitive. |
+| `arm` | str | Exactly one of `fluent-false`, `fluent-true`, `scrambled-false`, `scrambled-true`, `pos-substituted`, `random-chars`, `twin`. Case-sensitive. |
 
 ### `model` — GPT-2 Base
 
@@ -462,20 +472,37 @@ arrives, the corpus location belongs on its command line.
 | field | value | meaning |
 | --- | --- | --- |
 | `n_seeds` | 10 | valid seeds are `0 .. n_seeds - 1` |
-| `arms` | the four names | must match `ARMS` in `burst/config.py` |
+| `arms` | the seven names | must match `ARMS` in `burst/config.py` |
 
-### `injection` — both undecided
+### `injection` — decided 2026-08-03
 
 | field | value | meaning |
 | --- | --- | --- |
-| `injection_step` | **null** | the step at which the burst enters one training batch |
-| `burst_length_tokens` | **null** | how many tokens the burst is |
-| `burst_text_paths.coherent` | **null** | repo-relative path to the coherent arm's burst text |
-| `burst_text_paths.noise` | **null** | repo-relative path to the noise arm's burst text |
-| `burst_text_paths.ordinary` | **null** | repo-relative path to the ordinary arm's burst text |
+| `injection_step` | `200` | the step at which the burst enters one training batch |
+| `burst_length_tokens` | `194` | how many tokens the burst is |
+| `burst_position` | `400` | where in the 1024-token sequence the burst starts |
+| `burst_text_paths.fluent-false` | `bursts/fluent_false.txt` | repo-relative path to this arm's burst text |
+| `burst_text_paths.fluent-true` | `bursts/fluent_true.txt` | |
+| `burst_text_paths.scrambled-false` | `bursts/scrambled_false.txt` | |
+| `burst_text_paths.scrambled-true` | `bursts/scrambled_true.txt` | |
+| `burst_text_paths.pos-substituted` | `bursts/pos_substituted.txt` | |
+| `burst_text_paths.random-chars` | `bursts/random_chars.txt` | |
 
 There is deliberately no `burst_text_paths.twin`; twin receives no text, and
 adding one is rejected by the schema check.
+
+### The three fields that ARE still undecided
+
+| field | value | why it has no default |
+| --- | --- | --- |
+| `training.micro_batch` | **null** | accumulation sums partial gradients in sequence, and float addition is not associative, so `8 x 32` and `16 x 16` give different bits from identical data |
+| `training.dtype` | **null** | changes which CUDA kernels are selected — the determinism probe measured 66 kernels against 74 between fp32 and bf16 |
+| `optimizer.adamw_impl` | **null** | `foreach`, `fused` and `single` group their arithmetic differently and produce different bits from identical moments |
+
+All three are launch-blocking for **every** arm including `twin`, because all
+three change reduction order and reduction order is what bitwise
+reproducibility is made of. The pilot settles them; see
+[`docs/handoff-pilot.md`](docs/handoff-pilot.md).
 
 **Burst text paths must be relative and must resolve inside this repository.**
 The loader rejects an absolute path (checked as absolute on *both* POSIX and
@@ -489,7 +516,11 @@ committed alongside the code so the git commit hash in `run_provenance.yaml`
 covers the text as well. A path outside the repo leaves the injected text
 unversioned, and points somewhere that will not exist on the other machine.
 
-Suggested home: `configs/burst_texts/<arm>.txt`.
+Actual home: `bursts/<arm>.txt`, where the texts already live with a sha256
+per arm in `bursts/provenance.json`. An earlier draft of this line suggested
+`configs/burst_texts/`, which was never built and which `configs/base.yaml`
+explicitly retires — moving them would mean regenerating provenance and
+re-verifying every step 8 measurement for nothing.
 
 Once `injection_step` and `burst_length_tokens` are filled in they apply to
 every arm, including `twin`. Twin simply ignores them — the loader does not
@@ -542,7 +573,7 @@ plan.last_step                 # 9535
 plan.weights_only_count        # 181
 plan.full_count                # 10
 plan.estimated_bytes_per_run   # 105_500_000_000   (105.5 GB)
-plan.estimated_bytes_all_runs  # 4_220_000_000_000 (4.22 TB)
+plan.estimated_bytes_all_runs  # 7_385_000_000_000 (7.385 TB)
 
 cfg.checkpoint_kind_at(49)     # "weights_only"
 cfg.checkpoint_kind_at(999)    # "full"   <- precedence
@@ -629,8 +660,8 @@ what the instructions above do) rather than executing it directly.
 
 ## What is tracked
 
-Tracked: the configs (`configs/base.yaml`, all 40 overrides), the burst texts
-once they exist (`configs/burst_texts/*.txt`), the package, the tests, the
+Tracked: the configs (`configs/base.yaml`, all 70 overrides), the burst texts
+(`bursts/*.txt`), the package, the tests, the
 generator, and the docs.
 
 Not tracked: checkpoints and weights (`*.pt`, `*.ckpt`, `*.safetensors`,

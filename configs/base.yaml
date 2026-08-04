@@ -228,10 +228,18 @@ experiment:
 # ---------------------------------------------------------------------------
 # Injection
 #
-# Everything here is UNSET ON PURPOSE -- decided later. The coherent, noise and
-# ordinary arms all require these to be non-null before launch. The twin arm
-# does not: it receives no injection, so it launches fine with these still
-# null, and simply ignores them once they are filled in.
+# DECIDED 2026-08-03. This header previously said "everything here is UNSET ON
+# PURPOSE" and named the coherent, noise and ordinary arms -- all three of which
+# were retired the same day, and all four values below were set hours later in
+# step 14. Corrected rather than left.
+#
+# The six INJECTING arms require injection_step, burst_length_tokens,
+# burst_position and their own burst_text_paths entry before launch. The twin
+# arm does not: it receives no injection, so it sees these values and ignores
+# them.
+#
+# The launch-blocking nulls in this file are now elsewhere: training.micro_batch,
+# training.dtype and optimizer.adamw_impl, which the pilot settles.
 # ---------------------------------------------------------------------------
 injection:
   # DECIDED: 200, from docs/spec-v4.md. Steps are 0-INDEXED, and this is

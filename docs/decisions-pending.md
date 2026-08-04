@@ -5,8 +5,17 @@ measures** rather than how the code is written, and that are therefore not mine
 to take. Each entry records what the decision is, what was measured that raised
 it, the concrete options, and what I would need in order to act.
 
-Nothing here has been acted on. Where an entry concerns a step that is
-currently in `DEFAULT_RECIPE`, that step is **still in it, unchanged**.
+**PARTLY SUPERSEDED — read the per-entry status lines, not this header.**
+This paragraph said "nothing here has been acted on", which stopped being true
+on 2026-08-02: **D-1 and D-2 were both ruled and both steps were REMOVED from
+`DEFAULT_RECIPE`**, which is now
+`(ZeroKeyBiasGauge, ZeroValueBiasGauge, SortHeads, AlignFFNNeurons)` — four
+steps, with `CanonicalizeHeadInternal` and `AbsorbLayerNormGain` gone.
+
+Each entry below carries its own **Status** line and that is the authority.
+Open as of 2026-08-03: D-3 (head sort), D-4 (multiple-comparison correction),
+D-5 (full-checkpoint interval), D-6 (step 10's second half, blocked), D-7
+(which metric is the headline).
 
 ---
 
@@ -470,3 +479,56 @@ checkpoints exist and the aligned-versus-raw question can be measured rather
 than argued. Deferring is defensible: nothing downstream needs it before the
 pilot, and `scripts/analysis.py` takes the metric name as an argument, so no
 default is in force in the meantime.
+
+
+---
+
+## D-8. Three wordings the contradiction scan confirmed and I did not change
+
+**Status: open. Raised 2026-08-04 by the second contradiction pass. All three
+are confirmed defects; none is mine to word.**
+
+See `docs/contradiction-scan-2026-08-04.md` for the full pass.
+
+### 8a. `analysis.py` says the noise floor is "wider by construction"
+
+It is not. A verifier produced a counterexample from the module's own test
+helpers: at `twin_jitter=0.5` the floor's widest absolute difference is 0.98
+while a fabricated effect of 5.0 exceeds it. The floor is wider **in
+expectation under the null**, not by construction.
+
+This matters because it changes how `clears floor: yes` reads. If the floor
+were wider by construction, clearing it would be a strong statement; if it is
+only wider in expectation, clearing it is weaker and depends on how much the
+twin actually varies. The same sentence is in `implementation-notes.md` S83.
+
+**What I need:** the phrasing you want, since it is a claim about what the
+design guarantees rather than a typo.
+
+### 8b. The noise-floor labels hardcode "twin" while the number follows `--reference`
+
+`report_banner` and `build_provenance` print "twin-vs-twin ACROSS seeds", but
+the value is `noise_floor(panel, reference)` and `--reference` is a free CLI
+parameter. Running with `--reference fluent-false` produces a label that lies.
+
+Two fixes, and they are different decisions:
+
+1. **Pin it.** Remove `--reference`, hardcode `twin`. Matches `docs/spec-v4.md`,
+   which names the twin as *the* reference, and makes the label true by
+   construction.
+2. **Derive the label.** Keep the parameter and interpolate the arm name.
+   Useful if you ever want an arm-vs-arm floor for a sanity check.
+
+**What I need:** whether an analysis against a non-twin reference is something
+the study should be able to express at all.
+
+### 8c. `student_t_sf` returns the two-sided tail
+
+`sf` is the one-sided survival function in scipy and in normal usage;
+`student_t_sf(0.0, 9)` returns `1.0` where `scipy.stats.t.sf(0, 9)` gives `0.5`.
+The docstring says "two-sided" and the cross-check test compares against
+`2 * scipy.stats.t.sf(...)`, so **no number is wrong**.
+
+Purely a naming question — `student_t_two_sided_sf` would be unambiguous — and
+it is churn in tested code with no behavioural defect, which is why it is here
+rather than done.
