@@ -357,3 +357,116 @@ reason not to forget it, which is this entry.
 The input that would settle it independent of step time: **whether the rented
 hardware is spot/preemptible.** Preemptible makes an hour per death expensive;
 on-demand makes it noise.
+
+
+---
+
+## D-6. Step 10's second half is BLOCKED, not deferred
+
+**Status: skipped 2026-08-03, gate verified closed. Nothing built, nothing
+decided.**
+
+### What was skipped
+
+The aligned barrier, aligned L2, and the RSF subspace probe -- the second half
+of step 10. All three route through `scripts/canonicalize.py`.
+
+### The gate, and how it was checked
+
+The instruction was to build these **if and only if** the model swap had
+landed. It has not:
+
+    grep -c "nn.Linear" probes/determinism/model.py  ->  6
+    class GPT(nn.Module)                             ->  line 108
+
+`probes/determinism/model.py` is still the handwritten `nn.Linear`
+implementation. `scripts/canonicalize.py` is Conv1D-only by deliberate
+decision, and its tripwire REFUSES a transposed model rather than silently
+addressing the wrong axis.
+
+**No layout adapter was built and the layout question was not decided**, per
+instruction. `docs/layout-cost.md` prices both directions and is unchanged.
+
+### What unblocks it
+
+The swap of the study's model to HF GPT-2, which is yours and Asa's and is
+already decided-but-unexecuted. Once `probes/determinism/model.py` is Conv1D --
+or the study's model is HF GPT-2 and the probe is retired -- step 10's second
+half becomes buildable with no further ruling.
+
+### Why this is in the queue rather than the notes only
+
+So that "step 10 is half done" is a live item with a named unblocker, rather
+than a fact someone has to rediscover from `metrics.py` raising
+NotImplementedError three months from now. The report at
+`docs/measurements/10-metrics.md` already says the module is not finished; this
+says what would finish it.
+
+
+---
+
+## D-7. Which metric is the study's headline
+
+**Status: open. Raised 2026-08-03 by item 5. Nothing decided.**
+
+### The decision
+
+Which of the step 10 metrics carries the study's primary claim.
+
+### What raised it, and a correction to the premise
+
+I was told `docs/spec-v4.md` "names the permutation-aligned barrier as the
+primary metric". **It does not.** `grep -c metric docs/spec-v4.md` returns
+**0** -- the document has eight sections and none of them mentions a metric of
+any kind, let alone names one as primary. There was no claim to rewrite.
+
+So the situation is not a stale statement. It is an **absence**: the metrics
+exist in code, none is designated, and a reader could reasonably assume the
+spec had chosen. `docs/spec-v4.md` now has a Metrics section stating that
+absence and pointing here.
+
+### What exists
+
+Built and tested (`scripts/metrics.py`): interpolation barrier, raw L2,
+activation cosine similarity, per-layer CKA.
+
+Not built, raising `NotImplementedError` and blocked on the model swap
+(see D-6): permutation-aligned barrier, permutation-aligned L2, RSF subspace
+probe.
+
+### The evidence that bears on it, which points away from the aligned metrics
+
+Step 9 measured what canonicalization actually contributes **between
+same-seed twins**, which is the only comparison this study makes:
+
+    EMPTY recipe (do nothing at all)   1.00000  on all ten seeds
+    shipped four-step recipe           1.00041
+
+`docs/step9-summary.md` states the consequence directly: "the gap between those
+two numbers is the entire value canonicalization adds for this study's
+comparison." Twins share an initialization, the continuous gauges have exactly
+zero gradient and never move during training, so they cancel without help.
+
+That is an argument that an **aligned** metric may buy very little here, at the
+cost of depending on `canonicalize`, which is Conv1D-only and currently blocks
+three metrics entirely.
+
+It is not a decisive argument, and I am not treating it as one. Two things
+cut the other way:
+
+1. Alignment is about **discrete** permutations, not the continuous gauges. The
+   zero-gradient argument is exact for the continuous ones and only an analogy
+   for permutations -- `docs/step9-summary.md` makes that distinction itself.
+   Whether a genuine head or FFN permutation ever arises between same-seed
+   twins is listed there as unverified.
+2. Step 9 measured the ruler against synthetic perturbations on public GPT-2,
+   not against real twin-vs-twin distances, which do not exist yet. The 1.00041
+   is a property of the ruler, not of the comparison it will be used for.
+
+### What I would need from you
+
+A ruling on which metric is primary, or a decision to defer it until trained
+checkpoints exist and the aligned-versus-raw question can be measured rather
+than argued. Deferring is defensible: nothing downstream needs it before the
+pilot, and `scripts/analysis.py` takes the metric name as an argument, so no
+default is in force in the meantime.
