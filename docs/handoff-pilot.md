@@ -283,8 +283,10 @@ Told plainly so you do not discover it at an inconvenient moment.
 - **No multi-GPU.** The loop is single-device. Multi-GPU adds NCCL all-reduce
   ordering, which nothing here has tested.
 
-`docs/decisions-pending.md` holds seven open decisions with what each one
-blocks. Read it before ruling on anything.
+`docs/decisions-pending.md` holds **six** open decisions (D-3 through D-8) with
+what each one blocks, and two ruled ones (D-1, D-2) kept for the record. Read it
+before ruling on anything. **Only D-6 touches anything you do before analysis,
+and it does not block a launch** — see §3 for the three values that do.
 
 ---
 

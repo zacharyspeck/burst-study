@@ -5,23 +5,41 @@ measures** rather than how the code is written, and that are therefore not mine
 to take. Each entry records what the decision is, what was measured that raised
 it, the concrete options, and what I would need in order to act.
 
-**PARTLY SUPERSEDED — read the per-entry status lines, not this header.**
-This paragraph said "nothing here has been acted on", which stopped being true
-on 2026-08-02: **D-1 and D-2 were both ruled and both steps were REMOVED from
+This file said "nothing here has been acted on", which stopped being true on
+2026-08-02: **D-1 and D-2 were both ruled and both steps were REMOVED from
 `DEFAULT_RECIPE`**, which is now
 `(ZeroKeyBiasGauge, ZeroValueBiasGauge, SortHeads, AlignFFNNeurons)` — four
-steps, with `CanonicalizeHeadInternal` and `AbsorbLayerNormGain` gone.
+steps, with `CanonicalizeHeadInternal` and `AbsorbLayerNormGains` gone.
 
 Each entry below carries its own **Status** line and that is the authority.
 Open as of 2026-08-03: D-3 (head sort), D-4 (multiple-comparison correction),
 D-5 (full-checkpoint interval), D-6 (step 10's second half, blocked), D-7
-(which metric is the headline).
+(which metric is the headline), D-8 (three confirmed wordings).
+
+> **Why this header used to warn you not to trust it.** Until 2026-08-04 it
+> carried a `PARTLY SUPERSEDED` banner telling the reader to trust the
+> per-entry `Status` lines over this paragraph — while the per-entry lines for
+> D-1 and D-2 were the stale half, both still reading "open. Nothing changed."
+> The instruction routed to the wrong block. This is the S70 shape: one block
+> stayed static while its surroundings became derived. The per-entry lines are
+> now correct, so the warning is gone rather than inverted.
 
 ---
 
 ## D-1. The head-internal step has the property that disqualified the FFN sort
 
-**Status: open. Raised 2026-08-02 during the phase 5 re-run. Nothing changed.**
+**Status: RULED 2026-08-02 — option 1. `CanonicalizeHeadInternal` was REMOVED
+from `DEFAULT_RECIPE`.** The step still exists and is still tested; it runs
+against `RETIRED_HEAD_INTERNAL_RECIPE` in `scripts/canonicalize.py`, retained
+so this entry's measurement stays reproducible. It is not applied to anything
+the study measures. The consequence — the GL(head_dim) gauge is no longer
+quotiented, so the ruler is validated for same-seed twins only and NOT for
+independently-initialised models — is stated in `docs/step9-summary.md` under
+"what the ruler does NOT do".
+
+*(This line read "open. Nothing changed." until 2026-08-04, eight weeks after
+the ruling it was describing. Everything below it is the case FOR the ruling,
+preserved as written; it is not a description of the current recipe.)*
 
 ### The decision
 
@@ -139,7 +157,19 @@ the third time in this build that widening a measurement changed a conclusion.
 
 ## D-2. The ruler's distortion is direction-dependent and cannot be divided out
 
-**Status: open. Raised 2026-08-02 by measurement F. Nothing changed.**
+**Status: RULED 2026-08-02 — option 2. Gain absorption was DROPPED.** The step
+still exists and is still tested; it runs against
+`RETIRED_GAIN_ABSORPTION_RECIPE` in `scripts/canonicalize.py`, retained so this
+entry's measurement stays reproducible. It is not applied to anything the study
+measures. Dropping it took the ruler from a direction-dependent
+`[0.848, 1.711]` to `1.00041 [1.00039, 1.00046]` across ten seeds. The
+consequence — LayerNorm gain is no longer quotiented — is carried by the same
+zero-gradient argument as D-1: the gain is a continuous gauge, so same-seed
+twins hold identical values there and it cancels unaided.
+
+*(This line read "open. Nothing changed." until 2026-08-04. Everything below it
+is the case FOR the ruling, preserved as written; it is not a description of
+the current recipe.)*
 
 ### The decision
 
@@ -315,8 +345,20 @@ denominators:
 
 Reading 3 is the one `docs/spec-v4.md`'s "descending ladder of linguistic
 structure" language implies, and it is by far the most powerful, but only if
-those contrasts were genuinely fixed before data. Nothing in the repo records
-that they were.
+those contrasts were genuinely fixed before data.
+
+**Updated 2026-08-03: they are now recorded.** `docs/preregistration.md` fixes
+two confirmatory contrasts — primary `fluent-false` vs `fluent-true`, secondary
+`fluent` (pooled) vs `pos-substituted` — and declares every other arm and
+comparison exploratory, including the full ladder ordering. It was written
+while no checkpoint existed in the repo and none ever had, which is checkable
+by command rather than by assertion.
+
+That makes reading 3 **available**. It does not select it, and this entry is
+still open: the family of tests and the correction method are both still
+yours. Note also that `docs/preregistration.md` §8 states its own gap — the
+outcome metric is D-7 and is not fixed, so the pre-registration is partial
+until D-7 is ruled.
 
 ### What I would need from you
 

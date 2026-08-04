@@ -666,6 +666,94 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S84. The decisions file pointed the reader at its own stale half
+
+`docs/decisions-pending.md` carried a `PARTLY SUPERSEDED` header saying D-1 and
+D-2 had been ruled and both steps removed, followed by the instruction **"read
+the per-entry status lines, not this header"** — while the per-entry `Status`
+lines for D-1 and D-2 were themselves the stale text, both still reading "open.
+Nothing changed." The header was right and the block it delegated authority to
+was wrong, so the file's own routing instruction sent the reader to the
+falsehood. Found by the contradiction scan (`docs/contradiction-scan-2026-08-04.md`
+row 113) as a header defect; the routing inversion is the part that was missed.
+
+This is S70 one level up. There, a static banner drifted against derived
+surroundings; here, a static `Status` line drifted against a header that had
+been updated. In both cases nothing crashed and the stale block read as
+authoritative.
+
+Fixed by making the per-entry lines true rather than by deleting the header
+warning's target: both now read `RULED 2026-08-02` with the option taken, the
+name of the retained constant, and the consequence. Per the standing rule the
+original argument text is **preserved in place** under each — a parenthetical
+marks it as the case *for* the ruling rather than a description of the current
+recipe, because "Options 1–4" and "What I would need from you" read as live
+otherwise. The header's `PARTLY SUPERSEDED` banner is removed rather than
+re-pointed, since the contradiction it warned about is gone, and a note records
+that it existed. D-8 was added to the header's open list; it postdated the
+header and had never been in it.
+
+Three smaller things fixed while in there, none of them requested:
+
+- the header named the class `AbsorbLayerNormGain`; it is `AbsorbLayerNormGains`
+- `docs/handoff-pilot.md` §9 said "seven open decisions". Six are open
+  (D-3..D-8). The count was written when D-8 did not exist and D-1/D-2 read as
+  open — it was wrong in both directions at once and happened to land near the
+  truth
+- **not changed, deliberately:** `docs/contradiction-scan-2026-08-04.md` row 113
+  still records the original defect. It is the record of a scan on a date, not a
+  description of current state, and editing it would destroy the evidence that
+  the scan caught this. `docs/step9-summary.md`'s file-listing annotation
+  ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
+  a pointer rather than grown into a second index that would need maintaining.
+
+### S85. Pre-registration recorded; two findings from checking what blocks a launch
+
+Two things, both from the same session as S84.
+
+**The contrasts are now on the record.** `docs/preregistration.md` fixes
+`fluent-false` vs `fluent-true` as primary and pooled `fluent` vs
+`pos-substituted` as secondary, everything else exploratory. Written at
+`f1d378e` with the timing claim made checkable rather than asserted — the two
+`git log --all --diff-filter=A` / `git status --ignored` commands are in §3 and
+both returned empty. The attestation is split in two on purpose: the repo can
+prove no data existed, and only Zach can attest which contrasts were in the
+notes. Blending those into one sentence would have overclaimed.
+
+It deliberately does **not** rule D-4, and says so in its own §2, because
+recording the contrasts is what makes option 3 *available* and choosing it is a
+separate act. D-4's "nothing in the repo records that they were" is now false
+and was updated in place.
+
+`docs/preregistration.md` §8 records the part that is genuinely incomplete: a
+contrast is only pre-registered if its outcome measure is fixed too, and D-7 is
+open. Stating that is worth more than the tidier document would have been.
+
+**Two findings from tracing the launch gates, neither of them requested.**
+
+1. The blocking set is exactly the three nulls, confirmed by running the loader
+   rather than by reading `docs/handoff-pilot.md`. **The model swap does not
+   block a launch**, contrary to the working assumption: `scripts/model_seam.py`
+   already builds a real `GPT2LMHeadModel`, `--family hf_gpt2` is threaded
+   through `launch.py` and `train.py`, and it is required with no default. What
+   is still `nn.Linear` is `probes/determinism/model.py` — the probe, not the
+   study's model.
+2. **STANDING RISK, not fixed, needs a ruling.** `scripts/model_seam.py`'s
+   docstring says a family mix-up would be caught: *"`expected_param_count` is
+   the only thing that would notice a mix-up."* It would notice nothing.
+   `tests/test_model_seam.py::test_both_families_hit_expected_param_count_exactly`
+   asserts **both** families hit 124,439,808 exactly, so the count check cannot
+   distinguish them — and `family` appears **zero** times in `burst/config.py`,
+   so it is absent from `run_provenance.yaml`. `--family` is typed per
+   invocation. Launching the pilot under one family and the remainder under the
+   other would silently break the seed pairing, and the provenance record would
+   not show it.
+
+   This is S55 again: a check named for catching something it cannot catch.
+   Left unfixed because the fix is a choice between pinning the family in
+   `configs/base.yaml` and recording it in provenance, and that is a study
+   decision rather than a tidy-up. Reported for a ruling.
+
 ### S1. Extra arithmetic sanity checks
 
 Beyond the required token-budget assertion I added, in the same spirit and each
