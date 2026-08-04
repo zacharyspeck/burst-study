@@ -971,6 +971,18 @@ def test_provenance_files_are_written(tmp_path):
     # the last three launch-blocking nulls were set. What the field must do is
     # track missing_for_launch, which is checkable without knowing today's
     # answer.
+    #
+    # BUT THESE TWO LINES ARE VACUOUS HERE, and saying so is the point. This
+    # test uses the shipped config, where nothing is missing, so they reduce to
+    # `True == True` and `[] == []`. Mutation on 2026-08-04 confirmed it:
+    # hardcoding `launch_ready: True` and `missing_for_launch: []` in
+    # burst/config.py leaves this test GREEN.
+    #
+    # They are kept because they become live the moment any launch-blocking
+    # field goes null again, and they are honest about what they check. THE
+    # LIVE COVERAGE IS test_provenance_records_which_fields_are_missing, which
+    # goes red under exactly that mutation. Do not read these lines as
+    # protecting the provenance fields on their own. See S90.
     assert meta["launch_ready"] == (not cfg.missing_for_launch)
     assert meta["missing_for_launch"] == list(cfg.missing_for_launch)
 
@@ -1096,7 +1108,24 @@ def test_cli_acceptance_command(tmp_path):
     assert (outdir / "run_provenance.yaml").is_file()
 
 
-def test_cli_launch_flag_fails_while_fields_are_undecided(tmp_path):
+def test_cli_launch_flag_fails_because_it_cannot_pass_a_family(tmp_path):
+    """RENAMED 2026-08-04. It was `..._fails_while_fields_are_undecided`.
+
+    That name stopped being true twice over. The fields are no longer
+    undecided -- all three were set on 2026-08-03 -- and the CLI has no
+    `--family` flag, so `--launch` now fails on the missing family instead.
+    Proven by mutation: with the family refusal removed the command exits 0,
+    so the family check is the ONLY thing making this red.
+
+    The old name therefore described a premise that no longer exists while the
+    test passed for an unrelated reason -- S55, counted as instance 22 and
+    recorded as S90.
+
+    THIS TEST DOCUMENTS A DEFECT, NOT A FEATURE. `python -m burst.config
+    --launch` cannot succeed at all today. See the pending-defect entry in
+    implementation-notes.md; the fix is Zach's call and is not made here. When
+    it is fixed, this test changes with it.
+    """
     result = subprocess.run(
         [sys.executable, "-m", "burst.config",
          "--config", str(REAL_BASE),
@@ -1106,6 +1135,10 @@ def test_cli_launch_flag_fails_while_fields_are_undecided(tmp_path):
     )
     assert result.returncode == 1
     assert "cannot be launched" in result.stderr
+    # The specific reason, so this cannot silently start failing for a
+    # different one the way it did before.
+    assert "no model family was given" in result.stderr
+    assert "training.micro_batch" not in result.stderr
 
 
 def test_cli_reports_config_errors_without_a_traceback(tmp_path):

@@ -197,6 +197,89 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D26. The `metrics_report.py` stale claim could NOT be corrected in scope
+
+**Asked for:** correct `scripts/metrics_report.py`'s copy of the "layout is
+undecided" claim to match what d07d163 wrote in `scripts/metrics.py`.
+
+**Not done, and the reason is a hard scope conflict rather than difficulty.**
+
+There are **two** copies in that file, not the one named: `report_banner`
+(the known one) and `cannot_answer`. Both were corrected, and both had to be
+reverted:
+
+- `report_banner` is recomputed at render time, and
+  `test_markdown_is_exactly_what_the_json_renders` asserts the committed
+  `docs/measurements/10-metrics.md` equals exactly what it renders. Correcting
+  the sentence turns that test red until the report is regenerated.
+- `cannot_answer`'s output is **stored** into
+  `docs/measurements/10-metrics.json` at generation time. Correcting the
+  function without regenerating leaves the function and the committed artifact
+  disagreeing — a quieter version of the same problem.
+
+Both fixes therefore require regenerating `docs/measurements/10-metrics.{json,md}`,
+and `docs/measurements/` was explicitly out of scope. Regenerating a measurement
+artifact also changes what gets committed, which is a stop-and-ask condition
+rather than a deviation to take unilaterally.
+
+**Taken instead, the conservative option:** both strings are left exactly as
+they were, each now carrying a comment saying it is stale, why it was not
+fixed, and what would fix it. A known-stale sentence that says so is worse than
+a correct one and much better than a silent one.
+
+**What was corrected in that file:** only the module docstring, which is not
+rendered into any artifact. It claimed "Nothing is hardcoded prose" while
+carrying two hardcoded prose claims that had already rotted — an immunity claim
+broader than the mechanism backing it. Narrowed to what is true.
+
+**To finish this, one command and a review of its diff:**
+
+    python scripts/metrics_report.py        # regenerates 10-metrics.{json,md}
+
+then re-apply the two corrections. Needs a ruling because it rewrites a
+committed measurement artifact.
+
+### D25. PENDING DEFECT: `python -m burst.config --launch` cannot succeed
+
+**Not fixed. The fix is a decision and it is Zach's.**
+
+S86 made `family` required whenever `require_complete=True`. The
+`python -m burst.config` CLI has **no `--family` flag**, so its `--launch` path
+now refuses every run, always, on the missing family — never on the thing
+`--launch` exists to check.
+
+Introduced by S86 (657b4f3) and confirmed by mutation on 2026-08-04: remove the
+family refusal and the same command exits 0. `docs/handoff-pilot.md` and
+`README.md` both document `--launch` as a usable acceptance step.
+
+**The two options, neither taken:**
+
+1. **Add `--family` to the CLI.** `--launch` then means what it says, and the
+   inspect path keeps working without it. Cost: a third place that has to know
+   the family vocabulary, and `burst/` may not import `FAMILIES` from
+   `scripts/`, so it would be a free-text string here as it already is in
+   `load_config`.
+2. **Exempt the inspect-only CLI from the family requirement.** Smaller change:
+   the CLI never trains, so it arguably has no business supplying a family.
+   Cost: `--launch` would then verify strictly less than what `train.py`
+   verifies, so a run could pass `--launch` and still refuse at launch — which
+   is the exact class of gap the flag exists to close.
+
+The test was made honest without choosing between them, per instruction:
+`test_cli_launch_flag_fails_because_it_cannot_pass_a_family` now documents the
+defect and will change when it is fixed. See S90.
+
+### D24. The audit changed no production code
+
+Recorded because a clean result with no evidence is not a result. Every
+mutation in S90's audit was made with `Edit` and reverted with
+`git checkout -- <path>`, and `git status --porcelain` was checked clean
+between mutations. The only files this session changes are two test files, two
+prose locations, and these notes. **No production code was modified**, so the
+instruction to stop and ask before changing production code to make a test
+honest was never triggered — the one repair needed was a rename and two extra
+assertions.
+
 ### D23. Commit 1 carried more than `configs/base.yaml`
 
 **Asked for:** two commits, the first being `configs/base.yaml` alone — the
@@ -762,6 +845,89 @@ Three smaller things fixed while in there, none of them requested:
   the scan caught this. `docs/step9-summary.md`'s file-listing annotation
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
+
+### S90. Mutation audit of every test 16df210 touched, and two more instances
+
+16df210 removed the premise of six tests at once: they had all been written
+against a config where three fields were null. Reading them was not enough —
+**S60 is explicit that a second-route recomputation catches only drift from a
+definition, not a wrong definition, because whoever writes the second route
+shares the misunderstanding.** So each was audited by mutation: break the named
+behaviour in the source, require red, restore, require green.
+
+Eight tests, derived from `git show 16df210 -- tests/` rather than from memory.
+**All eight went red for the reason their name claims.** The full table is in
+the commit message for this change. Two findings came out of it anyway.
+
+#### Instance 22, proven and repaired: the CLI test
+
+`test_cli_launch_flag_fails_while_fields_are_undecided` passed for a reason
+unrelated to its name. The fields are not undecided — they were set on
+2026-08-03 — and `python -m burst.config --launch` fails because the CLI has no
+`--family` flag to satisfy the refusal S86 added.
+
+Proven rather than argued: with the family refusal mutated out, the command
+**exits 0**, so the family check is the only thing making that test red.
+
+Renamed to `test_cli_launch_flag_fails_because_it_cannot_pass_a_family`, and it
+now asserts the specific message plus the absence of the field-list message, so
+it cannot silently start failing for a third reason. The repair was itself
+re-run under the same mutation: red, then green after restore.
+
+#### A vacuous assertion, kept but labelled
+
+16df210's own commit message said it had made an assertion "derived rather than
+hardcoded ... which cannot go stale because it does not encode today's answer".
+True, and beside the point: in `test_provenance_files_are_written` that
+assertion is **vacuous**. The test uses the shipped config, where nothing is
+missing, so `launch_ready == (not cfg.missing_for_launch)` reduces to
+`True == True` and the list check to `[] == []`.
+
+Confirmed by mutation: hardcoding `"launch_ready": True` and
+`"missing_for_launch": []` in `burst/config.py` leaves that test **GREEN**. The
+live coverage is `test_provenance_records_which_fields_are_missing`, which goes
+red under exactly that mutation.
+
+Kept rather than deleted — they become live if any launch-blocking field goes
+null again — but now carry a comment saying they are vacuous today and naming
+where the real coverage is. A sentence claiming protection that is not there is
+the same defect one level up.
+
+#### A mutation that was a no-op, and why that is recorded
+
+The first attempt at `test_allow_incomplete_previews_rather_than_refusing`
+mutated the refusal at `launch.py:534`. **The test stayed green — and that was
+not a finding.** `allow_incomplete` gates the *population* of
+`emission.not_ready` at line 520, so with the flag set the list is empty and
+line 534 is unreachable. The mutation changed nothing.
+
+Re-mutated at line 520, the real gate, the test went red correctly. Recorded
+because an ineffective mutation reported as a passing audit would be precisely
+the failure this exercise exists to catch, and the only thing that
+distinguished the two was reading why the green happened instead of accepting
+it.
+
+#### Two more copies of the stale layout claim
+
+d07d163 corrected "the layout is undecided" in three places and named a fourth
+in `scripts/metrics_report.py`. There were **two** in that file, not one:
+`report_banner` (the known one) and `cannot_answer`.
+
+**Neither could be corrected in scope, and both are still stale.** Both feed
+`docs/measurements/10-metrics.{json,md}` — one at render time, one stored at
+generation time — so fixing the sentences requires regenerating a committed
+measurement artifact, which was out of bounds. They now carry comments saying
+they are stale and what would fix them. Full reasoning and the one-command fix
+are in D26.
+
+What *was* corrected there is the module docstring, which is rendered nowhere.
+It claimed **"Nothing is hardcoded prose"** while carrying two hardcoded prose
+claims that had already rotted. That is an immunity claim broader than the
+mechanism backing it: the numbers are derived and so is the *list* of absent
+metrics, but the sentences around them are ordinary comments. Narrowed to what
+is actually true, with the old claim quoted. An overbroad immunity claim is
+worse than none, because it stops the next reader looking — which is plausibly
+why these two survived d07d163's sweep.
 
 ### S89. The last three launch-blocking nulls are set, and what that falsified
 
