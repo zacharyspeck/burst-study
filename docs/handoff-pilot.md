@@ -9,6 +9,113 @@ is deliberate.
 
 ---
 
+## 0. THE BLOCKING LIST — read this first
+
+Everything that must be true before a pilot run can start. Assumes you have the
+repo, a GPU, and nothing else. Verified against the code on 2026-08-03, not
+copied from the sections below.
+
+> **THE MODEL SWAP IS NOT A BLOCKER.** If you have been told the study is
+> waiting on a swap to HF GPT-2, it is not: `scripts/model_seam.py` builds a
+> real `GPT2LMHeadModel` today and `--family hf_gpt2` is threaded through both
+> `launch.py` and `train.py`, required with no default. **You can launch HF
+> GPT-2 right now.** What is still `nn.Linear` is `probes/determinism/model.py`
+> — the probe, not the study's model. That distinction blocks only the three
+> unbuilt metrics in D-6, and nothing you do before analysis.
+
+### A. Config values that must be set — three, and only three
+
+Set in `configs/base.yaml`, then **commit** (the launcher refuses a dirty tree):
+
+| value | constraint |
+| --- | --- |
+| `training.micro_batch` | Must divide `batch_size` (256) exactly. Accumulation is mandatory, not a choice: a full batch of logits is `256 × 1024 × 50257 × 4 B = 52.70 GB`. |
+| `training.dtype` | **Must be `fp32`.** `train.py` implements fp32 only and refuses `bf16` rather than training fp32 while the record claims otherwise. |
+| `optimizer.adamw_impl` | One of `foreach`, `fused`, `single`. |
+
+All three change reduction order, which is what bitwise reproducibility is made
+of. **Nothing else in `configs/base.yaml` is null** — `grad_clip` is 1.0, both
+checkpoint intervals are set, all six burst-text paths are populated.
+
+### B. Artifacts that must exist on your machine
+
+| artifact | detail |
+| --- | --- |
+| **The tokenized corpus** | 5,020,581,888 bytes; 149 training shards + held-out slice; `Skylion007/openwebtext` rev `79d93d786212f7344586290adb811d4ae6a1762c`. **Not in git — Zach must transfer it.** |
+| **`manifest.json` in the corpus dir** | `train.py` refuses without it, and refuses one whose revision or token total disagrees with `corpus_spec`. |
+| **The manifest sha256, sent separately** | Out-of-band, or a corrupted manifest would validate corrupted shards. |
+| **A Python env with torch + transformers** | The config-only `.venv` cannot train. |
+| **Disk** | 105.5 GB per run. **Pilot of 4 runs ≈ 422 GB.** Full study 7.38 TB against your 10 TB. |
+
+Burst texts are **committed** and arrive with the repo (`bursts/*.txt`). Nothing
+to transfer there. Verify the corpus before training on it — needs no network:
+
+```bash
+python scripts/corpus_verify.py --outdir /path/to/corpus
+```
+
+### C. What must be true of the hardware
+
+**1. EVERY RUN YOU INTEND TO COMPARE MUST BE ON THE SAME GPU MODEL. This is a
+correctness requirement, not a preference.**
+
+Kernel selection depends on the device. The study's entire claim is that an arm
+and its seed-matched twin differ *only* by the injected burst — so **an arm and
+a twin trained on different card models are not a valid pair**, and the
+difference you measure between them is partly the hardware. At minimum keep all
+7 arms of a seed on one card model; in practice keep all 70 there.
+
+**Nothing in the code will catch this.** It is the same class as the model-family
+hazard — a study-defining value that could differ between paired runs with no
+guard — but where the family now has a provenance field *and* a launcher
+refusal, the GPU has **neither**. As of 2026-08-03 the device name, compute
+capability, torch version and CUDA version are recorded in each run's
+`train_record.json`, so a mismatch is **detectable after the fact**; it is not
+prevented, and nothing compares them for you. If you split runs across cards,
+you will only find out by reading those files. See S87 in
+`implementation-notes.md` for why the field cannot live in `run_provenance.yaml`.
+
+| the rest | why |
+| --- | --- |
+| **A CUDA GPU** | CPU is not viable at this scale. |
+| **Single device** | No multi-GPU. That would add NCCL all-reduce ordering, which nothing here has tested. |
+| **`CUBLAS_WORKSPACE_CONFIG=:4096:8` set before CUDA initialises** | `train.py` refuses without it. The launcher emits it as a prefix, so this only bites if you hand-edit commands. |
+| **VRAM for one micro-batch** | The quantity the pilot exists to measure. 48 GiB on an A6000 against 52.70 GB for a full batch is why accumulation is forced. |
+| **`CUDA_VISIBLE_DEVICES` is yours to set** | Deliberately not emitted. Add it, or let your scheduler do it. |
+
+Not blocking, but decide early: **is the hardware preemptible?** Weights-only
+checkpoints are not resumable, so any death costs up to 1000 steps. That is D-5,
+and the preemptible answer settles it without waiting for a measured step time.
+
+### D. Repo preconditions
+
+Both enforced by the launcher before it emits anything:
+
+- **A clean working tree.** Every run stamps the commit hash into `run_provenance.yaml`.
+- **`generate_overrides.py --check` passes.** Currently `70 ok, 0 missing, 0 mismatched`.
+
+### E. Arguments with no defaults
+
+`--outroot`, `--corpus`, `--family`, and a selection (`--seeds`/`--arms`, or
+`--all` typed in full). `--device` defaults to `cuda`.
+
+**`--family` must be identical across every run in the study.** Since
+2026-08-03 the launcher refuses to emit into a directory whose provenance names
+a different family, but it cannot stop a second invocation pointed at a fresh
+`--outroot`.
+
+### What does NOT block
+
+None of the six open decisions in `docs/decisions-pending.md`. D-3, D-4, D-7 and
+D-8 are analysis and wording; D-5 is a config edit that stays free until the
+full launch; D-6 affects only the three unbuilt metrics. And the model swap does
+not block — see the note at the top.
+
+**Critical path: transfer and verify the corpus → set three values → commit →
+emit → run.**
+
+---
+
 ## 1. What the study is, in one paragraph
 
 70 runs of GPT-2 Base from scratch: **10 seeds × 7 arms**. Six arms inject a
@@ -133,7 +240,9 @@ python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mism
 ```
 
 The skips are the tests needing torch or `transformers`. If you have the ML
-environment, `python -m pytest -q` there should be **835 passed, 0 skipped**.
+environment, `python -m pytest -q` there should be **836 passed, 0 skipped**.
+Or run both at once with `python scripts/check_suites.py`, which reports each
+count and exits nonzero if either environment fails.
 
 ### Step 2 — emit the pilot
 

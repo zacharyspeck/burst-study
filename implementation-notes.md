@@ -707,6 +707,95 @@ Three smaller things fixed while in there, none of them requested:
   ("D-1 ruled, D-2 ruled, D-3 open") is accurate but predates D-4..D-8; left as
   a pointer rather than grown into a second index that would need maintaining.
 
+### S87. A green signal that was not measuring the tests, and the GPU field
+
+Two things, related only in that both are values that decide a result and were
+recorded nowhere.
+
+#### The exit-code hazard. THE RULE: never a piped exit status
+
+On 2026-08-03 a background run of the ML suite was reported by its harness as
+**"exit code 0" while 23 tests had FAILED.** The command was
+`pytest -q 2>&1 | tail -8`. A pipeline's exit status is the LAST command's, so
+`tail` succeeding masked pytest failing. The failures were caught only because
+the printed *count* was read and did not match.
+
+**This is the repo's recurring defect — a signal named for one thing and
+measuring another — landing on the mechanism used to verify every other fix.**
+The previous instances (S55, S61, S69, the S70 banner, S84's routing inversion)
+were all inside the work. This one was inside the *check on* the work, which
+makes it worse: a false green here launders a false green anywhere.
+
+    THE RULE. A test-suite run is verified on its COUNTS and on a TRUE exit
+    status. Never on a piped one. `pytest | tail` cannot report failure and
+    must not be used to decide whether the suite passed.
+
+**Made structural rather than remembered:** `scripts/check_suites.py` runs both
+environments with `subprocess.run(..., capture_output=True)` — no shell, no
+pipe — parses the count, and exits nonzero if either environment fails or if
+the count cannot be parsed at all. "Did not understand the output" is treated
+as failure, not as pass. Rule 4's two commands now have a single invocation
+that cannot be got wrong:
+
+    python scripts/check_suites.py
+
+It is not itself under test, which is worth stating plainly: it is the test
+runner, and a test of it would run under the thing it is testing. What it got
+instead is the failure path exercised by hand before it was trusted — see
+directly below, which is the only reason it is correct.
+
+**Its first version reproduced the defect it exists to prevent.** The summary
+regex read `(\d+) failed[, ]` — a character class matching ONE character where
+pytest writes two (`", "`). On `1 failed, 1 passed` the failed group did not
+match and the reported line read **"1 passed"**. The exit status was still
+correct, so the script would have failed the run; but its *printed summary*
+would have hidden the failures, which is the same defect one layer along.
+
+Caught by running the failure path instead of assuming it worked — a
+deliberately failing test file, checked side by side against the piped form:
+
+    checker path -> returncode: 1 | parsed: 1 failed, 1 passed | ok: False
+    piped path   -> returncode: 0    <-- green despite a real failure
+
+Verified against five real summary lines including the 23-failure one. **Do not
+trust a green from this script that has never been seen to go red.**
+
+#### The GPU model, recorded — and where it could NOT go
+
+Same class as S86's family hazard: kernel selection depends on the device, so an
+arm and its seed-matched twin trained on different card models are **not a valid
+pair**, and nothing recorded which card ran what.
+
+`configure_determinism` now returns `device_name`, `device_capability`,
+`torch_version` and `cuda_version`, which land in the run's
+`train_record.json`.
+
+**It could not go in `run_provenance.yaml`, and the reason is not laziness.**
+Two hard constraints, either of which alone forbids it:
+
+1. `burst/config.py` writes that file and **may not import torch** — a config
+   has to load on a login node with no GPU. That is the boundary the whole
+   `burst/` package is built around.
+2. `torch.cuda.get_device_name` **initialises CUDA.** Calling it early enough to
+   reach `load_config` would initialise CUDA *before* the
+   `CUBLAS_WORKSPACE_CONFIG` check in `configure_determinism` — destroying the
+   guard whose entire purpose is to fire before CUDA comes up. Fixing one
+   provenance gap by disabling a determinism guard is a bad trade.
+
+So it is queried immediately after that check, in the one place that is both
+torch-aware and past the guard, and written beside the provenance file rather
+than inside it.
+
+**This makes a mismatch DETECTABLE, not PREVENTED, and the difference is worth
+being honest about.** The family hazard got a provenance field *and* a launcher
+refusal. The GPU gets a field only. A launch-time refusal is not available: the
+launcher may not run on the GPU node at all, so at emission time the device is
+genuinely unknown. The natural home for a real guard is analysis time — refuse
+to compare runs whose recorded `device_name` differs — which is not built and is
+noted here rather than in `decisions-pending.md`, because it is a missing check
+and not a decision. `docs/handoff-pilot.md` §0.C states the requirement in the
+words a reader acting on it needs.
+
 ### S86. The family hazard from S85, fixed. Not a decision — a missing field
 
 Ruled on 2026-08-03: this was never Zach's to decide. A study that cannot say
@@ -4984,7 +5073,7 @@ loop is now backed by a measurement instead of an argument.
 
 ## Test coverage
 
-835 tests, counted per file with `--collect-only` rather than from memory.
+836 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -5008,14 +5097,15 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_verify.py` | 13 |
 | `tests/test_model_seam.py` | 25 |
 | `tests/test_rng_state.py` | 17 |
-| `tests/test_train.py` | 18 |
+| `tests/test_train.py` | 19 |
 | `tests/test_injection.py` | 23 |
 | `tests/test_launch.py` | 54 |
 | `tests/test_analysis.py` | 47 |
-| **total** | **835** |
+| **total** | **836** |
 
 In the base environment (`.venv/`, no torch) the run is **531 passed, 164
-skipped**. In `.venv-ml/` it is **835 passed, 0 skipped**. The 172 config tests
+skipped**. In `.venv-ml/` it is **836 passed, 0 skipped**. Both are produced by
+`python scripts/check_suites.py`, which does not pipe -- see S87. The 172 config tests
 are untouched and unaffected in both, and only the tests that genuinely need
 torch or `transformers` skip. That is the evidence for requirement 5.
 

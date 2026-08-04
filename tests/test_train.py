@@ -401,6 +401,30 @@ def test_a_cpu_run_says_it_proves_nothing_about_cuda():
         "COVERAGE_WARNING"]
 
 
+def test_the_device_is_recorded_so_a_pair_can_be_shown_to_share_one():
+    """WHICH CARD RAN THIS. An arm and its seed-matched twin trained on
+    different card models are not a valid pair, because kernel selection
+    depends on the device -- and before this field nothing recorded it.
+
+    The value cannot live in run_provenance.yaml: `burst/` may not import
+    torch, and querying the device initialises CUDA, which would happen before
+    the CUBLAS_WORKSPACE_CONFIG guard. So it lands in train_record.json. See
+    S87.
+    """
+    applied = T.configure_determinism(3, strict=False)
+    for key in ("device_name", "device_capability", "torch_version",
+                "cuda_version"):
+        assert key in applied, f"{key} must be recorded, even as None"
+    # torch is always present in this environment, so this one is never None.
+    assert applied["torch_version"]
+    if applied["cuda_available"]:
+        assert applied["device_name"], "CUDA present but no device recorded"
+        assert applied["device_capability"]
+    else:
+        assert applied["device_name"] is None
+        assert applied["device_capability"] is None
+
+
 def test_the_injection_hook_is_wired_in_not_a_seam():
     """Step 14 replaced the empty seam with a real hook.
 

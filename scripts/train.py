@@ -111,6 +111,22 @@ def configure_determinism(seed: int, strict: bool = True) -> dict:
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
 
+    # WHICH CARD THIS RAN ON. Kernel selection depends on the device, and the
+    # study's claim is that an arm and its seed-matched twin differ only by the
+    # burst -- so a pair split across two card models is not a valid pair. That
+    # was previously recorded NOWHERE, the same gap the `family` field closed.
+    #
+    # Queried HERE and not in burst/config.py for two reasons, both hard:
+    # `burst/` may not import torch (a config has to load on a login node with
+    # no GPU), and `get_device_name` initialises CUDA -- calling it earlier
+    # would initialise CUDA before the CUBLAS_WORKSPACE_CONFIG check above,
+    # destroying the guard it exists to be. So it lands in train_record.json
+    # beside run_provenance.yaml rather than inside it. See S87.
+    device_name = torch.cuda.get_device_name(0) if cuda else None
+    device_capability = (
+        ".".join(str(n) for n in torch.cuda.get_device_capability(0))
+        if cuda else None)
+
     return {
         "torch.manual_seed": seed,
         "torch.cuda.manual_seed_all": seed if cuda else None,
@@ -121,6 +137,10 @@ def configure_determinism(seed: int, strict: bool = True) -> dict:
         "torch.backends.cudnn.allow_tf32": False,
         "CUBLAS_WORKSPACE_CONFIG": workspace,
         "cuda_available": cuda,
+        "device_name": device_name,
+        "device_capability": device_capability,
+        "torch_version": torch.__version__,
+        "cuda_version": getattr(torch.version, "cuda", None),
         "COVERAGE_WARNING": (
             "these settings were applied on a CPU-only process; cuDNN, cuBLAS "
             "and TF32 settings are inert here and nothing about CUDA kernel "
