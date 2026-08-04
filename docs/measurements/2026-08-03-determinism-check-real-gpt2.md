@@ -1,7 +1,7 @@
 # Determinism check — the released GPT-2, not a stand-in
 
 **Date:** 2026-08-03
-**Code:** commit `dd17c3b` (tree clean; all four `run_provenance.yaml` files
+**Code:** commit `584f2dd` (tree clean; all four `run_provenance.yaml` files
 record `dirty: false`)
 **Probe:** `probes/determinism/check.py --model hf` — see that directory's README
 **Config:** `configs/base.yaml` + `configs/runs/seed03_twin.yaml`, unmodified
@@ -30,38 +30,56 @@ closing that "needs the A6000 this repo does not have". This work had one, so
 it is closed, and the numbers below are measured under the wider definition.
 See S90.
 
-> **RE-MEASUREMENT IN PROGRESS.** The digests originally recorded here were
-> computed before `step` was added to the optimizer digest (S90), so they
-> describe the narrower comparison. Rather than publish numbers known to be
-> superseded, this section is held empty until the re-run under the wider
-> definition lands. The verdict is not in doubt — both legs were IDENTICAL
-> under the narrower definition, twice, on two different cards — but the hash
-> values themselves must be the ones the current code produces.
-
 | leg | dtype | attention backend selected | CUDA kernels | per run | verdict |
 |---|---|---|---|---|---|
-| 1 | bf16 | flash, dropout variant | 107 | *pending* | *pending* |
-| 2 | fp32 | mem-efficient cutlass, dropout variant | 92 | *pending* | *pending* |
+| 1 | bf16 | flash, dropout variant | 107 | 155.6 s / 154.7 s | **IDENTICAL** |
+| 2 | fp32 | mem-efficient cutlass, dropout variant | 92 | 337.5 s / 336.6 s | **IDENTICAL** |
 
-### Both legs also reproduced on a second, physically different A6000
+149 parameter tensors and 444 optimizer entries per leg, all matching — 148
+parameters × `step`, `exp_avg`, `exp_avg_sq`. (149 vs 148 because the tied
+embedding is one parameter to the optimizer and two entries in `state_dict`.)
 
-Both legs were run twice, in two separate SLURM allocations. The first landed
-on `gpmoo-b1` device **2**, the second on device **0**, and **all four digests
-above were produced by both**. Eight processes agree, not four.
+```
+A sha256:  36b5c8c0b39fc615d3e8ebccf428ea06235d44ef7cbf942404884a21926e30bc   (bf16)
+B sha256:  36b5c8c0b39fc615d3e8ebccf428ea06235d44ef7cbf942404884a21926e30bc
 
-This is not what the check set out to test — the pass bar was two processes on
-one GPU — but it is worth recording, because it narrows the largest stated
-limitation of the 2026-08-02 result. Determinism now demonstrably survives a
-change of physical card *within one node, of one model, on one driver*. It
-still says nothing about a different GPU model or a different driver.
+A sha256:  44082dbc28ae714fde1c02fb0f969470583eeeaab02191fe7dcba10d14ca1c07   (fp32)
+B sha256:  44082dbc28ae714fde1c02fb0f969470583eeeaab02191fe7dcba10d14ca1c07
+```
 
-The first pass is not the record for a separate reason: it was launched from a
-tree that went dirty mid-run, when `probes/determinism/README.md` was edited
-while leg 1 was in flight. Three of its four runs recorded `dirty: true`. A run
-whose provenance says the commit hash does not describe it is not evidence in
-this repo, whatever the dirty file happened to be, so it was discarded and
-re-run from `dd17c3b`. That the digests came out identical anyway is the bonus
-above, not the justification.
+These hashes are **not** the ones an earlier draft of this file carried. Adding
+`step` to the digest changed every value it produces, so the legs were re-run
+rather than re-labelled. Under the narrower definition the same two legs were
+also IDENTICAL, twice, on two different cards — the verdict never moved; what
+moved is what the verdict is known to cover.
+
+### Three passes, two physical cards, one verdict
+
+Both legs were run three times in all, in three separate SLURM allocations:
+
+| pass | digest definition | card | tree | result |
+|---|---|---|---|---|
+| 1 | narrow (no `step`) | device **2** | dirty mid-run | IDENTICAL, both legs |
+| 2 | narrow (no `step`) | device **0** | clean, `dd17c3b` | IDENTICAL, same hashes as pass 1 |
+| 3 | **wide (with `step`)** | device **2** | clean, `584f2dd` | **IDENTICAL — the record above** |
+
+Twelve processes, one verdict. Two things follow, and they are worth keeping
+apart.
+
+**Determinism survived a change of physical card.** Passes 1 and 2 ran on
+different A6000s and produced byte-identical parameters and optimizer moments,
+which narrows the largest stated limitation of the 2026-08-02 result — though
+only *within one node, one GPU model, one driver*. It still says nothing about
+a different GPU model or a different driver. That evidence is from the narrow
+digest; the cross-card comparison has not been repeated under the wide one.
+
+**Pass 1 is not the record, for a reason unrelated to the digest.** It was
+launched from a tree that went dirty mid-run, when
+`probes/determinism/README.md` was edited while leg 1 was in flight — three of
+its four runs recorded `dirty: true`. A run whose provenance says the commit
+hash does not describe it is not evidence in this repo, whatever the dirty file
+happened to be. That its digests matched pass 2's anyway is a bonus, not a
+justification.
 
 ## The model that was actually trained
 
@@ -187,4 +205,22 @@ srun --partition=gpmoo-b --nodelist=gpmoo-b1 --gres=gpu:1 --cpus-per-task=8 --me
 
 Do **not** set `CUDA_VISIBLE_DEVICES` yourself; let the scheduler allocate and
 let `check.py` inherit it. Exit status 0 means identical. Output lands in
-`probe-runs/` (gitignored).
+`probe-runs/determinism/hf_steps20_mbcfg_sdpa_{bf16,fp32}_cfg/` (gitignored).
+
+`--micro-batch` and `--adamw-impl` are deliberately not passed: they are
+launch-blocking config fields awaiting the pilot, and the probe falls back to
+8 and `foreach` while they are null, labelling both `probe default` in
+`digest.json`'s `setting_sources`. `--dtype` *is* passed, because the point of
+running two legs is that the answer differs by dtype and the config has not
+chosen one. The `cfg` in the directory name records that the value was left to
+the config rather than fixed on the command line. Once the pilot decides these
+fields, the same two commands measure the real configuration without edits —
+and a flag contradicting a decided config value becomes a hard error.
+
+The recorded `setting_sources` for this run:
+
+```
+micro_batch  probe default (config is null)
+adamw_impl   probe default (config is null)
+dtype        command line (config is null)
+```
