@@ -1,5 +1,17 @@
 # The 4-run pilot: first sigma, first displacement, and a metric that floors
 
+> **SUPERSEDED, 2026-08-05 — every number below that depends on the trained
+> weights is void.** The four runs were trained on the wrong objective:
+> `train.py` pre-shifts and then hands the shifted pair to a `labels=` call that
+> shifts again, so the models were optimised to predict the token *two*
+> positions ahead. See `docs/2026-08-05-training-objective-defect.md` for the
+> investigation, the proof, and the itemised list of what is invalidated and
+> what survives. The barrier curves, the endpoint-loss delta/sigma, and the
+> n ≈ 9.8 power estimate are all in the invalidated set. The injection
+> verification (§"The injection landed…"), the §8.4 ruler branch, and the
+> wall-clock figures survive. Kept in place rather than deleted, per CLAUDE.md
+> §2: the reasoning here is still the record of what was believed on the day.
+
 **Date:** 2026-08-05. **Commit trained from:** `9aa930d`, clean tree, all four
 runs. **Job:** SLURM 54652 on gpmoo-a1, four A100X cards.
 

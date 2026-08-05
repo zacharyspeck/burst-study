@@ -866,6 +866,65 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S97. The pilot trained the wrong objective: `shift` then `labels=` shifts twice
+
+Full investigation, proof and consequence list:
+`docs/2026-08-05-training-objective-defect.md`. In brief.
+
+`train.py:564` pre-shifts each raw block into `(inputs, targets)` and
+`train.py:580` hands that pair to `SEAM.compute_loss`, whose HF branch
+(`model_seam.py:209`) passes it as `model(input_ids=inputs, labels=targets)`.
+`transformers` shifts `labels` internally
+(`models/gpt2/modeling_gpt2.py:830-831`). The shifts compose: the logit at
+position *i*, conditioned on `t_0 … t_i`, is scored against `t_(i+2)`. **Every
+pilot run was optimised to predict two tokens ahead.**
+
+Proved rather than argued. On `seed00_twin/step009535_full.pt`, over six fixed
+held-out windows, `train.py`'s own loss and an explicit two-ahead loss agree to
+**5.33e-6** (an fp32/fp64 residual), while proper next-token loss is **7.1085**
+against their **4.2613**. The instrument was cleared first: public GPT-2 scores
+**2.7757** through the same `metrics.cross_entropy_loss` path.
+
+What made it visible: the corpus is exactly one epoch (2,499,805,184 tokens =
+9536 × 256 × 1024), so training loss *is* a held-out estimate and the 2.67-nat
+gap against the barrier evaluation's 7.34 could not be a generalisation gap.
+Next-token loss across checkpoints plateaus at ~6.74 from step 3000 while the
+training curve keeps falling to 4.67 — two curves on the same weights, moving
+differently.
+
+Two things this belongs alongside.
+
+**S55's pattern, at the level of the objective.** "A measurement narrow enough
+to be cheap is usually narrow enough to be wrong, and the failure mode is always
+a comfortable-looking number." The training curve is monotone 10.96 → 4.67 with
+gradient norms falling 5.43 → 0.25. It looks exactly right. The only test on
+`compute_loss` (`test_model_seam.py:200`) asserts the return is a scalar and
+never its semantics.
+
+**The trap was documented twice, in this repo, before it was sprung.**
+`burst_match.py:718` avoids `labels=` to "pin the definition of 'loss' inside
+this repo instead of inheriting whatever a given transformers version does with
+label shifting". `probes/determinism/hf_model.py:43-45` is more explicit still:
+"transformers shifts labels internally, and `SyntheticCorpus` already returns an
+offset pair, **so passing `labels` would shift twice**." That comment describes
+this defect in advance, in the probe built to de-risk the training loop.
+`metrics.py:364` and `injection.py:359` also shift manually and correctly. Four
+loss paths right, two of them with warnings attached; the fifth — the only one
+that decides what the models become — wrong.
+
+Consequence for S96: its barrier curves and its endpoint-loss delta/sigma/power
+estimate are void. Its §8.5 near-miss account, the injection verification and
+the ruler branch stand. **The zero barrier is separately predicted by the design
+anyway** (same init + same data order ⇒ linear mode connectivity, Frankle et
+al.), so a corrected re-run will floor again and the readout question has to be
+settled before spending the GPU-hours, not after.
+
+Not fixed here. Changing the objective changes the experiment in the sense of
+`train.py:568-577`, and the choice is Asa's and Zach's. The regression test that
+should accompany whichever fix is taken asserts semantics, not type:
+`SEAM.compute_loss` must equal `metrics.cross_entropy_loss` on the same tokens
+for the `hf_gpt2` family.
+
 ### S96. The pilot ran; the headline metric floors on the displacement, and §8.5 was nearly broken getting there
 
 Four runs on `9aa930d`, clean tree, 11.1 h each on four A100X. Full record in
