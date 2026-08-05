@@ -866,6 +866,57 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S93. Sizing measured on both card models, and `train_record.json` records TF32 intent rather than state
+
+`docs/measurements/2026-08-05-hardware-sizing.md` answers the two questions the
+handoff left with numbers missing: what `micro_batch` should be, and which node
+to run on. Four things came out of it that belong here rather than only there.
+
+**A run costs 42 hours, and that is the fp32 mandate rather than slow code.**
+The A100 sustains 12.7 TFLOP/s against a 19.5 TFLOPS non-tensor fp32 peak —
+65% of peak. Estimates in the 3–4 hour range assume bf16 tensor cores against a
+312 TFLOPS ceiling. The ratio of ceilings is the entire gap, so there is no
+optimisation here to find; there is only a precision decision, and it is not
+mine.
+
+**The two card models tie at the committed configuration**, 15.12 s/step on the
+A6000 against 15.45 on the A100X. This falsified the prediction I had made from
+datasheet fp32 peaks — the A6000's 38.7 TFLOPS doubles the A100's 19.5, and I
+expected roughly 2×. Recorded because the prediction is in this session's
+reasoning and was wrong: both cards land at ~12.8 TFLOP/s, which is 65% of peak
+for one and 33% for the other. Bandwidth is the plausible explanation and was
+not measured, so the measurement stands and the explanation does not.
+
+**`micro_batch: 8` is safe and wasteful.** 15.8 GiB of an 80 GiB card. Raising
+it to 32 buys 6–9% and needs 59.8 GiB, which the A6000's 48 GiB cannot hold.
+Left at 8: the handoff invites the pilot to change it, but a 9% gain is not
+worth breaking comparability with every committed determinism result, and the
+value that *would* matter — TF32, worth 2.9× — is a decision above this line.
+
+**The finding that is a defect rather than a number.** `train_record.json`'s
+`determinism` block reported `allow_tf32: False` for runs that had demonstrably
+executed with cuBLAS TF32 on — 2.9× faster, different digests. The block is a
+dict literal of the values `train.py` assigned, built in the same function that
+assigns them; nothing reads back what torch actually holds. It records intent,
+not state.
+
+Here that gap was opened deliberately, by a wrapper that no-ops the setter so
+TF32 could be measured without editing `train.py:111`. But the record would be
+equally silent if a library, an environment override or a changed torch default
+moved the flag. This is the same shape as S87 — a study-defining value that
+nothing compares — one layer further in: the field exists and is populated and
+still cannot be trusted, which is worse than absent, because absent is visible.
+
+**Not fixed here.** The fix is small — read the four flags back from
+`torch.backends` after setting them, and record the read values — but it
+changes what every future `train_record.json` means, and one is about to be
+written by the pilot. Carried as a cross-module obligation.
+
+Nothing in the repo was edited to take any of these numbers. The two config
+knobs were varied through scratch copies and a `runpy` wrapper, both left
+outside the repo on purpose: committing a convenient way to override
+`micro_batch` and TF32 would undercut the refusals that make them fixed.
+
 ### S84. The decisions file pointed the reader at its own stale half
 
 `docs/decisions-pending.md` carried a `PARTLY SUPERSEDED` header saying D-1 and
@@ -5536,6 +5587,32 @@ Two things worth deciding at the same time:
   small share of the total), so the pressure is off. Still a numerics decision
   that interacts with `determinism: true`, and it belongs with the training
   loop.
+
+### 5. Record the determinism flags torch *holds*, not the ones we assigned
+
+**Owner: `scripts/train.py`. Deadline: before the pilot writes a
+`train_record.json` anyone intends to cite.**
+
+`configure_determinism` returns a dict literal of the values it just assigned —
+`use_deterministic_algorithms: True`, both cudnn flags, both `allow_tf32` flags.
+Nothing reads back what torch actually holds afterwards, so the block records
+**intent, not state**.
+
+That this is reachable is measured, not hypothetical: the sizing runs in
+`docs/measurements/2026-08-05-hardware-sizing.md` executed with cuBLAS TF32 on —
+2.9× faster, different digests — while their records all said
+`allow_tf32: False`. There the setter was subverted deliberately. The record
+would be equally silent if a library, an environment variable or a changed torch
+default moved a flag, and the flags are exactly the ones every determinism claim
+in this repo rests on.
+
+The fix is four `getattr` calls and cannot be retrofitted: a record written
+before it lands cannot be re-checked afterwards, because the process that could
+have observed the flag is gone. Every run in the study writes one of these.
+
+This is S87 one layer in. S87 was a study-defining value recorded *nowhere*;
+this is one recorded **wrongly**, which is worse in the one way that matters —
+a missing field prompts a question, a populated one closes it. See S93.
 
 ---
 
