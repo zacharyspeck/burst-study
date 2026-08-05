@@ -1,0 +1,71 @@
+{
+  "task": "injection-point ruler -- docs/preregistration.md section 8.4",
+  "LIMITATION": "THIS MEASURES THE RULER, NOT THE STUDY. It is the distortion factor of the shipped canonicalization recipe at one point in training, taken against synthetic isotropic perturbations of a single checkpoint. It is NOT a twin-vs-twin distance, it is not calibrated to any displacement the study will report, and it says nothing about whether an injected burst moves a model. Its only job is to choose between the plain and the permutation-aligned barrier by the rule pre-registered in docs/preregistration.md section 8.4.",
+  "fixture": "real checkpoint",
+  "recipe": [
+    "ZeroKeyBiasGauge",
+    "ZeroValueBiasGauge",
+    "SortHeads",
+    "AlignFFNNeurons"
+  ],
+  "target": {
+    "step": 199,
+    "kind": "weights_only",
+    "injection_step": 200,
+    "arm": "twin",
+    "seed": 0,
+    "family": "hf_gpt2",
+    "checkpoint": "/shared/27as66/burst-pilot/runs/seed00_twin/step000199_weights_only.pt"
+  },
+  "measurement": {
+    "epsilon": 1e-06,
+    "shape": "isotropic",
+    "n_directions": 10,
+    "direction_seeds": [
+      11,
+      22,
+      33,
+      44,
+      55,
+      66,
+      77,
+      88,
+      99,
+      110
+    ],
+    "by_direction": {
+      "11": 0.9999376391551721,
+      "22": 0.9999371499850477,
+      "33": 0.9999381704343199,
+      "44": 0.9999371961335668,
+      "55": 0.9999374711756106,
+      "66": 0.999936707610144,
+      "77": 0.999938869561558,
+      "88": 0.9999377040593486,
+      "99": 0.9999371725791313,
+      "110": 0.9999370179659476
+    },
+    "min": 0.999936707610144,
+    "median": 0.9999373336545887,
+    "max": 0.999938869561558
+  },
+  "public_gpt2_comparison": {
+    "source": "9-canonicalization-error.json :: step_attribution.variants.shipped_recipe.1e-06",
+    "n_seeds": 10,
+    "min": 1.000391444699088,
+    "median": 1.000411500513751,
+    "max": 1.0004558814283586,
+    "spread": 1.0000644115157242
+  },
+  "branch": {
+    "branch": "plain_loss_barrier",
+    "rule": "spread <= 2 and median < 1.01",
+    "reason": "spread is 1 and the median is 0.999937. Alignment moves the number by less than one percent, which is not work worth an unbuilt module. The aligned barrier is reported as a robustness check.",
+    "spread": 1.0000021620882578,
+    "median": 0.9999373336545887,
+    "aligned_as_robustness_check": true,
+    "builds_d6": false,
+    "available": true
+  },
+  "PROVENANCE": "stem=12-injection-point-ruler; fixture=real checkpoint; arm='twin'; seed=0; step=199; family='hf_gpt2'; epsilon=1e-06; n_directions=10; direction_seeds=[11, 22, 33, 44, 55, 66, 77, 88, 99, 110]; recipe=['ZeroKeyBiasGauge', 'ZeroValueBiasGauge', 'SortHeads', 'AlignFFNNeurons']; branch=plain_loss_barrier; available=True; python=3.12.7"
+}

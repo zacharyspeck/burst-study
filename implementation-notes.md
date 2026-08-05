@@ -866,6 +866,66 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S96. The pilot ran; the headline metric floors on the displacement, and §8.5 was nearly broken getting there
+
+Four runs on `9aa930d`, clean tree, 11.1 h each on four A100X. Full record in
+`docs/measurements/2026-08-05-pilot-results.md`. Three things belong here.
+
+**The ordering constraint was nearly violated, by me, at the first opportunity.**
+I queued four barriers — three twin-vs-twin plus the seed-0 arm-vs-twin
+displacement — and only then read §8.5, which requires the canonicalization
+ruler's branch to be recorded *before any arm-vs-twin distance from the pilot is
+examined*; §8.7 names the reverse order as invalidating section 8. The job was
+cancelled with only `twin_s0_s1.json` written, which is twin-vs-twin and so not
+disqualifying. That file was deleted and every barrier recomputed after the
+branch, so the sequence rests on the recorded order rather than on my account of
+which half was contaminated.
+
+Two guards caught the same reach within ten minutes. The second was the ruler
+itself: pointed at `seed00_random-chars/step000199`, it refused —
+*"this checkpoint is from arm 'random-chars', which injects"* — and noted the
+twin's checkpoint is bit-identical anyway. The refusal costs nothing and
+forecloses the shortcut. **This is the argument for guards that refuse rather
+than warn, made against a live example.** `scripts/pilot_barrier.py` cannot
+enforce the ordering (it takes any two checkpoints and cannot know what has
+already been looked at), and its docstring says so rather than implying safety
+it does not provide.
+
+**The pre-registered branch came out `plain_loss_barrier`,** spread 1.0000022
+against a threshold of 2 and median distortion 0.9999373 against 1.01. So D-6
+does not gate the headline number — the unbuilt aligned barrier is a robustness
+check. That is §8 working as designed: the rule was committed before the pilot,
+the measurement ran, the branch fell out with nobody's judgment in the loop.
+
+**And then the headline metric returned exactly zero for the displacement.**
+`rose_above_chord: False`; the curve sags to −0.100 at alpha 0.5 and never
+crosses the chord. Arm and twin share initialization and data order, differ by
+one burst at step 200, and never leave the same basin. The three twin-vs-twin
+pairs do the opposite — sharp peaks at exactly alpha 0.5, up to 4.218 — because
+independently-initialized networks sit in different basins.
+
+So on this metric the noise floor measures basin mismatch and the displacement
+is floored at zero: sigma = 3.29 against delta = 0 is not a small effect, it is
+a metric that cannot express this effect. **The evidence that chose the metric
+does not cover the case that turned out to matter** — §8.4's rule branched on
+epsilon-perturbation distortion at a single checkpoint, which speaks to whether
+canonicalization distorts a distance, not to whether two independently-seeded
+twins differ by a genuine permutation. These curves show they differ by
+something worth 2.6–4.2 nats at the midpoint. D-7 is closed and the branch
+stands; this records the gap rather than reopening it. Measurement E in
+`canonicalization_error.py` is the built thing that bears on it.
+
+Endpoint loss, which the barrier discards, does carry signal: delta = +0.0577,
+sigma = 0.0644, giving n ≈ 9.8 seeds by §9.3. Read as an order of magnitude
+only — delta is one observation and sigma comes from three seeds.
+
+**A trap worth naming.** `sha256sum` on the step-199 checkpoint *files* reports
+the twin and the injecting arm as different. Not a determinism failure:
+`save_checkpoint` stores `arm` in the payload beside the weights
+(`scripts/train.py:323`). The comparison has to hash `payload["model"]`, which
+matches at 199 and differs at 249 — the injection landing exactly where §8.4
+puts it.
+
 ### S95. The loop gained bf16; `micro_batch` was measured and kept at 8
 
 Two config fields changed, in opposite directions, and the asymmetry is the
