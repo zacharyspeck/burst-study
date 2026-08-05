@@ -866,6 +866,47 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S94. bf16 reproduces bitwise, so the dtype argument is about precision only
+
+`docs/measurements/2026-08-05-bf16-determinism.md`. Three pairs on the A100X,
+each two fresh processes on the same card, compared with `check.py`'s own
+`compare()` imported rather than reimplemented: fp32/mb8, bf16/mb8 and
+bf16/mb32 all **IDENTICAL**, 149 parameter tensors and 444 optimizer entries
+each.
+
+Three things follow that the repo did not previously have.
+
+**The determinism objection to bf16 does not exist.** Combined with the bf16
+leg already in the 2026-08-03 record, bf16 now reproduces on two card models.
+So does TF32 (S93). Both cost precision and neither costs reproducibility, and
+the two should stop being argued as though they were the same objection —
+`train.py`'s refusal of bf16 is about the *absence of an autocast path*, which
+is a true and separate reason, and the comment at line 111 says as much about
+TF32.
+
+**A gate had not been passed and now is.** §10 check 3 wants determinism on the
+hardware actually used; the committed record is an A6000 and the A100X had
+never been checked with `--model hf`. The fp32 control closes that. It also
+shows the check was not a formality: **95 kernels on the A100X against 92 on
+the A6000**, same code, same config, same dtype. That is §0.C's rule earning
+itself.
+
+**bf16 is worth ~15% over TF32, not 2×.** I expected the datasheet ratio
+(312 against 156 TFLOPS) and it is not there: bf16 reaches 14% of its peak,
+TF32 25% of its own. At this model size the loop is not GEMM-bound. Recorded
+because I predicted otherwise twice today — once for the A6000's fp32 peak
+(S93) and once here — and datasheet peaks have now mispredicted this workload
+in both directions. The lesson is not about bf16; it is that **this loop's
+throughput is not a function of the number on the box**, and any further
+hardware reasoning here should be measured rather than derived.
+
+What this does **not** license: `dtype: bf16` in the config. The measurement is
+of the probe. `scripts/train.py` has no autocast path, and porting the probe's
+(one context manager around `SEAM.compute_loss`, fp32 master weights, no
+GradScaler since bf16's exponent range does not need one) is a change whose own
+determinism has not been measured. The refusal at `train.py:411` stands and is
+still correct.
+
 ### S93. Sizing measured on both card models, and `train_record.json` records TF32 intent rather than state
 
 `docs/measurements/2026-08-05-hardware-sizing.md` answers the two questions the
