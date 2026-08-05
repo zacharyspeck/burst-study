@@ -296,6 +296,97 @@ def test_the_loop_refuses_a_null_micro_batch(tmp_path, corpus):
                 strict_determinism=False, n_sequences=N_SEQ)
 
 
+# ---------------------------------------------------------------------------
+# dtype: the loop honours fp32 and bf16, and RECORDS which one it actually got
+#
+# Added 2026-08-05 with the autocast path (S95). Note what was here before:
+# nothing. `grep -rn bf16 tests/` returned no hits, so the old fp32-only
+# refusal -- a load-bearing guard, quoted in the handoff -- was never once
+# exercised. The port is tested; the refusal it replaced never was.
+#
+# NOT TESTED HERE: that bf16 reproduces bitwise. It does
+# (docs/measurements/2026-08-05-bf16-determinism.md, two card models), but a
+# test of it would need CUBLAS_WORKSPACE_CONFIG set before CUDA initialises,
+# which pytest cannot guarantee once any earlier test has touched CUDA. A test
+# that silently measured non-strict determinism would be worse than no test.
+# ---------------------------------------------------------------------------
+
+
+def test_the_loop_refuses_a_dtype_it_cannot_honour(tmp_path, corpus):
+    """burst/config.DTYPES says what may be WRITTEN; this says what may be RUN.
+
+    Kept as two separate lists on purpose, so a dtype the config later gains --
+    fp16, which would need a GradScaler and therefore its own determinism
+    question -- fails loudly here instead of being trained by accident. Built
+    with dataclasses.replace because the loader would refuse to parse it.
+    """
+    import dataclasses
+
+    base_path, run_path = _write_configs(tmp_path)
+    cfg = _load_cfg(tmp_path, base_path, run_path)
+    fp16 = dataclasses.replace(
+        cfg, training=dataclasses.replace(cfg.training, dtype="fp16"))
+    with pytest.raises(T.TrainError, match="fp32 and bf16 only"):
+        T.train(fp16, family=SEAM.FAMILY_HF_GPT2, corpus_dir=corpus,
+                outdir=tmp_path / "o", stream=io.StringIO(),
+                strict_determinism=False, n_sequences=N_SEQ)
+
+
+def test_the_loop_refuses_bf16_on_cpu(tmp_path, corpus):
+    """Autocast here is CUDA-only, so bf16 on CPU is a refusal and not a quiet
+    second path. Every bf16 measurement in docs/measurements/ is CUDA; a CPU
+    bf16 number would look comparable to those and would not be.
+    """
+    import dataclasses
+
+    base_path, run_path = _write_configs(tmp_path)
+    cfg = _load_cfg(tmp_path, base_path, run_path)
+    bf16 = dataclasses.replace(
+        cfg, training=dataclasses.replace(cfg.training, dtype="bf16"))
+    with pytest.raises(T.TrainError, match="CUDA-only"):
+        T.train(bf16, family=SEAM.FAMILY_HF_GPT2, corpus_dir=corpus,
+                outdir=tmp_path / "o", stream=io.StringIO(),
+                strict_determinism=False, device="cpu", n_sequences=N_SEQ)
+
+
+def test_the_precision_block_is_read_back_rather_than_asserted(
+        tmp_path, corpus):
+    """Cross-module obligation 5, honoured for the one block that is new.
+
+    The `determinism` block records the values this module ASSIGNED, which is
+    how a TF32 run came to report TF32 off (S93). `precision` answers the same
+    kind of question by entering the context and asking torch, so this test
+    compares it against the MODEL THAT TRAINED rather than against the config
+    that described it -- if it were an echo of cfg.training.dtype, this would
+    still pass on the first two assertions and fail on the last.
+    """
+    record = _run(tmp_path, corpus, tmp_path / "o")
+
+    precision = record["precision"]
+    assert precision["config_dtype"] == "fp32"
+    assert precision["autocast_enabled"] is False
+    assert precision["grad_scaler"] is False
+    assert precision["master_weight_dtype"] == str(
+        next(record["model_ref"].parameters()).dtype)
+    assert precision["master_weight_dtype"] == "torch.float32"
+
+
+def test_the_precision_block_survives_the_json_round_trip(tmp_path, corpus):
+    """It is written to train_record.json, so it has to be JSON-serialisable.
+
+    `master_weight_dtype` is a torch.dtype stringified on the way in; if it
+    were left as the object, json.dumps would fall back to default=str and the
+    field would still appear, correct and untyped, in a file the study cites.
+    """
+    record = _run(tmp_path, corpus, tmp_path / "o")
+    record.pop("model_ref", None)
+    record.pop("optimizer_ref", None)
+    round_tripped = json.loads(json.dumps(record["precision"]))
+    assert round_tripped == record["precision"]
+    assert all(isinstance(v, (str, bool, type(None)))
+               for v in round_tripped.values())
+
+
 def test_the_cli_requires_an_explicit_family():
     parser = T._build_parser()
     family = {a.dest: a for a in parser._actions}["family"]

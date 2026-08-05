@@ -31,7 +31,7 @@ three were set to the values `probes/determinism/train_once.py` uses:
 | value | now | constraint |
 | --- | --- | --- |
 | `training.micro_batch` | `8` | Must divide `batch_size` (256) exactly — it does, giving 32 accumulation steps. Accumulation is mandatory, not a choice: a full batch of logits is `256 × 1024 × 50257 × 4 B = 52.70 GB`. |
-| `training.dtype` | `fp32` | **Must be `fp32`.** `train.py` implements fp32 only and refuses `bf16` rather than training fp32 while the record claims otherwise. |
+| `training.dtype` | `bf16` | `fp32` or `bf16`; `train.py` gained an autocast path on 2026-08-05 and honours both. **fp16 is still refused** — it would need a GradScaler. bf16 is CUDA-only here. |
 | `optimizer.adamw_impl` | `foreach` | One of `foreach`, `fused`, `single`. |
 
 All three change reduction order, which is what bitwise reproducibility is made
@@ -182,7 +182,7 @@ committed determinism result stays comparable to the loop meant to inherit it:
 
 ```
 training.micro_batch      8
-training.dtype            fp32
+training.dtype            bf16
 optimizer.adamw_impl      foreach
 ```
 
@@ -206,8 +206,9 @@ reproducibility is made of:
 - **`dtype`** — changes which CUDA kernels are selected. The determinism probe
   measured this directly: fp32 chose `fmha_cutlassF/B`, bf16 chose
   `pytorch_flash::flash_fwd/bwd`, 66 kernels against 74.
-  **`scripts/train.py` implements fp32 only** and refuses `bf16` explicitly
-  rather than training fp32 while the record claims bf16.
+  **`scripts/train.py` honours fp32 and bf16** since 2026-08-05, and still
+  refuses fp16, which would need a GradScaler and its own determinism
+  question. bf16 is ~3.5x faster and verified bitwise on two card models.
 - **`adamw_impl`** — `foreach`, `fused` and `single` group their arithmetic
   differently and produce different bits from identical moments.
 
@@ -277,16 +278,16 @@ otherwise validate corrupted shards.
 ### Step 1 — check the repo is sane
 
 ```bash
-python -m pytest -q                    # 918 tests; see below on pass/skip
+python -m pytest -q                    # 922 tests; see below on pass/skip
 python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mismatched
 ```
 
-**Compare the total, not the pass count.** 918 tests collect everywhere, but
+**Compare the total, not the pass count.** 922 tests collect everywhere, but
 the pass/skip split depends on the host: `test_corpus_tokenize.py` skips until
 a corpus is built locally, and two tests skip *because* CUDA is present, since
 they assert a refusal that only applies to CPU-only hosts. On a CPU-only host
 with a corpus built this is **601 passed, 176 skipped** without torch and
-**918 passed, 0 skipped** with it; on `gpmoo-b1` expect 600/177 and 915/3.
+**922 passed, 0 skipped** with it; on the gpmoo nodes expect 600/177 and 919/3.
 Or run both at once with `python scripts/check_suites.py`, which reports each
 count and exits nonzero if either environment fails.
 
@@ -402,8 +403,9 @@ The repo refuses rather than warns in a lot of places. None of these is a bug:
 - **Hand-edited override files.** `configs/runs/` is generated. The launcher
   runs `generate_overrides.py --check` and refuses if anything was edited.
 - **A run that is not launch-ready.** See §3.
-- **`bf16`.** `train.py` implements fp32 only and will not train fp32 while the
-  config records bf16.
+- **`fp16`.** `train.py` honours fp32 and bf16 and refuses everything else.
+  fp16 would need a GradScaler, whose step-skipping is its own determinism
+  question. **bf16 on CPU is also refused** — the autocast path is CUDA-only.
 - **A corpus whose manifest disagrees with `corpus_spec`.** Different revision
   or different geometry means it is not the corpus the config describes.
 - **A data order that does not match the recorded digest.**
@@ -455,9 +457,10 @@ launch at all — §3 covers the three values that used to.
 # 1. verify the corpus you were sent
 python scripts/corpus_verify.py --outdir /path/to/corpus
 
-# 2. (already done 2026-08-03) training.micro_batch=8, dtype=fp32,
-#    adamw_impl=foreach are set. Re-decide micro_batch if the pilot's
-#    measured memory ceiling says something other than 8.
+# 2. (done) training.micro_batch=8, dtype=bf16, adamw_impl=foreach.
+#    micro_batch was MEASURED on 2026-08-05 and 8 was kept: 32 is 3% faster
+#    and needs 48.15 GiB, which does not fit an A6000. dtype became bf16 the
+#    same day, once the loop gained autocast. See S95.
 
 # 3. emit four runs
 python scripts/launch.py --outroot /scratch/burst/runs \

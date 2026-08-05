@@ -499,7 +499,7 @@ adding one is rejected by the schema check.
 | field | value | why it still has no default |
 | --- | --- | --- |
 | `training.micro_batch` | `8` | accumulation sums partial gradients in sequence, and float addition is not associative, so `8 x 32` and `16 x 16` give different bits from identical data |
-| `training.dtype` | `fp32` | changes which CUDA kernels are selected — the determinism probe measured 66 kernels against 74 between fp32 and bf16 |
+| `training.dtype` | `bf16` | changes which CUDA kernels are selected — fp32 takes the mem-efficient cutlass attention path, bf16 takes flash. Was `fp32` until 2026-08-05; see S95 |
 | `optimizer.adamw_impl` | `foreach` | `foreach`, `fused` and `single` group their arithmetic differently and produce different bits from identical moments |
 
 All three were `null` and launch-blocking until 2026-08-03. They remain

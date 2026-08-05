@@ -87,11 +87,29 @@ training:
   # a configuration nobody chose, and it does NOT transfer to any other value
   # here. See S67.
   #
-  # SO 8 IS AN INHERITED VALUE, NOT A MEASURED ONE. It is set to keep the
-  # determinism evidence comparable, not because anything measured it to be
-  # right. THE PILOT IS WHAT TURNS IT INTO A CHOSEN VALUE, by measuring the
-  # memory ceiling and the step time on real hardware. Until then, treat this
-  # number as provisional and as the probe's invention.
+  # MEASURED AND KEPT, 2026-08-05. This paragraph used to say 8 was AN
+  # INHERITED VALUE, NOT A MEASURED ONE -- the probe's invention, provisional
+  # until the pilot measured the memory ceiling and step time on real
+  # hardware. That measurement has now happened, on both card models, and 8
+  # survives it. See docs/measurements/2026-08-05-hardware-sizing.md and S95.
+  #
+  # 16 and 32 were both measured. 32 was the candidate, and it is REJECTED for
+  # a reason that has nothing to do with speed:
+  #
+  #   micro_batch    peak memory     step time (bf16, A100X)
+  #   8              15.8 GiB        4.77 s
+  #   16             30.3 GiB        --
+  #   32             48.15 GiB       4.62 s
+  #
+  # 32 is 3% FASTER AND DOES NOT FIT ON AN A6000. 49,303 MiB against 49,140
+  # MiB of card -- over by 163 MiB, with no headroom even if it squeezed. That
+  # would make this config A100-only, and there are FOUR usable A100s on
+  # gpmoo-a1 against SIXTEEN A6000s across b1+b2, because a1's eight cards are
+  # three different SKUs and only the A100X block is homogeneous. Locking to
+  # the smaller pool would take the full 70-run study from ~3.4 days to ~8.2.
+  #
+  # So 8 is kept because it RUNS EVERYWHERE, and the 3% is not worth the
+  # hardware it costs. That is a decision now, not an inheritance.
   micro_batch: 8
 
   # The loader asserts batch_size % micro_batch == 0 when micro_batch is set.
@@ -105,13 +123,36 @@ training:
   # selected fmha_cutlassF/B, bf16 selected pytorch_flash::flash_fwd/bwd, 66
   # kernels against 74.
   #
-  # NOTE: scripts/train.py implements fp32 ONLY. It has no autocast, and it
-  # refuses bf16 explicitly rather than training fp32 while this field claims
-  # bf16. probes/determinism covers both; the loop does not. See S78.
+  # CHANGED TO bf16 on 2026-08-05, after the loop gained an autocast path.
   #
-  # fp32 is therefore the only value the loop can honour, and it is also the
-  # one the determinism result was taken under.
-  dtype: fp32
+  # The note that stood here said scripts/train.py implements fp32 ONLY, has
+  # no autocast, and refuses bf16 rather than training fp32 while this field
+  # claims bf16 (S78). That was true and the refusal was right. It stopped
+  # being true when the autocast path was ported from the probe: see S95 and
+  # docs/measurements/2026-08-05-bf16-determinism.md.
+  #
+  # WHY THE CHANGE. fp32 leaves the tensor cores switched off, and on an A100
+  # that is a 16x lower ceiling -- 19.5 TFLOPS non-tensor against 312. A run
+  # costs 42 h at fp32 and ~11 h at bf16. The determinism objection, which
+  # would have settled it, does not exist: bf16 reproduces bitwise on two card
+  # models, verified with the same digest comparison the fp32 result used.
+  #
+  # WHAT IT COSTS, stated plainly. bf16 has fp32's exponent range and roughly
+  # three decimal digits of mantissa against seven. Every measurement in
+  # docs/measurements/ taken before this date was taken at fp32, and none of
+  # them transfers -- not the arm matching, not the barriers, not the
+  # canonicalization error. This field is why they do not.
+  #
+  # WHAT IT DOES NOT CHANGE: the master weights stay fp32. Autocast casts at
+  # the op boundary and the optimizer updates fp32 parameters, so checkpoints
+  # are the same size and the same precision as before. The loop RECORDS this
+  # rather than claiming it -- train_record.json's `precision` block reads
+  # master_weight_dtype back out of the model.
+  #
+  # NO GradScaler, and fp16 is still refused by the loop for that reason: it
+  # would need one, and a step-skipping state machine is its own determinism
+  # question. bf16 needs nothing to underflow-protect.
+  dtype: bf16
 
   # Optimizer steps for the whole run.
   #

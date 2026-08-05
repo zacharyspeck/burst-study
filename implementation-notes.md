@@ -866,6 +866,74 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S95. The loop gained bf16; `micro_batch` was measured and kept at 8
+
+Two config fields changed, in opposite directions, and the asymmetry is the
+point: one moved because a measurement removed the objection to it, the other
+stayed because a measurement found a cost nobody had priced.
+
+**`dtype: fp32` → `bf16`.** The loop had no autocast and refused bf16 outright
+(S78). That refusal was correct while it was true — training fp32 while the
+config recorded bf16 would have made every run's provenance wrong about its own
+arithmetic. It is no longer true. The path is
+`torch.autocast(device_type="cuda", dtype=torch.bfloat16)` around
+`SEAM.compute_loss`, ported from the probe so the loop and the probe compute
+the same way and their evidence stays interchangeable. `backward()` stays
+outside the context; master weights stay fp32; **no GradScaler**, because
+scaling exists to stop fp16 gradients underflowing and bf16 has fp32's exponent
+range. That is also why fp16 is still refused: it would need one, and a
+step-skipping state machine is its own determinism question.
+
+Why now: fp32 leaves the tensor cores off, which on an A100 is a 16× lower
+ceiling and 42 h per run against ~11 h. The objection that would have settled
+it does not exist — bf16 reproduces bitwise on two card models (S94).
+
+The loop's accepted list is deliberately **separate** from
+`burst/config.DTYPES`. The config decides what may be *written*; the loop
+decides what may be *run*. Kept apart so a dtype the config later gains cannot
+be trained by accident.
+
+**`micro_batch` stays 8, and is now a decision rather than an inheritance.**
+The handoff said measuring it was the pilot's job and invited the pilot to
+change it. Measured, and 32 is **rejected**:
+
+| micro_batch | peak | step (bf16, A100X) |
+| ---: | ---: | ---: |
+| 8 | 15.8 GiB | 4.77 s |
+| 32 | **48.15 GiB** | 4.62 s |
+
+32 is 3% faster and needs 49,303 MiB against an A6000's 49,140 — over by 163
+MiB. Taking it would make the config A100-only, and a1 has **four** usable
+A100s (its eight cards are three SKUs; only the A100X block is homogeneous)
+against **sixteen** A6000s on b1+b2. The full study goes from ~3.4 days to
+~8.2. So the 3% costs a 2.4× on the thing that actually matters. This is the
+first config value here decided by what it forecloses rather than by what it
+measures.
+
+**A new record field, and the reason it is shaped the way it is.**
+`train_record.json` gains `precision`, holding `config_dtype`,
+`autocast_enabled`, `autocast_dtype`, `grad_scaler` and `master_weight_dtype`.
+Every value is **read back** — the block enters the autocast context and asks
+torch what is true inside it, and reads the parameter dtype out of the model
+that trained. That is cross-module obligation 5 honoured for the one block that
+is new, though not for the `determinism` block that motivated it, which still
+records intent. `master_weight_dtype` is the load-bearing one: autocast must
+leave parameters in fp32 and cast at the op boundary, and a bf16 parameter
+there would mean the optimizer is updating half-precision weights — a different
+algorithm wearing the same config.
+
+**What the tests found by existing.** `grep -rn bf16 tests/` returned nothing
+before this. The fp32-only refusal was load-bearing, quoted in the handoff as a
+hard constraint, and **never once exercised**. Four tests added: the two
+refusals (an unhonourable dtype, and bf16 on CPU), and two on `precision`,
+one of which compares `master_weight_dtype` against the model rather than the
+config, so an implementation that echoed `cfg.training.dtype` would fail it.
+600/177 and 919/3, 922 collected.
+
+**Not done, and it gates the pilot rather than this entry:** `scripts/train.py`
+itself has not been shown to reproduce at bf16. S94 measured the *probe*. The
+loop is next, from a clean tree, before anything long launches.
+
 ### S94. bf16 reproduces bitwise, so the dtype argument is about precision only
 
 `docs/measurements/2026-08-05-bf16-determinism.md`. Three pairs on the A100X,
@@ -5918,7 +5986,7 @@ or driver.
 
 ## Test coverage
 
-918 tests, counted per file with `--collect-only` rather than from memory.
+922 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -5942,13 +6010,13 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_verify.py` | 13 |
 | `tests/test_model_seam.py` | 25 |
 | `tests/test_rng_state.py` | 17 |
-| `tests/test_train.py` | 19 |
+| `tests/test_train.py` | 23 |
 | `tests/test_injection.py` | 23 |
 | `tests/test_launch.py` | 55 |
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
 | `tests/test_injection_point_ruler.py` | 64 |
-| **total** | **918** |
+| **total** | **922** |
 
 Measured on the Windows development host, 2026-08-04, after the injection-point
 ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
@@ -5959,6 +6027,16 @@ On `gpmoo-b1` the same tree is **600 passed, 177 skipped** and **915 passed,
 there. Asa's 2026-08-03 figures were 546/165 and 849/3; the config commit added
 two tests and S92's ruler added 64, of which 52 run without torch and 12 need
 it. Marked derived rather than presented as a measurement.
+
+**Both derivations above are now confirmed by measurement, 2026-08-05**, on the
+gpmoo login node via `scripts/check_suites.py`: **600 passed, 177 skipped**
+without torch and **915 passed, 3 skipped** with it, exactly as derived. The
+derivation was right, and it is worth saying so — a derived count that nobody
+ever checks is how a stale number survives.
+
+After S95's four bf16/precision tests the same host reads **600 passed, 177
+skipped** and **919 passed, 3 skipped**, against a collected total of 922. The
+torch-free count does not move because all four need torch.
 
 **The pass/skip split is host-dependent; the total is not.** Three tests decide
 what they do from the machine rather than from the code:

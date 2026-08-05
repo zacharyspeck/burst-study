@@ -33,6 +33,7 @@ It consumes no sampler index and draws no randomness. See S81.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import io
 import json
@@ -408,13 +409,32 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
             "changes which kernels run and therefore reduction order; the "
             "determinism probe measured 66 kernels against 74 between fp32 and "
             "bf16. Decide it in configs/base.yaml.")
-    if cfg.training.dtype != "fp32":
+    # bf16 IMPLEMENTED 2026-08-05. This used to refuse everything but fp32,
+    # because the loop had no autocast and training fp32 while the config
+    # recorded bf16 would have made every run's provenance wrong about the
+    # arithmetic that produced it. That refusal was correct for as long as it
+    # was true. It is no longer true: bf16 is bitwise deterministic on two card
+    # models (docs/measurements/2026-08-05-bf16-determinism.md), and the
+    # autocast path below is the probe's, ported. See S95.
+    #
+    # This list is deliberately SEPARATE from burst/config.DTYPES. That one
+    # says what may be WRITTEN in a config; this one says what this loop can
+    # HONOUR. Keeping them apart is what makes a dtype the config later gains
+    # -- fp16, say, which would need a GradScaler and its own determinism
+    # question -- fail here loudly instead of being trained by accident.
+    if cfg.training.dtype not in ("fp32", "bf16"):
         raise TrainError(
-            f"training.dtype is {cfg.training.dtype!r}, and this loop "
-            "implements fp32 ONLY -- it has no autocast. Training fp32 while "
-            "the config records bf16 would make every run's provenance wrong "
-            "about the arithmetic that produced it, so this refuses instead. "
-            "probes/determinism covers bf16; scripts/train.py does not.")
+            f"training.dtype is {cfg.training.dtype!r}; this loop implements "
+            "fp32 and bf16 only. burst/config.py decides what may be written "
+            "in a config; this decides what can be trained, and the two lists "
+            "are separate on purpose.")
+    if cfg.training.dtype == "bf16" and not str(device).startswith("cuda"):
+        raise TrainError(
+            f"training.dtype is 'bf16' but device is {str(device)!r}. The "
+            "autocast path here is CUDA-only. bf16 on CPU takes a different "
+            "path from every bf16 measurement in docs/measurements/, all of "
+            "which are CUDA, so this refuses rather than producing a number "
+            "that looks comparable and is not.")
     if cfg.optimizer.grad_clip is None:
         raise TrainError(
             "optimizer.grad_clip is null and this loop has NO DEFAULT for it. "
@@ -428,6 +448,24 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
             "foreach, fused and single group their arithmetic differently and "
             "produce different bits from identical moments. Decide it in "
             "configs/base.yaml.")
+
+    # bf16 runs the FORWARD under autocast, over fp32 master weights. Ported
+    # from probes/determinism/train_once.py so the loop and the probe compute
+    # the same way and their evidence stays interchangeable.
+    #
+    # NO GradScaler, and that is not an omission. Scaling exists to stop fp16
+    # gradients underflowing; bf16 has fp32's exponent range and nothing to
+    # underflow, so a scaler would add a step-skipping state machine -- its own
+    # determinism question -- to buy nothing. This is why the loop takes bf16
+    # and still refuses fp16.
+    #
+    # backward() stays OUTSIDE the context, which is what autocast expects: the
+    # backward reuses the dtypes the forward chose rather than choosing again.
+    if cfg.training.dtype == "bf16":
+        def autocast_ctx():
+            return torch.autocast(device_type="cuda", dtype=torch.bfloat16)
+    else:
+        autocast_ctx = contextlib.nullcontext
 
     # 1.10: the geometry duplicate exists so it can be checked, and until now
     # it was checked only by the test suite. A run could train on a corpus
@@ -482,6 +520,28 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
     grad_norms, checkpoints = [], []
     model.train()
 
+    # OBSERVED, not asserted. Cross-module obligation 5 exists because the
+    # `determinism` block above records the values this module ASSIGNED rather
+    # than the ones torch went on to hold -- a gap that let a TF32 run report
+    # TF32 off (S93). This block is the same four questions answered the other
+    # way: enter the context and ask torch what is true inside it.
+    #
+    # master_weight_dtype is the load-bearing one. Autocast must leave the
+    # parameters in fp32 and cast only at the op boundary; a bf16 parameter
+    # here would mean the optimizer is updating half-precision weights, which
+    # is a different algorithm wearing the same config.
+    with autocast_ctx():
+        precision = {
+            "config_dtype": cfg.training.dtype,
+            "autocast_enabled": bool(torch.is_autocast_enabled()),
+            "autocast_dtype": (
+                str(torch.get_autocast_dtype("cuda"))
+                if hasattr(torch, "get_autocast_dtype")
+                and str(device).startswith("cuda") else None),
+            "grad_scaler": False,
+            "master_weight_dtype": str(next(model.parameters()).dtype),
+        }
+
     for step in range(start_step, total):
         lr = lr_at(step, cfg)
         for group in optimizer.param_groups:
@@ -516,7 +576,8 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
             # evidence exists stays applicable to this loop.
             #
             # Anyone changing this line is changing the experiment. See S77.
-            loss = SEAM.compute_loss(model, inputs, targets) / accum
+            with autocast_ctx():
+                loss = SEAM.compute_loss(model, inputs, targets) / accum
             loss.backward()
             loss_sum += float(loss.detach())
 
@@ -548,6 +609,7 @@ def train(cfg, *, family, corpus_dir, outdir, steps=None, resume=None,
         "micro_batch": micro,
         "accumulation_steps": accum,
         "dtype": cfg.training.dtype,
+        "precision": precision,
         "adamw_impl": cfg.optimizer.adamw_impl,
         "steps_run": [start_step, total],
         "determinism": determinism,
