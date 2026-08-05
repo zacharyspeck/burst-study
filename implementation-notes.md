@@ -197,6 +197,90 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D31. No `docs/measurements/13-*` artifact is committed, because the checkpoints are not on this machine
+
+**Not a shortcut, and not fixable here.** `scripts/displacement_ladder.py` was
+asked to produce `docs/measurements/13-pilot-displacement-ladder.{json,md}`. It
+writes both, and it has never written them for a real run, because the pilot's
+checkpoints live at `/shared/27as66/burst-pilot/runs/` and **nothing on this
+machine holds a `.pt` file** — `find` over the repo and over the home tree
+returns only the tokenized corpus shards.
+
+So what is committed is the capability plus its tests plus a verified
+`--selftest` run over junk fixtures. This is exactly S92's situation for the
+section 8.4 ruler: built and tested before it could be run. The difference is
+that S92's note then went stale when the measurement did happen, and D27 item 6
+went stale with it — both still say no `12-*` artifact is committed while two
+are. **This entry will go stale the same way the moment Asa runs the command,
+and the fix is to update it in place at that point rather than to write it
+vaguely now.**
+
+The exact command is in the report at the end of this work and in the script's
+own docstring.
+
+### D30. "Every per-layer cosine and CKA exactly 1.0" — CKA yes, cosine no
+
+**Asked for:** the zero check asserts L2 exactly 0.0 and every per-layer cosine
+and CKA exactly 1.0.
+
+**Four of the five are exact and are asserted exactly. Cosine cannot be**, and
+this was MEASURED before the script was written rather than discovered
+afterwards. On an identical pair at real scale — 13 layers, 1024 token
+positions, GPT-2 124M shapes — the observed maxima were:
+
+| quantity | exact? | observed max deviation |
+| --- | --- | --- |
+| total L2 | yes | `0.0` |
+| per-bucket L2 | yes | `0.0` |
+| per-model loss | yes, bitwise | `0.0` |
+| activations (`torch.equal`) | yes | bitwise equal, 13/13 |
+| per-layer CKA | **yes** | `0.0` |
+| norm ratio | yes | `0.0` |
+| **per-layer cosine** | **no** | `6.66e-16`, **3 ulps of double** |
+
+The reason is arithmetic, not a defect: for bitwise-identical activations the
+numerator is `sum(a_i * a_i)` and the denominator is `norm(a) * norm(a)`, and
+the two reduce the same 768 products in different orders. Asserting exact
+equality there would make the gate fire on correct behaviour, and a gate that
+always fires is not a gate.
+
+**Why this is not the forbidden kind of loosened assertion.** The repo's rule is
+never to relax validation for convenience. This tolerance is not doing that,
+because it is **not load-bearing**: `COSINE_IDENTITY_ULPS = 8` sits behind
+bitwise activation equality, exact CKA, an exact norm ratio and exact L2. A
+broken runner fails one of those first, and no path reaches the cosine check
+having passed all four. The observed deviation is also **recorded in the
+artifact on every run** rather than merely tolerated, following the precedent of
+`docs/measurements/10-metrics.json`'s `barrier_noise_floor`, so drift is visible
+instead of absorbed. Pinned by
+`test_the_cosine_identity_tolerance_is_pinned_and_tiny`, so widening it is a
+visible edit.
+
+### D29. "Load each checkpoint once" and "never hold more than the current pair" cannot both hold
+
+**Asked for:** *"Load each distinct checkpoint once, keep only `payload["model"]`,
+delete the rest immediately. Never hold more than what the current pair needs."*
+
+Those two sentences conflict. Loading each of the five distinct checkpoints once
+means caching five models — roughly 2.5 GB at 124M fp32 — which is more than any
+pair needs. Holding only the current pair means re-reading a checkpoint for each
+pair that uses it.
+
+**Took the memory ceiling as primary**, since it is the sentence with a hard
+consequence and the other is an efficiency. The run is three bounded passes:
+
+| pass | what it computes | models resident |
+| --- | --- | --- |
+| 1a | per-model loss and provenance, over the five distinct checkpoints | **1** |
+| 1b | total and per-layer L2, per pair | **2** |
+| 2 | per-layer cosine and CKA, per pair | **2** + two activation sets |
+
+`seed00_twin/step009535_full.pt` appears in four pairs and is therefore read
+from disk five times across the run (four pairs plus the loss pass). That is
+I/O traded for a ceiling of two models, and provenance and loss are still
+computed **once** per distinct checkpoint in pass 1a, which is the part of "load
+once" that affects what gets reported rather than how long it takes.
+
 ### D28. DUPLICATE S-NUMBERS: S88 to S91 each name two different findings
 
 **Not fixed. Needs a ruling, and renumbering unattended would have been worse
@@ -227,6 +311,20 @@ the wrong finding — is precisely this repo's logged defect.
 
 **What I would need:** a ruling on which sequence renumbers, then it is a
 mechanical pass with a checked cross-reference sweep.
+
+**IT HAPPENED A FIFTH TIME, 2026-08-05, and this time it resolved itself.** Asa's
+`273d672` and my displacement-ladder commit both used **S97**, found on rebase.
+No ruling was needed because the two sides were not symmetric: **his was already
+pushed and mine was not.** Renumbering an unpushed note breaks nothing;
+renumbering a published one rewrites history and orphans the commit message that
+cites it. So mine became **S98**, its one cross-reference in
+`scripts/displacement_ladder.py` moved with it, and the original number is
+recorded in place at the top of S98.
+
+That generalises into the rule this entry was missing, and it costs nothing to
+adopt now: **when two S-numbers collide, the unpushed side renumbers.** It does
+not retire the S88–S91 problem, because both of those sequences are long since
+published and that is exactly why they are still stuck.
 
 ### D27. Conservative choices taken under the suspended-ambiguity rule
 
@@ -865,6 +963,145 @@ Cross-module obligations section.
 ---
 
 ## Smaller decisions, logged as instructed
+
+### S98. The displacement ladder: the other three metrics, run on checkpoints, with no verdict
+
+*(Numbered S97 when written. Renumbered to S98 on rebase: `273d672` landed
+Asa's own S97 first, so both existed for the same number -- D28's defect, a
+fifth time. The rule that resolves it: **the UNPUSHED side renumbers.** His was
+already published and is referenced from a commit message; mine was not, so
+renumbering mine breaks nothing and renumbering his would rewrite history. The
+one cross-reference in `scripts/displacement_ladder.py` was updated with it.)*
+
+`scripts/metrics.py` implements four metrics. Until now exactly one of them had
+ever touched a checkpoint on disk, because `scripts/pilot_barrier.py` calls
+`barrier` and stops. `scripts/displacement_ladder.py` is the runner for the other
+three plus per-model loss, over six named pairs. Five things belong here.
+
+**READ S97 FIRST, BECAUSE IT CHANGES WHAT THIS MEASURES.** S97 landed while this
+was being written: the pilot trained a two-tokens-ahead objective, so the four
+checkpoints this ladder is pointed at are not models of the study's objective.
+The runner is unaffected — the checkpoints are real, load correctly, and the
+distances over them are correctly computed — but **no number it produces on those
+files transfers to a corrected re-run**, and the ladder's `LIMITATION` says so in
+its first sentence rather than in a footnote. What S97 does *not* void is the
+§8.4 ruler branch, which is what this entry's ordering argument rests on, so the
+attestation below stands unchanged.
+
+The per-model loss is the case a reader is most likely to misread, and it is
+worth stating plainly: `metrics.cross_entropy_loss` is one of the **four loss
+paths S97 found shifting correctly**. So the loss reported here is proper
+next-token loss on models that were never trained for it — around 7.1 where the
+training curve said 4.26. That is a description of what those four checkpoints
+are, not a measurement of the burst, and the banner says which. A number that is
+correctly computed and correctly labelled but about a different object than the
+reader assumes is the S55 shape one level up, which is why it is in the banner
+and not only here.
+
+**§8.5 was checked before anything was written, and it is satisfied.** The
+ordering constraint requires the §8.4 branch to be recorded *before* any
+arm-vs-twin distance is examined; §8.7 names the reverse order as invalidating
+§8. The branch is recorded and committed (`12-injection-point-ruler.json`,
+`branch: plain_loss_barrier`). Verified independently rather than taken from
+prose: `git log --all --diff-filter=A` shows **no** arm-vs-twin artifact anywhere
+in history earlier than `f015fd0`, the commit that carries the branch record. The
+constraint is a one-time gate on the *branch choice*, so a distance measured
+after the branch is on the record cannot make the choice contingent on a result.
+The attestation is stored in the artifact as `ordering_constraint` and pinned by
+a test naming §8.5, §8.7 and the branch.
+
+**The no-verdict rule is structural, and it caught me on its first run.**
+`assert_no_verdict_keys` walks the payload before either file is written and
+refuses a key from a denylist. The first selftest aborted on **my own payload
+key** `ordering` — which I had used for the §8.5 attestation and which is also
+`scripts/analysis.py`'s name for the arm *ranking*. The guard was right and the
+key was wrong; it is now `ordering_constraint`. That is the S55 shape caught by a
+mechanism instead of by a reader: two different things wearing one name, and the
+name was the one that means "verdict". Pinned by
+`test_the_guard_catches_the_ordering_collision_it_actually_caught`, and the
+denylist is cross-checked against `analysis.py`'s actual output keys by reading
+its source, so a verdict field cannot quietly leave the denylist.
+
+**MUTATION AUDIT of the per-layer L2 grouping**, which is the only genuinely new
+arithmetic in the file. Everything else calls `metrics.py`. Three mutations, each
+applied to the source, tests run, then restored and re-run green:
+
+| # | mutation | expected | result |
+| --- | --- | --- | --- |
+| M1 | `_BLOCK_RE` `\d+` → `\d` — the careless-regex bug | blocks 10 and 11 stop matching and hit the unknown-name refusal | **RED, 3 tests**: `..._lands_in_exactly_one_bucket`, `..._matches_two_digit_block_indices`, `..._ordered_embeddings_then_blocks_in_order_then_final`. Message named `transformer.h.10.ln_1.weight` |
+| M2 | `bucket_for` returns `final` for an unknown name instead of raising | a dropped parameter is absorbed silently | **RED, 2 tests**: `..._refused_rather_than_dropped`, `..._only_looks_like_a_block_is_refused` |
+| M3 | drop `wpe` from the embeddings bucket | a mis-bucket that keeps the count arithmetic wrong | **RED, 3 tests torch-free and 21 with torch** |
+
+All three went red for the reason their names claim. M1 and M2 fire in the
+**torch-free** environment, so the grouping guard needs no ML stack. Restored
+between each, both suites re-run green, and `git status --porcelain` checked
+between mutations per D24's precedent — with one difference recorded because it
+matters: **the two files are untracked, so `git checkout --` cannot restore
+them.** A pristine copy was kept in the scratchpad and restored from there. An
+audit that relied on `git checkout` for an untracked file would have silently
+left the mutation in place.
+
+Two assertions are deliberately **integer** rather than float, because that is
+what makes them hard to satisfy by accident: every parameter lands in exactly one
+bucket and the bucket sizes sum to the name count. The float check —
+`sqrt(sum of squared parts) == total` — is the weaker of the two and is stated as
+such: **a mis-grouping that MOVES a parameter between buckets leaves both the
+total and the sum of squares unchanged**, which is why the per-bucket parameter
+*counts* are asserted against independently-written GPT-2 names rather than
+derived from `bucket_for`. Deriving the expectation from the code under test is
+how a grouping test agrees with whatever the grouping happens to do.
+
+**One thing I got wrong and the test caught.** I wrote the expected bucket count
+as 15. It is **14** — one embeddings, twelve blocks, one final. The code was
+right and the expectation was arithmetic I did in my head; 148 parameters is
+2 + 144 + 2, and the buckets are 1 + 12 + 1. Recorded because the S55 pattern's
+count is only honest if the near-misses are in it.
+
+**AN ADVERSARIAL PASS FOUND NINE THINGS I HAD NOT, and one of them made a
+guard in this file unreachable.** Six skeptics, one per stated hardening
+requirement, then a refuter per claimed defect told to knock it down. Sixteen
+candidates, **one survived formal refutation** — but the refuting round is not
+the whole story, because I had already accepted and fixed several while it ran,
+which the refuter noticed and recorded as confirmation. Kept because the count of
+what a second look catches is the running measurement S73 argues for:
+
+| what | why it mattered | fixed |
+| --- | --- | --- |
+| **The loud tap failure was UNREACHABLE from `main`.** `gate_phase2` called `cross_check_activation_routes` first, which calls `hf_gpt2_tap_modules` itself and raises a bare `MetricsError` naming no structure | the whole point of `tap_or_raise` is to dump the structure it actually found, and the route check always got there first | `tap_or_raise` moved ahead of it; verified end to end, the artifact now carries `model_type`, `top_level_children`, `has_transformer` |
+| **A phase-2 gate that RAN AND FAILED was reported as "NOT REACHED"** — `gate["phase2"]` was assigned only on success | a fired gate described as one that never ran | recorded on failure, with `WHAT_THIS_COSTS` |
+| **The phase-2 handler was a type denylist**, so `KeyError`/`OSError`/anything else escaped and left phase 1 asserting phase 2 was never attempted | this is the one finding that survived refutation, and the refuter reproduced it without injecting anything: a checkpoint removed or truncated between the phases raises `FileNotFoundError`, which was not on the list | `except Exception`; `BaseException` still propagates |
+| **A closed stdout lost the entire record.** `\| head` is how anyone looks at a long run; the `OSError` escaped from a progress print in `run_phase1`, upstream of every handler | found by the refuter while confirming the fix above — widening one handler was not enough because the failure was earlier. **Nothing at all was written** | every diagnostic print goes through `_say`; the artifact write stays fatal on purpose |
+| **Exit code 2 was ambiguous** with argparse's own 2 for a bad command line | one code meaning both "nothing written" and "phase 1 is on disk" cannot be acted on | `EXIT_PHASE2_FAILED = 3` |
+| **The two writes were not atomic** over the same paths | a failure in the second write destroys the artifact the first created — the exact durability writing phase 1 early was meant to buy | `.partial` + `os.replace`, mirroring `train.py:331-333` |
+| **`repo_state` never checked `git status`'s exit code** | a failed status call has empty stdout, which reads as a clean tree. `dirty: None` is not `dirty: false` | both codes checked |
+| **`_trained_at_commit` dropped the dirty flag** | a bare hash implies the tree was clean, and `burst/config.py` records the flag precisely because a dirty-tree run stamps a hash that does not describe its own code | returns commit + dirty + file count |
+| **`validate_payload` accepted `model: {}`** and non-mapping states | `load_state_dict` then raises a raw torch `RuntimeError` that `main` does not catch, so the run ends in a traceback rather than a message naming the file | refused, parametrized over five shapes |
+| **The phase-2 gate failure text condemned phase 1** — *"no other number it produced can be trusted"* written directly beneath phase 1 published as ok | phase 1 passed its own gate and is already on disk | `_GATE_SCOPE`, per phase |
+| **`grouping_shape` reported two derivations of one number without comparing them** | an exact integer check was available and unused; S69's "a table whose rows all agree reads as a measurement" | compared, and it raises |
+
+**And an overbroad immunity claim of my own, which is the S55 shape.** The
+docstring said the absence of a verdict was structural — *"a verdict cannot be
+added here without the guard being deleted first."* False: the guard is a
+**payload walk**, and the first `run_phase2` printed `min(cka)` across layers as
+an aligned one-scalar-per-pair column on stdout, which a reader reads
+effect-against-floor straight off and which the guard structurally could not
+see. The reduction is gone, the claim is narrowed to what the mechanism actually
+covers, and a test now reads the source to keep both true. That is
+`implementation-notes.md:1396-1403`'s defect committed by the person who had just
+finished citing it.
+
+**Two smaller decisions.** `metrics.Batch.input_ids()` builds a CPU tensor, so a
+CUDA model device-mismatches against it; `metrics.py` was out of scope, so the
+device is threaded in by **extending** `Batch` with a defaulted `device` field
+rather than editing it, and `identity()` is inherited untouched so the batch
+identity stays equal to the one every other report in `docs/measurements/` is
+keyed to. And the two ladder steps are **derived** — `cfg.last_step` and a walk
+back from `injection_step` through `cfg.checkpoint_kind_at` — never typed;
+`test_the_two_ladder_steps_are_derived_from_the_config` parses the function with
+`ast`, strips the docstring, and asserts the literals `199` and `9535` do not
+appear in its code. The docstring stripping is load-bearing: that docstring says
+"199 and 9535 are not written down here", and a raw substring scan was tripped by
+the sentence promising the opposite.
 
 ### S97. The pilot trained the wrong objective: `shift` then `labels=` shifts twice
 
@@ -6105,7 +6342,7 @@ or driver.
 
 ## Test coverage
 
-922 tests, counted per file with `--collect-only` rather than from memory.
+1035 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -6135,7 +6372,8 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
 | `tests/test_injection_point_ruler.py` | 64 |
-| **total** | **922** |
+| `tests/test_displacement_ladder.py` | 113 |
+| **total** | **1035** |
 
 Measured on the Windows development host, 2026-08-04, after the injection-point
 ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
@@ -6156,6 +6394,24 @@ ever checks is how a stale number survives.
 After S95's four bf16/precision tests the same host reads **600 passed, 177
 skipped** and **919 passed, 3 skipped**, against a collected total of 922. The
 torch-free count does not move because all four need torch.
+
+**Re-measured 2026-08-05 on the Windows development host after S97's
+displacement ladder landed, via `python scripts/check_suites.py`: 662 passed,
+228 skipped in `.venv/` and 1035 passed, 0 skipped in `.venv-ml/`.** The
+arithmetic reconciles exactly against the figures above and is worth writing out,
+because the two paragraphs preceding this one disagree with each other and with
+today's count: `601 + 176 = 777` and `662 + 228 = 890`, a difference of the **113**
+tests `tests/test_displacement_ladder.py` adds; `922 + 113 = 1035`. Of those 113,
+**61 run with no ML stack** — the grouping arithmetic, the payload validation,
+the no-verdict guard and the step derivation are all pure — and 52 skip.
+
+Two stale numbers above are left in place per rule 2 rather than rewritten, and
+named here so the next reader is not misled by them: the 2026-08-04 line reads
+`918 passed, 0 skipped` on this host, which predates S95's four tests, and the
+S95 line reads `919 passed, 3 skipped` for "the same host" while the paragraph
+before it is about `gpmoo-b1` — those two cannot both be this machine, and the
+ambiguity was already there. Today's figure is the measured one and was taken
+with `check_suites.py`, which does not pipe.
 
 **The pass/skip split is host-dependent; the total is not.** Three tests decide
 what they do from the machine rather than from the code:

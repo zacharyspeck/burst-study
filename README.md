@@ -68,8 +68,8 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `600 passed, 177 skipped` on a fresh clone (one more test skips until
-a corpus is built locally; with one present it is `601 passed, 176 skipped`),
+Expected: `661 passed, 229 skipped` on a fresh clone (one more test skips until
+a corpus is built locally; with one present it is `662 passed, 228 skipped`),
 then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
