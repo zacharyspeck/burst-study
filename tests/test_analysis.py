@@ -561,3 +561,268 @@ def test_cli_refuses_a_ragged_panel(tmp_path, capsys):
                    "--correction", "holm", "--outdir", str(tmp_path / "o")])
     assert code == 1
     assert "missing seeds" in capsys.readouterr().out
+
+
+# ===========================================================================
+# The two PRE-REGISTERED confirmatory contrasts
+#
+# Neither was computable before: §5 was reachable only by repurposing
+# --reference, and §6 had no pooling construct. Both directions are tested here
+# for the same reason as everything else in this file -- a contrast that runs on
+# fabricated input and returns a plausible p-value looks exactly like one that
+# works.
+# ===========================================================================
+
+
+def _contrast_panel(ff=0.30, ft=0.20, pos=0.05, **kw):
+    """A panel with KNOWN per-arm displacements, so each contrast has an answer.
+
+    primary   = ff - ft
+    secondary = mean(ff, ft) - pos
+    """
+    return A.load_panel(_records(
+        {"fluent-false": ff, "fluent-true": ft, "pos-substituted": pos,
+         "random-chars": 0.02}, **kw), metric="aligned_l2")
+
+
+def test_the_primary_contrast_recovers_the_difference_it_was_given():
+    """§5: fluent-false vs fluent-true, each minus its own seed-matched twin."""
+    panel = _contrast_panel(ff=0.30, ft=0.20)
+    diffs = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    assert len(diffs) == len(panel.seeds)
+    for d in diffs:
+        assert d == pytest.approx(0.10, abs=1e-9)
+
+
+def test_the_primary_contrast_reports_no_effect_when_there_is_none():
+    """The other direction. Two arms at the same displacement must give zero."""
+    panel = _contrast_panel(ff=0.25, ft=0.25)
+    diffs = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    assert all(d == pytest.approx(0.0, abs=1e-12) for d in diffs)
+    cell = A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST)
+    assert cell["ci_excludes_zero"] is False
+
+
+def test_the_primary_contrast_is_antisymmetric_in_its_arms():
+    panel = _contrast_panel(ff=0.30, ft=0.20)
+    ab = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    ba = A.arm_vs_arm_differences(panel, "fluent-true", "fluent-false")
+    assert all(x == pytest.approx(-y, abs=1e-12) for x, y in zip(ab, ba))
+
+
+def test_the_primary_contrast_does_not_need_reference_repurposing():
+    """It gives the same numbers as the --reference fluent-true route, which is
+    the route that mislabels the noise floor (D-8b). The point is that this one
+    keeps the reference where it belongs."""
+    panel = _contrast_panel(ff=0.30, ft=0.20)
+    proper = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    repurposed = A.paired_differences(panel, "fluent-false",
+                                     reference="fluent-true")
+    assert all(x == pytest.approx(y, abs=1e-9)
+               for x, y in zip(proper, repurposed))
+    cell = A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST)
+    assert cell["reference_arm"] == "twin", (
+        "the contrast must leave the reference as the reference")
+
+
+@pytest.mark.parametrize("arms,match", [
+    (("fluent-false", "fluent-false"), "appears twice"),
+    (("fluent-false", "twin"), "is the reference"),
+    (("twin", "fluent-false"), "is the reference"),
+    (("fluent-false", "scrambled-true"), "absent from the panel"),
+])
+def test_the_contrast_guard_refuses_every_degenerate_pairing(arms, match):
+    """Its own guard. paired_differences only refuses arm == reference, which
+    does not catch two arms being the same as each other -- and that contrast is
+    identically zero on every seed, which reads as a null result."""
+    panel = _contrast_panel()
+    with pytest.raises(A.AnalysisError, match=match):
+        A.arm_vs_arm_differences(panel, arms[0], arms[1])
+
+
+# --- §6: pooling, and the thing it must not be --------------------------------
+
+
+def test_pooling_gives_exactly_one_row_per_seed():
+    """THE PIN. Pooling AVERAGES within a seed; stacking concatenates across
+    arms. Stacking two arms over ten seeds would give twenty rows, treat
+    seed-correlated observations as independent, and shrink every p-value for
+    free while leaving the mean unchanged.
+
+    Mutating pooled_differences to stack must turn this red.
+    """
+    panel = _contrast_panel()
+    pooled = A.pooled_differences(panel, A.SECONDARY_POOLED)
+    assert len(pooled) == len(panel.seeds) == 10
+    assert len(pooled) != len(A.SECONDARY_POOLED) * len(panel.seeds), (
+        "twenty rows means the arms were stacked, not pooled")
+
+
+def test_pooling_averages_the_arms_within_each_seed():
+    panel = _contrast_panel(ff=0.30, ft=0.20)
+    pooled = A.pooled_differences(panel, A.SECONDARY_POOLED)
+    for value in pooled:
+        assert value == pytest.approx(0.25, abs=1e-9), "mean(0.30, 0.20)"
+
+
+def test_the_secondary_contrast_recovers_the_difference_it_was_given():
+    """§6: pooled fluent minus pos-substituted, per seed."""
+    panel = _contrast_panel(ff=0.30, ft=0.20, pos=0.05)
+    diffs = A.pooled_vs_arm_differences(
+        panel, A.SECONDARY_POOLED, A.SECONDARY_AGAINST)
+    assert len(diffs) == len(panel.seeds)
+    for d in diffs:
+        assert d == pytest.approx(0.20, abs=1e-9), "0.25 - 0.05"
+
+
+def test_the_secondary_contrast_reports_no_effect_when_there_is_none():
+    panel = _contrast_panel(ff=0.20, ft=0.20, pos=0.20)
+    cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
+                      against=A.SECONDARY_AGAINST)
+    assert cell["mean"] == pytest.approx(0.0, abs=1e-12)
+    assert cell["ci_excludes_zero"] is False
+
+
+def test_the_pooled_cell_records_its_row_count_and_says_why():
+    panel = _contrast_panel()
+    cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
+                      against=A.SECONDARY_AGAINST)
+    assert cell["n_rows"] == len(panel.seeds)
+    assert cell["n_arms_pooled"] == 2
+    assert "AVERAGED within each seed" in cell["POOLING"]
+    assert "inflate n" in cell["POOLING"]
+
+
+def test_pooling_refuses_a_single_arm():
+    panel = _contrast_panel()
+    with pytest.raises(A.AnalysisError, match="at least two arms"):
+        A.pooled_differences(panel, ("fluent-false",))
+
+
+def test_pooling_refuses_the_reference_among_the_pooled_arms():
+    panel = _contrast_panel()
+    with pytest.raises(A.AnalysisError, match="is the reference"):
+        A.pooled_differences(panel, ("fluent-false", "twin"))
+
+
+# --- labels, derived from the arms actually compared (D-8b) -------------------
+
+
+def test_the_primary_label_names_the_arms_the_numbers_came_from():
+    """D-8b's defect was a label that said "twin" while the value followed
+    --reference. The fix is derivation; a different hardcoded string would be
+    the same defect one layer over."""
+    panel = _contrast_panel()
+    cell = A.contrast(panel, "arm_vs_arm", arms=("fluent-false", "fluent-true"))
+    for arm in cell["arms"]:
+        assert arm in cell["label"], f"{arm} is in the data but not the label"
+    assert cell["reference_arm"] in cell["label"]
+
+
+def test_the_secondary_label_names_every_pooled_arm_and_the_comparator():
+    panel = _contrast_panel()
+    cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
+                      against=A.SECONDARY_AGAINST)
+    for arm in cell["arms"]:
+        assert arm in cell["label"]
+    assert cell["against"] in cell["label"]
+    assert "AVERAGING" in cell["label"], (
+        "the label must say how the pooling was done, since stacking would give "
+        "a different n for the same arms")
+
+
+def test_every_label_follows_the_reference_it_was_given():
+    panel = _contrast_panel()
+    for reference in ("twin", "random-chars"):
+        cell = A.contrast(panel, "arm_vs_arm",
+                          arms=("fluent-false", "fluent-true"),
+                          reference=reference)
+        assert reference in cell["label"]
+        assert cell["reference_arm"] == reference
+    # and the two labels differ, so the reference is genuinely in there
+    a = A.contrast_label("arm_vs_arm", arms=A.PRIMARY_CONTRAST,
+                         reference="twin")
+    b = A.contrast_label("arm_vs_arm", arms=A.PRIMARY_CONTRAST,
+                         reference="random-chars")
+    assert a != b
+
+
+def test_the_noise_floor_describes_the_reference_it_actually_used():
+    """analysis.py used to hardcode "twin against twin ACROSS seeds" in both the
+    payload and the banner while the value followed --reference."""
+    panel = _contrast_panel()
+    result = A.analyse(panel, correction="none", reference="random-chars")
+    floor = result["noise_floor"]
+    assert floor["reference_arm"] == "random-chars"
+    assert "random-chars against random-chars" in floor["WHAT_IT_IS"]
+    assert "twin against twin" not in floor["WHAT_IT_IS"]
+    # THREE emitted sites, not the two the defect was logged against: the
+    # payload's WHAT_IT_IS, report_banner's own line, the SVG legend, and the
+    # provenance prose. All four derive now.
+    banner = "\n".join(A.report_banner({"result": result}))
+    assert "random-chars-vs-random-chars" in banner
+    assert "twin-vs-twin" not in banner
+
+    prose = A.build_provenance({"result": result})
+    assert "random-chars against random-chars" in prose
+    assert "twin against twin" not in prose
+
+    svg = A.ordering_plot_svg(result) if hasattr(A, "ordering_plot_svg") else ""
+    if svg:
+        assert "twin-vs-twin noise floor" not in svg
+
+
+# --- what the contrasts deliberately do NOT do -------------------------------
+
+
+def test_the_contrasts_apply_no_correction_and_say_so():
+    """Adding two contrasts changes the size of the family of tests, which is
+    D-4 and open. Nothing here divides by anything."""
+    panel = _contrast_panel()
+    for cell in (A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST),
+                 A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
+                            against=A.SECONDARY_AGAINST)):
+        assert "p_raw" in cell
+        assert "p_adjusted" not in cell
+        assert "significant" not in cell
+        assert "D-4" in cell["NO_CORRECTION_APPLIED"]
+
+
+def test_the_correction_is_still_required_with_no_default():
+    with pytest.raises(A.AnalysisError, match="correction is required"):
+        A.analyse(_contrast_panel(), correction="")
+
+
+def test_registered_contrasts_report_an_absent_arm_rather_than_skipping():
+    """A pre-registered contrast that could not be computed is a fact about the
+    run, not something to omit."""
+    panel = A.load_panel(_records({"random-chars": 0.02}), metric="aligned_l2")
+    out = A.registered_contrasts(panel)
+    assert out["primary"]["computed"] is False
+    assert set(out["primary"]["missing_arms"]) == {"fluent-false", "fluent-true"}
+    assert "could not be computed" in out["primary"]["WHY_ABSENT"]
+    assert out["secondary"]["computed"] is False
+
+
+def test_registered_contrasts_match_the_preregistered_arms():
+    """Sourced to docs/preregistration.md §5 and §6, written out here rather
+    than read from the constants under test."""
+    assert A.PRIMARY_CONTRAST == ("fluent-false", "fluent-true")
+    assert A.SECONDARY_POOLED == ("fluent-false", "fluent-true")
+    assert A.SECONDARY_AGAINST == "pos-substituted"
+    panel = _contrast_panel()
+    out = A.registered_contrasts(panel)
+    assert out["primary"]["arms"] == ["fluent-false", "fluent-true"]
+    assert out["secondary"]["against"] == "pos-substituted"
+    assert out["primary"]["computed"] and out["secondary"]["computed"]
+
+
+def test_analyse_carries_the_registered_contrasts_beside_the_per_arm_rows():
+    """§7 keeps every other comparison exploratory; these two are not, so they
+    are reported beside the per-arm rows rather than instead of them."""
+    result = A.analyse(_contrast_panel(), correction="none")
+    assert "registered_contrasts" in result
+    assert set(result["registered_contrasts"]) == {"primary", "secondary"}
+    assert result["arms"], "the per-arm rows must survive"
+
+

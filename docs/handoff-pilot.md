@@ -278,16 +278,16 @@ otherwise validate corrupted shards.
 ### Step 1 — check the repo is sane
 
 ```bash
-python -m pytest -q                    # 1074 tests; see below on pass/skip
+python -m pytest -q                    # 1107 tests; see below on pass/skip
 python scripts/generate_overrides.py --check   # expect 70 ok, 0 missing, 0 mismatched
 ```
 
-**Compare the total, not the pass count.** 1074 tests collect everywhere, but
+**Compare the total, not the pass count.** 1107 tests collect everywhere, but
 the pass/skip split depends on the host: `test_corpus_tokenize.py` skips until
 a corpus is built locally, and two tests skip *because* CUDA is present, since
 they assert a refusal that only applies to CPU-only hosts. On a CPU-only host
-with a corpus built this is **692 passed, 236 skipped** without torch and
-**1074 passed, 0 skipped** with it; the gpmoo figures are one corpus-test skip
+with a corpus built this is **721 passed, 240 skipped** without torch and
+**1107 passed, 0 skipped** with it; the gpmoo figures are one corpus-test skip
 lower on the torch-free side and are not re-derived here.
 Or run both at once with `python scripts/check_suites.py`, which reports each
 count and exits nonzero if either environment fails.
@@ -420,13 +420,22 @@ The repo refuses rather than warns in a lot of places. None of these is a bug:
 
 Told plainly so you do not discover it at an inconvenient moment.
 
-- **No run has ever been trained.** Every number in `docs/measurements/` comes
-  from public GPT-2, junk checkpoints, or synthetic input. The reports say so
-  in their own banners.
+- ~~**No run has ever been trained.**~~ **CORRECTED 2026-08-06. TWO PILOTS HAVE
+  RUN.** v1 (`9aa930d`, 2026-08-05) is **void** under S97 — it trained a
+  two-tokens-ahead objective. v2 (`3e715a6`, 2026-08-06) is the corrected re-run
+  and is current: `docs/measurements/2026-08-06-pilot-v2-results.md`. So
+  `docs/measurements/` now holds numbers from real checkpoints as well as from
+  public GPT-2, junk checkpoints and synthetic input, and which pilot a number
+  belongs to is the first thing to establish about it.
 - **Step 10's second half** — permutation-aligned barrier, aligned L2, RSF
   subspace probe — is **not built**. All three need `scripts/canonicalize.py`,
-  which is Conv1D-only, and the study's model swap to HF GPT-2 has not landed.
-  They raise `NotImplementedError` naming the blocker. See D-6.
+  which is Conv1D-only. They raise `NotImplementedError` naming the blocker.
+  See D-6. ~~and the study's model swap to HF GPT-2 has not landed~~
+  **CORRECTED 2026-08-06: the swap HAS landed**, and did before the v1 pilot —
+  `scripts/model_seam.py` builds a real `GPT2LMHeadModel` and `--family` is
+  required with no default. What is still `nn.Linear` is
+  `probes/determinism/model.py`, the probe. That was S88's finding and this
+  bullet had not caught up.
 - **The multiple-comparison correction is not chosen.** `spec-v4.md` has no
   statistics section at all. `scripts/analysis.py` requires the method as an
   explicit argument and refuses without one. See D-4.
@@ -437,15 +446,26 @@ Told plainly so you do not discover it at an inconvenient moment.
 - **The grad-clip obligation is instrumented, not discharged.** `train.py` logs
   the pre-clip gradient norm every step, but discharging it needs a real run
   reaching step 200.
-- **Determinism is established on one A6000 only**, for a model and a
-  micro-batch the study will not use, and with a digest that could not detect
-  a divergence in AdamW's step counter. That last is now fixed in `train.py`
-  and still present in the probe.
+- **Determinism, CORRECTED 2026-08-06 and still short of what the study needs.**
+  Not "one A6000 only": the probe has since reproduced bitwise on an A100X at
+  both fp32 and bf16, two fresh processes on the same physical card
+  (`docs/measurements/2026-08-05-bf16-determinism.md`), and the v2 pre-flight
+  found one digest across all three of a1's A100 SKUs. **What has still never
+  been run is two-processes-same-seed-same-card through `scripts/train.py`
+  itself at bf16** — the committed dtype. The only same-card pair through
+  `train.py` is fp32 + TF32-on + `micro_batch` 32
+  (`docs/measurements/2026-08-05-hardware-sizing.md:103-116`), a configuration
+  the study does not use. S95 named this gate and it is still open. The AdamW
+  step-counter digest gap is fixed in `train.py` and still present in the
+  probe.
 - **No multi-GPU.** The loop is single-device. Multi-GPU adds NCCL all-reduce
   ordering, which nothing here has tested.
 
-`docs/decisions-pending.md` holds **six** open decisions (D-3 through D-8) with
-what each one blocks, and two ruled ones (D-1, D-2) kept for the record. Read it
+`docs/decisions-pending.md` holds ~~six~~ **five** open decisions — D-3, D-4,
+D-5, D-6, D-8 — with what each one blocks, plus two ruled (D-1, D-2) and one
+CLOSED (D-7, by a decision rule) kept for the record. **Corrected 2026-08-06:**
+this said six and counted D-7, which this same section calls closed two bullets
+above. Read it
 before ruling on anything. **Only D-6 touches anything you do before analysis,
 and it does not block a launch.** As of 2026-08-03 nothing in the repo blocks a
 launch at all — §3 covers the three values that used to.

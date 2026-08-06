@@ -44,6 +44,41 @@ import metrics as M  # noqa: E402
 import model_seam as SEAM  # noqa: E402
 from burst.config import load_config  # noqa: E402
 
+# THE OBJECTIVE GATES ARE IMPORTED, NOT COPIED. `gate_checkpoint` is the single
+# implementation of both S97 gates -- gate A on the measured losses, gate B on
+# the recorded training commit and its ancestry. displacement_ladder.py calls
+# the same function. Two copies of a safety check is worse than one, because the
+# second is the one nobody re-reads when the first is corrected.
+import displacement_ladder as LADDER  # noqa: E402
+
+
+def gate_or_refuse(model, payload, path: Path, batch) -> dict:
+    """Run both objective gates on one checkpoint and REFUSE on either.
+
+    Without this, this script computes a barrier over the void v1 checkpoints
+    and writes it, silently. The curve would be arithmetically correct and about
+    models trained to predict two tokens ahead -- see S97 and
+    docs/2026-08-05-training-objective-defect.md.
+
+    `tolerate_indeterminate=False`: unlike the ladder's --selftest there are no
+    junk fixtures here, so two objectives scoring the same means an untrained or
+    unreadable checkpoint and there is no barrier worth measuring on it.
+    """
+    meta = {
+        "path": str(path),
+        "trained_at": LADDER._trained_at(path),
+    }
+    cell, failures = LADDER.gate_checkpoint(
+        model, meta, batch, tolerate_indeterminate=False)
+    if failures:
+        raise SystemExit(
+            "\nOBJECTIVE GATE FAILED -- no barrier written.\n"
+            + "".join(f"  - {f}\n" for f in failures)
+            + "\nThis script reads whatever checkpoints it is given, so the "
+              "gate is the only thing standing between a void run directory "
+              "and a barrier curve that looks fine.\n")
+    return cell
+
 
 def load(path: Path, cfg):
     payload = torch.load(path, map_location="cpu", weights_only=False)
@@ -86,11 +121,18 @@ def main(argv=None) -> int:
     model_a, pay_a = load(args.a, cfg)
     model_b, pay_b = load(args.b, cfg)
 
+    # BEFORE the barrier, on both endpoints. A gate that ran after the
+    # measurement would still have produced the number it exists to prevent.
+    gates = {"a": gate_or_refuse(model_a, pay_a, args.a, batch),
+             "b": gate_or_refuse(model_b, pay_b, args.b, batch)}
+
     res = M.barrier(model_a, model_b, batch)
+    res["objective_gate"] = gates
     res["label"] = args.label
     for key, path, pay in (("a", args.a, pay_a), ("b", args.b, pay_b)):
         res[key] = {"path": str(path), "seed": pay["seed"], "arm": pay["arm"],
-                    "step": pay["step"], "kind": pay["kind"]}
+                    "step": pay["step"], "kind": pay["kind"],
+                    "trained_at": LADDER._trained_at(path)}
     res["device"] = "cpu"
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

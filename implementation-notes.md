@@ -197,6 +197,28 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D33. Pooling implemented as AVERAGING, and the reading is stated rather than assumed
+
+`docs/preregistration.md` §6 says "pooled `fluent` (both arms) vs
+`pos-substituted`" and does not say how to pool. Two readings: average the two
+fluent arms' displacements within each seed into one number, or stack all twenty
+observations into one group.
+
+**Built as averaging.** This is a hygiene call, not a taste call: the two fluent
+arms at one seed share an initialization, a data order and a twin, so stacking
+treats correlated observations as independent and inflates n — the mean is
+unchanged, the standard error falls by roughly sqrt(2), and every p-value shrinks
+for free with nothing in the output looking wrong. Recorded here because the
+document does not specify it and a reader of the results is entitled to know
+which of the two they are looking at. `pooled_differences` asserts one row per
+seed, a test pins the count, and M7's mutation to stacking turns fourteen tests
+red.
+
+**What this does NOT decide:** whether the pooled contrast is one comparison or
+two for the purposes of a correction. That is D-4, it is open, and adding these
+two contrasts changes the family size whichever way D-4 is ruled. Nothing here
+divides by anything.
+
 ### D32. The objective gate needs a MARGIN, because the literal rule fires on untrained models
 
 **Asked for:** *"If two-ahead is the lower of the two, that checkpoint was
@@ -999,6 +1021,97 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S101. Both pre-registered contrasts, computable for the first time; and pilot_barrier gets the ladder's gates
+
+A pre-launch gate scan found that **neither confirmatory contrast could be
+computed.** `scripts/analysis.py` compared each arm against a reference and
+nothing else, so §5's primary (`fluent-false` vs `fluent-true`) was reachable only
+by passing `--reference fluent-true` — which makes the noise floor fluent-true
+against itself while every label still says twin (D-8b) — and §6's secondary
+(pooled fluent vs `pos-substituted`) had **no pooling construct at all**. Two
+registered contrasts, zero of them implemented, eight days before a 770 GPU-hour
+launch.
+
+**POOLING IS AVERAGING, NOT STACKING, and that is the load-bearing choice here.**
+`fluent-false` and `fluent-true` at seed 3 share an initialization, a data order
+and a twin. Stacking them into one group of twenty would treat correlated
+observations as independent: n doubles, the standard error falls by about
+sqrt(2), and every p-value shrinks for free. **Nothing in the output would look
+wrong** — the mean is identical and only the spread moves, which is exactly the
+comfortable-looking-number shape S55 is about. So `pooled_differences` averages
+within each seed, returns `len(panel.seeds)` rows, and **refuses if it ever
+returns more**; a test pins the count and M7 below proves the pin is live.
+
+`arm_vs_arm_differences` gets **its own guard** rather than reusing
+`paired_differences`'. That one refuses only `arm == reference`, which does not
+catch the two arms being the same as each other — and a contrast of an arm
+against itself is identically zero on every seed, which reads as a null result
+rather than an error. `_check_contrast_arms` refuses all three degeneracies:
+duplicate arms, an arm that is the reference, and an absent arm.
+
+**LABELS ARE DERIVED, AND THERE WERE FOUR SITES, NOT THE TWO D-8b NAMES.** The
+brief named `analysis.py:503-507` and `:647-649`. Two more turned up while
+testing: `report_banner`'s own line and the SVG legend, both emitting
+`twin-vs-twin` regardless of `--reference`, plus the provenance prose. All four
+derive from the actual reference now. A test asserts the emitted label names the
+same arms the numbers came from, and M8 proves a revert to a constant goes red.
+
+**NEITHER CONTRAST RULES ON D-4, AND ADDING THEM CHANGES THE FAMILY SIZE.** That
+is stated rather than resolved: before this commit the family of tests was
+whatever the per-arm rows implied; there are now two named confirmatory contrasts
+beside them, so the denominator of any correction has changed and the reading of
+D-4's three candidate families changes with it. `--correction` stays required
+with no default, every contrast cell carries `p_raw` only, and
+`NO_CORRECTION_APPLIED` says why. D-4 is still Zach's, and so are MIN_SEEDS,
+delta and alpha. D-8a's "wider by construction" wording is untouched.
+
+**MUTATION AUDIT, and one survived.**
+
+| # | mutation | result |
+| --- | --- | --- |
+| M7 | `pooled_differences` averages -> **stacks** | **RED, 14 tests**, including the pin `test_pooling_gives_exactly_one_row_per_seed`. The production guard fires too: `pooled_differences` itself raises when the row count is not the seed count |
+| M8 | `displacement_phrase` returns a hardcoded `"twin"` again | **RED**, `test_every_label_follows_the_reference_it_was_given` |
+| M9 | primary contrast becomes a plain `arm_a - arm_b`, dropping the twin pairing | **GREEN — SURVIVED** |
+
+**M9 is not a defect, and the finding is that my docstring claimed it was one.**
+The docstring said routing through `paired_differences` verified that both arms
+share a reference value at each seed, and that the simplified form would "silently
+not". False: `load_panel` already refuses an incomplete panel, so both arms always
+have the same reference value at a given seed, and `arm_a - arm_b` is
+arithmetically identical on every input this module accepts. No test can
+distinguish them because there is nothing to distinguish. Reported rather than
+papered over, and the claim is now narrowed to the honest reason — **legibility**:
+§5 registers a contrast between two displacements, and code shaped like the
+document is easier to check against it than code simplified past it. That is a
+weaker justification and it is the true one.
+
+**pilot_barrier.py gets the gates BY IMPORT.** It read any two checkpoints and
+wrote a barrier; pointed at the void `runs/` it would have produced an
+arithmetically correct curve over two-tokens-ahead models. The two gates were
+extracted from `objective_gate` into `gate_checkpoint`, and both callers now run
+**the same function object** — `test_the_gate_is_the_ladders_own_function_not_a_copy`
+asserts identity, not equivalence, because two copies of a safety check is worse
+than one: the second is the one nobody re-reads when the first is corrected. A
+test also asserts `pilot_barrier` defines none of the objective logic itself, and
+that the gate precedes `M.barrier` — a gate after the measurement would still
+have produced the number it exists to prevent. `tolerate_indeterminate=False`
+here: there are no junk fixtures in this path.
+
+`tests/test_pilot_barrier.py` is new. That script had no test file at all, which
+the gate scan also flagged.
+
+**Bookkeeping, all corrected in place per rule 2.** S96's heading and a new
+banner mark the retracted headline and point at S100; `handoff-pilot.md` §9's
+"No run has ever been trained", the landed model swap, the determinism claim and
+the six-versus-five decision count; this module's docstring premise and its two
+references to the void run root; README's three "still null" fields.
+`2026-08-05-pilot-barriers/VOID.md` is a **sibling** rather than an edit to the
+JSONs — hand-editing a generated file is S70's defect, and the next run would
+delete the marker while still looking machine-clean. The v1-era §8.4 record is
+preserved as `12-injection-point-ruler-v1-2026-08-05.{json,md}`, extracted with
+`git show f015fd0:`, because `715dd67` overwrote it in place and the artifact that
+discharged §8.5's ordering constraint existed only in git history afterwards.
+
 ### S100. The pilot re-run: S96's headline retracted, and the ladder's banner now lies about its own inputs
 
 Four runs on `3e715a6`, clean tree, 10.2–10.6 h each. Full record in
@@ -1436,7 +1549,20 @@ should accompany whichever fix is taken asserts semantics, not type:
 `SEAM.compute_loss` must equal `metrics.cross_entropy_loss` on the same tokens
 for the `hf_gpt2` family.
 
-### S96. The pilot ran; the headline metric floors on the displacement, and §8.5 was nearly broken getting there
+### S96. ~~The pilot ran; the headline metric floors on the displacement~~ — HEADLINE RETRACTED, see S100
+
+**RETRACTED IN PART, 2026-08-06. Read S100 first.** The headline below — that the
+plain barrier floors on the displacement and "cannot express this effect at all"
+— is **withdrawn**. It was measured on the v1 pilot (`9aa930d`), whose runs S97
+proved were optimised to predict two tokens ahead. On corrected models the
+barrier reads **0.133863 with `rose: True`**, peaking at alpha 0.5 like every
+other pair. The metric was never the problem; a structural argument built on a
+number from a defective run inherited the defect.
+
+Also void from this entry: the endpoint-loss delta/sigma and the n ≈ 9.8 power
+estimate. **Still standing:** the §8.5 near-miss account, the injection
+verification, and the §8.4 ruler branch. Nothing below is deleted — per rule 2
+the reasoning is the record of how the error was reached.
 
 Four runs on `9aa930d`, clean tree, 11.1 h each on four A100X. Full record in
 `docs/measurements/2026-08-05-pilot-results.md`. Three things belong here.
@@ -6616,7 +6742,7 @@ or driver.
 
 ## Test coverage
 
-1074 tests, counted per file with `--collect-only` rather than from memory.
+1107 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -6643,11 +6769,12 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_train.py` | 23 |
 | `tests/test_injection.py` | 23 |
 | `tests/test_launch.py` | 55 |
-| `tests/test_analysis.py` | 47 |
+| `tests/test_analysis.py` | 71 |
 | `tests/test_determinism_probe.py` | 16 |
 | `tests/test_injection_point_ruler.py` | 64 |
 | `tests/test_displacement_ladder.py` | 151 |
-| **total** | **1074** |
+| `tests/test_pilot_barrier.py` | 9 |
+| **total** | **1107** |
 
 Measured on the Windows development host, 2026-08-04, after the injection-point
 ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
@@ -6671,7 +6798,11 @@ torch-free count does not move because all four need torch.
 
 **Re-measured 2026-08-05 on the Windows development host after S97's
 displacement ladder landed, via `python scripts/check_suites.py`: 692 passed,
-236 skipped in `.venv/` and 1074 passed, 0 skipped in `.venv-ml/`.** The
+236 skipped in `.venv/` and 1074 passed, 0 skipped in `.venv-ml/`.**
+**Re-measured 2026-08-06 after S101's two contrasts and pilot_barrier's
+gates: 721 passed, 240 skipped in `.venv/` and 1107 passed, 0 skipped in
+`.venv-ml/`.** The delta is 33: 24 contrast tests in `test_analysis.py` and
+9 in the new `test_pilot_barrier.py`. The
 arithmetic reconciles exactly against the figures above and is worth writing out,
 because the two paragraphs preceding this one disagree with each other and with
 today's count: `601 + 176 = 777` and `692 + 236 = 928`, a difference of the **151**

@@ -68,8 +68,8 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `691 passed, 237 skipped` on a fresh clone (one more test skips until
-a corpus is built locally; with one present it is `692 passed, 236 skipped`),
+Expected: `720 passed, 241 skipped` on a fresh clone (one more test skips until
+a corpus is built locally; with one present it is `721 passed, 240 skipped`),
 then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
@@ -129,19 +129,21 @@ tells you why.
 
 ### `--launch`
 
-Several values in `configs/base.yaml` are still `null` on purpose — they have
-not been decided yet:
+~~Several values in `configs/base.yaml` are still `null` on purpose~~ —
+**CORRECTED 2026-08-06: all three are SET.** They were null when this section was
+written and are not now:
 
 ```
-training.micro_batch
-training.dtype
-optimizer.adamw_impl
+training.micro_batch   8        set 2026-08-03; MEASURED and kept 2026-08-05 (S95)
+training.dtype         bf16     set as fp32 2026-08-03; bf16 once the loop gained autocast (S95)
+optimizer.adamw_impl   foreach  set 2026-08-03
 ```
 
 All three change **reduction order**, which is what bitwise reproducibility is
-made of, so none of them has a default anywhere and every arm — including
-`twin` — refuses to launch without them. The pilot settles them; see
-[`docs/handoff-pilot.md`](docs/handoff-pilot.md).
+made of, so none has a default anywhere and every arm — including `twin` — still
+refuses to launch if any is null. **There are no launch-blocking nulls left in
+`configs/base.yaml`**: the only nulls are `seed` and `arm`, which the run
+override supplies.
 
 The injection fields were decided on 2026-08-03 and are no longer null:
 `injection_step: 200`, `burst_length_tokens: 194`, `burst_position: 400`, and

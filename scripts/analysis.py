@@ -209,6 +209,255 @@ def noise_floor(panel: Panel, reference: str = DEFAULT_REFERENCE_ARM) -> list:
 
 
 # ---------------------------------------------------------------------------
+# The two PRE-REGISTERED confirmatory contrasts
+#
+# docs/preregistration.md fixes two contrasts as confirmatory and everything
+# else as exploratory. Until now neither could be computed here: this module
+# compared each arm against a reference and nothing else, so §5 was reachable
+# only by passing `--reference fluent-true` -- which makes the noise floor
+# fluent-true-against-itself while every label still said "twin" (D-8b) -- and
+# §6 had no pooling construct at all.
+#
+# NEITHER FUNCTION RULES ON THE FAMILY OF TESTS. Adding two contrasts changes
+# how many comparisons exist, and therefore what a correction divides by, which
+# is D-4 and is open. `--correction` stays required with no default.
+# ---------------------------------------------------------------------------
+
+#: §5's primary contrast, docs/preregistration.md:82. Order is the document's.
+PRIMARY_CONTRAST = ("fluent-false", "fluent-true")
+
+#: §6's secondary contrast, docs/preregistration.md:109-118. The two fluent arms
+#: pooled, against pos-substituted.
+SECONDARY_POOLED = ("fluent-false", "fluent-true")
+SECONDARY_AGAINST = "pos-substituted"
+
+
+def _check_contrast_arms(panel: Panel, arms, reference: str) -> None:
+    """Shared guard. Every arm present, distinct, and none of them the reference.
+
+    Its own guard rather than `paired_differences`' -- that one refuses only
+    `arm == reference`, which does not catch two arms being the same as each
+    other, and a contrast of an arm against itself is identically zero for every
+    seed. Zero is a plausible-looking answer, which is the shape this repo keeps
+    getting caught by.
+    """
+    seen = []
+    for arm in arms:
+        if arm == reference:
+            raise AnalysisError(
+                f"arm {arm!r} is the reference, so its displacement from itself "
+                "is zero by construction and the contrast is meaningless. The "
+                "reference is the thing every arm is measured against, not a "
+                "side of a contrast.")
+        if arm in seen:
+            raise AnalysisError(
+                f"arm {arm!r} appears twice in the contrast. A contrast of an "
+                "arm against itself is identically zero on every seed, which "
+                "looks like a null result rather than an error.")
+        if arm not in panel.values:
+            raise AnalysisError(
+                f"arm {arm!r} is absent from the panel; it holds "
+                f"{', '.join(panel.arms)}. The contrast is not computed over "
+                "whichever arms happen to be present.")
+        seen.append(arm)
+
+
+def arm_vs_arm_differences(panel: Panel, arm_a: str, arm_b: str,
+                           reference: str = DEFAULT_REFERENCE_ARM) -> list:
+    """§5's PRIMARY contrast: two arms' displacements, differenced per seed.
+
+    Each arm is first reduced to its displacement from its OWN seed-matched
+    reference, then those two displacements are differenced within the seed:
+
+        contrast(seed) = [arm_a(seed) - twin(seed)] - [arm_b(seed) - twin(seed)]
+
+    THE REFERENCE CANCELS, AND THIS FORM CHECKS NOTHING THE SIMPLIFIED ONE
+    WOULD NOT. An earlier version of this docstring claimed the routing through
+    `paired_differences` verified that both arms share a reference value at each
+    seed. It does not: `load_panel` already refuses an incomplete panel, so both
+    arms always have the same reference value at a given seed, and
+    `arm_a - arm_b` is arithmetically identical on every input this module
+    accepts. A mutation to that simpler form passed the whole suite -- recorded
+    as M9 rather than papered over.
+
+    It is written this way for LEGIBILITY, which is a weaker reason and the
+    honest one: §5 registers a contrast between two *displacements*, and code
+    shaped like the thing it implements is easier to check against the document
+    than code that has been algebraically simplified past it.
+
+    NOT reachable by passing `--reference fluent-true`. That produces the same
+    numbers and a noise floor of fluent-true against itself across seeds, under
+    labels that say twin (D-8b, open).
+    """
+    _check_contrast_arms(panel, (arm_a, arm_b), reference)
+    da = paired_differences(panel, arm_a, reference)
+    db = paired_differences(panel, arm_b, reference)
+    return [x - y for x, y in zip(da, db)]
+
+
+def pooled_differences(panel: Panel, arms,
+                       reference: str = DEFAULT_REFERENCE_ARM) -> list:
+    """Pool arms by AVERAGING WITHIN EACH SEED. One value per seed, never more.
+
+    POOLING IS NOT STACKING, and the difference is the whole hygiene of §6.
+    `fluent-false` and `fluent-true` at seed 3 share an initialization, a data
+    order, and a twin. Stacking them into one group of twenty would treat
+    correlated observations as independent: n doubles, the standard error falls
+    by ~sqrt(2), and every p-value shrinks for free. Nothing in the output would
+    look wrong -- the mean is unchanged and only the spread moves.
+
+    So this returns exactly `len(panel.seeds)` values and asserts it. A test
+    pins the count and a mutation to stacking turns it red.
+    """
+    arms = tuple(arms)
+    if len(arms) < 2:
+        raise AnalysisError(
+            f"pooling needs at least two arms; got {list(arms)}. Pooling one "
+            "arm is just that arm, and naming it pooled would misdescribe it.")
+    _check_contrast_arms(panel, arms, reference)
+
+    per_arm = [paired_differences(panel, arm, reference) for arm in arms]
+    pooled = [statistics.fmean(at_seed) for at_seed in zip(*per_arm)]
+
+    if len(pooled) != len(panel.seeds):
+        raise AnalysisError(
+            f"pooling produced {len(pooled)} rows for {len(panel.seeds)} "
+            f"seeds. Pooling must AVERAGE within a seed, not concatenate "
+            f"across arms: {len(arms)} arms stacked would give "
+            f"{len(arms) * len(panel.seeds)} rows and would treat "
+            "seed-correlated observations as independent.")
+    return pooled
+
+
+def pooled_vs_arm_differences(panel: Panel, pooled_arms, arm: str,
+                              reference: str = DEFAULT_REFERENCE_ARM) -> list:
+    """§6's SECONDARY contrast: pooled displacement minus one arm's, per seed."""
+    pooled_arms = tuple(pooled_arms)
+    _check_contrast_arms(panel, pooled_arms + (arm,), reference)
+    pooled = pooled_differences(panel, pooled_arms, reference)
+    other = paired_differences(panel, arm, reference)
+    return [p - o for p, o in zip(pooled, other)]
+
+
+def displacement_phrase(reference: str) -> str:
+    """"minus its seed-matched twin", with the ACTUAL reference named."""
+    return f"minus its seed-matched {reference}"
+
+
+def contrast_label(kind: str, *, arms, against=None,
+                   reference: str = DEFAULT_REFERENCE_ARM) -> str:
+    """The label, DERIVED from the arms actually compared.
+
+    Every label in this module used to hardcode "twin" while the number followed
+    `--reference` (D-8b). Deriving is the fix; substituting a different constant
+    string would be the same defect one layer over. A test asserts the label
+    names the same arms the numbers came from.
+    """
+    each = displacement_phrase(reference)
+    if kind == "arm_vs_arm":
+        a, b = arms
+        return (f"{a} vs {b}, each {each}, differenced within seed")
+    if kind == "pooled_vs_arm":
+        pooled = " + ".join(arms)
+        return (f"pooled ({pooled}) vs {against}, each {each}, "
+                "pooled by AVERAGING within seed then differenced within seed")
+    raise AnalysisError(f"unknown contrast kind {kind!r}")
+
+
+def contrast(panel: Panel, kind: str, *, arms, against=None,
+             reference: str = DEFAULT_REFERENCE_ARM, level: float = DEFAULT_LEVEL,
+             n_resamples: int = DEFAULT_BOOTSTRAP) -> dict:
+    """One contrast, with its label derived and its per-seed values kept.
+
+    Returns no verdict about the family of tests: `p_raw` only, uncorrected.
+    Which correction applies, and across how many comparisons, is D-4.
+    """
+    arms = tuple(arms)
+    if kind == "arm_vs_arm":
+        diffs = arm_vs_arm_differences(panel, arms[0], arms[1], reference)
+        n_arms_pooled = None
+    elif kind == "pooled_vs_arm":
+        diffs = pooled_vs_arm_differences(panel, arms, against, reference)
+        n_arms_pooled = len(arms)
+    else:
+        raise AnalysisError(f"unknown contrast kind {kind!r}")
+
+    test = paired_t_test(diffs)
+    label = contrast_label(kind, arms=arms, against=against,
+                           reference=reference)
+    ci = bootstrap_ci(diffs, level=level, n_resamples=n_resamples,
+                      label=f"{panel.metric}/{label}")
+    return {
+        "kind": kind,
+        "label": label,
+        "arms": list(arms),
+        "against": against,
+        "reference_arm": reference,
+        "n_seeds": len(diffs),
+        "n_rows": len(diffs),
+        "n_arms_pooled": n_arms_pooled,
+        "by_seed": {str(s): d for s, d in zip(panel.seeds, diffs)},
+        "min": min(diffs),
+        "median": statistics.median(diffs),
+        "max": max(diffs),
+        "mean": ci["mean"],
+        "ci_low": ci["ci_low"],
+        "ci_high": ci["ci_high"],
+        "ci_excludes_zero": ci["excludes_zero"],
+        "t": test["t"],
+        "df": test["df"],
+        "p_raw": test["p"],
+        "POOLING": (
+            "AVERAGED within each seed, giving one row per seed. Not stacked: "
+            f"{n_arms_pooled} arms at one seed share an initialization, a data "
+            "order and a reference, so stacking would treat correlated "
+            "observations as independent and inflate n."
+            if n_arms_pooled else None),
+        "NO_CORRECTION_APPLIED": (
+            "p_raw is uncorrected. These two contrasts change the size of the "
+            "family of tests, and both the family and the correction are D-4, "
+            "which is open. Nothing here divides by anything."),
+    }
+
+
+def registered_contrasts(panel: Panel, *,
+                         reference: str = DEFAULT_REFERENCE_ARM,
+                         level: float = DEFAULT_LEVEL,
+                         n_resamples: int = DEFAULT_BOOTSTRAP) -> dict:
+    """The two contrasts docs/preregistration.md registers, when computable.
+
+    Absent arms are reported as absent rather than skipped silently: a
+    pre-registered contrast that could not be computed is a fact about the run.
+    """
+    out = {}
+    for name, kind, arms, against in (
+        ("primary", "arm_vs_arm", PRIMARY_CONTRAST, None),
+        ("secondary", "pooled_vs_arm", SECONDARY_POOLED, SECONDARY_AGAINST),
+    ):
+        needed = tuple(arms) + ((against,) if against else ())
+        missing = [a for a in needed if a not in panel.values]
+        if missing:
+            out[name] = {
+                "computed": False,
+                "arms": list(arms),
+                "against": against,
+                "missing_arms": missing,
+                "WHY_ABSENT": (
+                    f"the panel does not hold {', '.join(missing)}, so this "
+                    "pre-registered contrast could not be computed from this "
+                    "input."),
+            }
+            continue
+        cell = contrast(panel, kind, arms=arms, against=against,
+                        reference=reference, level=level,
+                        n_resamples=n_resamples)
+        cell["computed"] = True
+        cell["preregistered_as"] = name
+        out[name] = cell
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Distributions, hand-written so this stays stdlib-only
 # ---------------------------------------------------------------------------
 
@@ -500,14 +749,25 @@ def analyse(panel: Panel, *, correction: str,
             "mean": floor_ci["mean"],
             "ci_low": floor_ci["ci_low"],
             "ci_high": floor_ci["ci_high"],
+            # DERIVED from `reference`, not hardcoded. This said "twin against
+            # twin" while the number followed --reference, so `--reference
+            # fluent-false` produced a label that lied (D-8b). Substituting a
+            # different constant would be the same defect one layer over.
+            "reference_arm": reference,
             "WHAT_IT_IS": (
-                "twin against twin ACROSS seeds, every distinct pair. No burst "
-                "appears in it, so it is the scale of variation attributable "
-                "to seed alone -- which under the per-seed data-order ruling "
+                f"{reference} against {reference} ACROSS seeds, every distinct "
+                "pair. No burst appears in it when the reference is an arm that "
+                "receives none, so it is the scale of variation attributable to "
+                "seed alone -- which under the per-seed data-order ruling "
                 "bundles initialization and data order together."),
         },
         "arms": rows,
         "ordering": [r["arm"] for r in ordering],
+        # The two contrasts docs/preregistration.md registers as confirmatory.
+        # Reported beside the per-arm rows rather than instead of them: §7 keeps
+        # every other comparison exploratory, and these are the two that are not.
+        "registered_contrasts": registered_contrasts(
+            panel, reference=reference, level=level, n_resamples=n_resamples),
     }
 
 
@@ -615,7 +875,8 @@ def ordering_plot_svg(result: dict, width: int = 720,
         f'<text x="{x(0):.1f}" y="{height - 16}" fill="#555" '
         f'text-anchor="middle">0</text>',
         f'<text x="16" y="{height - 16}" fill="#777" font-size="11">'
-        f'grey band = twin-vs-twin noise floor</text>',
+        f'grey band = {result["reference_arm"]}-vs-'
+        f'{result["reference_arm"]} noise floor</text>',
         '</svg>',
     ]
     return "\n".join(parts)
@@ -640,15 +901,17 @@ def build_provenance(payload: dict) -> str:
     parts = [
         f"Metric {result['metric']}, {result['n_seeds']} seeds, "
         f"{len(result['arms'])} arms against {result['reference_arm']}.",
-        f"Every effect is a PAIRED difference within a seed: the twin shares "
-        f"the seed and therefore the initial weights and the data order, so "
-        f"the pairing removes seed-to-seed variation rather than averaging "
-        f"over it.",
-        f"The noise floor is twin against twin ACROSS seeds -- "
+        f"Every effect is a PAIRED difference within a seed: "
+        f"{result['reference_arm']} shares the seed and therefore the initial "
+        f"weights and the data order, so the pairing removes seed-to-seed "
+        f"variation rather than averaging over it.",
+        f"The noise floor is {result['reference_arm']} against "
+        f"{result['reference_arm']} ACROSS seeds -- "
         f"{floor['n_pairs']} distinct pairs, widest absolute difference "
-        f"{floor['widest_abs']:.6g}. No burst appears in it.",
+        f"{floor['widest_abs']:.6g}.",
         (f"{len(cleared)} of {len(result['arms'])} arms have a mean effect "
-         f"larger than the widest twin-vs-twin difference"
+         f"larger than the widest "
+         f"{result['reference_arm']}-vs-{result['reference_arm']} difference"
          + (f": {', '.join(cleared)}." if cleared else ", so none is "
             "distinguished from seed alone on that comparison.")),
         f"Correction: {result['correction']}, alpha {result['alpha']}. "
@@ -683,7 +946,8 @@ def report_banner(payload: dict) -> list:
         f"seeds       {result['n_seeds']}",
         f"correction  {result['correction']}   alpha {result['alpha']}",
         "",
-        f"noise floor twin-vs-twin ACROSS seeds, {floor['n_pairs']} pairs",
+        f"noise floor {result['reference_arm']}-vs-{result['reference_arm']} "
+        f"ACROSS seeds, {floor['n_pairs']} pairs",
         f"            min {floor['min']:.6g}  median {floor['median']:.6g}  "
         f"max {floor['max']:.6g}",
         f"            widest |difference| {floor['widest_abs']:.6g}",

@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 """The displacement ladder: L2, activation similarity, CKA and loss, on a fixed pair set.
 
-    python scripts/displacement_ladder.py --runs-root /shared/27as66/burst-pilot/runs \
+    python scripts/displacement_ladder.py --runs-root /shared/27as66/burst-pilot/runs-fixed \
         --out docs/measurements --cfg-scratch /some/scratch/dir
 
-WHY THIS EXISTS. The pilot's headline metric returned exactly zero for the
-arm-vs-twin displacement while the three twin-vs-twin pairs peaked at 2.6 to 4.2
-(docs/measurements/2026-08-05-pilot-results.md). The plain loss barrier is a
-same-basin detector, and a seed-matched arm and twin do not leave the basin, so
-that zero is a property of the metric's reach rather than a measurement of the
-burst. `scripts/metrics.py` already implements four metrics; three of them were
-never run against a checkpoint on disk, because the only runner in the repo
-(`scripts/pilot_barrier.py`) calls `barrier` and stops. This is the runner for
-the other three, plus per-model loss.
+WHY THIS EXISTS. `scripts/metrics.py` implements four metrics and three of them
+had never been run against a checkpoint on disk, because the only runner in the
+repo (`scripts/pilot_barrier.py`) calls `barrier` and stops. This is the runner
+for the other three, plus per-model loss.
+
+    THE ORIGINAL MOTIVATION IS RETRACTED, AND IS LEFT HERE BECAUSE IT IS WHY
+    THIS FILE WAS WRITTEN. It said: the pilot's headline metric returned exactly
+    zero for the arm-vs-twin displacement while the twin-vs-twin pairs peaked at
+    2.6 to 4.2, so the plain barrier is a same-basin detector and that zero is a
+    property of the metric's reach. **That was the v1 pilot, which S97 voided.**
+    On corrected models the same metric reads 0.133863 with `rose: True` (S100,
+    docs/measurements/2026-08-06-pilot-v2-results.md). The barrier was never the
+    problem. The other three metrics are still worth having, for the reason in
+    the paragraph above, which never depended on the retracted one.
 
 WHAT IT DOES NOT DO, AND THIS IS STRUCTURAL RATHER THAN A PROMISE.
 
@@ -1237,6 +1242,71 @@ def pair_activation_metrics(model_a, model_b, batch) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def gate_checkpoint(model, meta, batch, *,
+                    tolerate_indeterminate: bool) -> tuple:
+    """BOTH objective gates for ONE checkpoint. Returns (cell, failures).
+
+    Extracted so `objective_gate` here and `scripts/pilot_barrier.py` run the
+    SAME code rather than two copies that drift. pilot_barrier imports this; it
+    does not reimplement it. A safety check with two implementations is worse
+    than one, because the second is the one nobody re-reads.
+
+    Raises nothing itself -- the caller decides whether a failure aborts one
+    checkpoint or the whole run, which is the only part that legitimately
+    differs between the two callers.
+    """
+    next_token = M.cross_entropy_loss(model, batch)
+    two_ahead = two_ahead_loss(model, batch)
+    cell = classify_objective(next_token, two_ahead)
+
+    trained = meta.get("trained_at") or {}
+    commit = trained.get("commit")
+    refused_by_commit = [c for c in REFUSED_TRAINING_COMMITS
+                         if commit and str(commit).startswith(c)]
+    ancestry = objective_fix_ancestry(commit)
+    cell.update({
+        "gate_a_objective": cell["objective"],
+        "gate_b_recorded_commit": commit,
+        "gate_b_refused": bool(refused_by_commit)
+                          or ancestry["state"] == ANCESTRY_PREDATES_FIX,
+        "gate_b_matched": refused_by_commit or None,
+        "gate_b_ancestry": ancestry,
+        "gate_b_suspect": ancestry["state"] != ANCESTRY_CONTAINS_FIX,
+    })
+
+    ref = meta.get("path", "<unnamed checkpoint>")
+    failures = []
+    if cell["objective"] == OBJECTIVE_TWO_AHEAD:
+        failures.append(
+            f"GATE A fired on {ref}: next-token loss {next_token:.6f} against "
+            f"two-ahead {two_ahead:.6f}. The two-ahead objective scores "
+            f"{cell['gap_next_minus_two_ahead']:.6f} nats BETTER, past a margin "
+            f"of {DOUBLE_SHIFT_MARGIN_NATS}, so these weights were optimised to "
+            "predict two tokens ahead (S97).")
+    elif (cell["objective"] == OBJECTIVE_INDETERMINATE
+            and not tolerate_indeterminate):
+        failures.append(
+            f"GATE A is INDETERMINATE on {ref}: next-token {next_token:.6f} "
+            f"against two-ahead {two_ahead:.6f}, a gap of "
+            f"{cell['gap_next_minus_two_ahead']:.6f} nats inside the "
+            f"{DOUBLE_SHIFT_MARGIN_NATS}-nat margin. Both objectives score the "
+            "same, which is what an UNTRAINED model looks like -- there is no "
+            "displacement worth measuring between checkpoints like this, and "
+            "calling it a pass would defeat the gate.")
+    if refused_by_commit:
+        failures.append(
+            f"GATE B fired on {ref}: run_provenance.yaml records training "
+            f"commit {commit}, which starts with {refused_by_commit[0]!r}. That "
+            "is the v1 pilot, and S97 proved every run from it trained the "
+            "double-shifted objective.")
+    elif ancestry["state"] == ANCESTRY_PREDATES_FIX:
+        failures.append(
+            f"GATE B fired on {ref} by ANCESTRY: {ancestry['reason']}. Derived "
+            "from the commit graph rather than a name, so a pre-fix commit "
+            "nobody thought to list is caught too.")
+    return cell, failures
+
+
 def objective_gate(pairs, batch, stream, *, tolerate_indeterminate: bool) -> dict:
     """TWO INDEPENDENT GATES on the training objective. Runs before everything.
 
@@ -1272,62 +1342,22 @@ def objective_gate(pairs, batch, stream, *, tolerate_indeterminate: bool) -> dic
             view = M.parameter_view(model)
             if grouping is None:
                 grouping = grouping_shape(view)
-            next_token = M.cross_entropy_loss(model, batch)
-            two_ahead = two_ahead_loss(model, batch)
+            # BOTH gates, via the shared per-checkpoint function. The losses it
+            # needs are the losses this pass records, so nothing is scored twice.
+            cell, cell_failures = gate_checkpoint(
+                model, dict(meta, path=ref), batch,
+                tolerate_indeterminate=tolerate_indeterminate)
         finally:
             del model, view
 
-        cell = classify_objective(next_token, two_ahead)
-        trained = meta.get("trained_at") or {}
-        commit = trained.get("commit")
-        refused_by_commit = [c for c in REFUSED_TRAINING_COMMITS
-                             if commit and str(commit).startswith(c)]
-        ancestry = objective_fix_ancestry(commit)
-        cell.update({
-            "gate_a_objective": cell["objective"],
-            "gate_b_recorded_commit": commit,
-            "gate_b_refused": bool(refused_by_commit)
-                              or ancestry["state"] == ANCESTRY_PREDATES_FIX,
-            "gate_b_matched": refused_by_commit or None,
-            "gate_b_ancestry": ancestry,
-            # UNKNOWN is not clean. The banner warns on it; the gate does not
-            # abort, because gate A reads the weights and is the harder check.
-            "gate_b_suspect": ancestry["state"] != ANCESTRY_CONTAINS_FIX,
-        })
+        failures.extend(cell_failures)
+        ancestry = cell["gate_b_ancestry"]
+        next_token = cell["loss_next_token"]
+        two_ahead = cell["loss_two_ahead"]
         objective[ref] = cell
         checkpoints[ref] = meta
         losses[ref] = {"loss": next_token, "loss_two_ahead": two_ahead,
                        "n_tokens": batch.n_tokens, "source": batch.source}
-
-        if cell["objective"] == OBJECTIVE_TWO_AHEAD:
-            failures.append(
-                f"GATE A fired on {ref}: next-token loss "
-                f"{next_token:.6f} against two-ahead {two_ahead:.6f}. The "
-                f"two-ahead objective scores {cell['gap_next_minus_two_ahead']:.6f} "
-                f"nats BETTER, past a margin of {DOUBLE_SHIFT_MARGIN_NATS}, so "
-                "these weights were optimised to predict two tokens ahead "
-                "(S97).")
-        elif cell["objective"] == OBJECTIVE_INDETERMINATE and not tolerate_indeterminate:
-            failures.append(
-                f"GATE A is INDETERMINATE on {ref}: next-token "
-                f"{next_token:.6f} against two-ahead {two_ahead:.6f}, a gap of "
-                f"{cell['gap_next_minus_two_ahead']:.6f} nats inside the "
-                f"{DOUBLE_SHIFT_MARGIN_NATS}-nat margin. Both objectives score "
-                "the same, which is what an UNTRAINED model looks like -- there "
-                "is no displacement worth measuring between checkpoints like "
-                "this, and calling it a pass would defeat the gate.")
-        if refused_by_commit:
-            failures.append(
-                f"GATE B fired on {ref}: run_provenance.yaml records training "
-                f"commit {commit}, which starts with "
-                f"{refused_by_commit[0]!r}. That is the v1 pilot, and S97 "
-                "proved every run from it trained the double-shifted "
-                "objective.")
-        elif ancestry["state"] == ANCESTRY_PREDATES_FIX:
-            failures.append(
-                f"GATE B fired on {ref} by ANCESTRY: {ancestry['reason']}. "
-                "Derived from the commit graph rather than a name, so a "
-                "pre-fix commit nobody thought to list is caught too.")
 
         _say(stream, f"    {ref:<44} next={next_token:.6f} "
                      f"two_ahead={two_ahead:.6f} -> {cell['objective']}"
@@ -2094,7 +2124,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--runs-root", type=Path, default=None,
         help=("directory holding seedNN_arm/ run directories, e.g. "
-              "/shared/27as66/burst-pilot/runs. Required unless --selftest."))
+              "/shared/27as66/burst-pilot/runs-fixed. NOT .../runs -- that "
+              "is the void v1 pilot and the objective gate refuses it. "
+              "Required unless --selftest."))
     parser.add_argument(
         "--out", type=Path, required=True,
         help=("where the JSON and MD land. An output path, so it is an "
