@@ -1,5 +1,13 @@
 # The 4-run pilot: first sigma, first displacement, and a metric that floors
 
+> **RE-RUN LANDED 2026-08-06.** The corrected pilot is
+> `docs/measurements/2026-08-06-pilot-v2-results.md`. It **retracts this
+> record's headline**: on correctly-trained models the barrier does *not* floor
+> on the displacement (0.133863, `rose: True`, against the 0.000000 below), and
+> the power estimate moves from n ≈ 9.8 to n ≈ 50 with the sign of delta
+> reversed. The claim that the metric "cannot express this effect at all" was an
+> artifact of S97, not a property of the metric.
+
 > **SUPERSEDED, 2026-08-05 — every number below that depends on the trained
 > weights is void.** The four runs were trained on the wrong objective:
 > `train.py` pre-shifts and then hands the shifted pair to a `labels=` call that

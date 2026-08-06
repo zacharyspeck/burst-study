@@ -15,7 +15,7 @@
     "arm": "twin",
     "seed": 0,
     "family": "hf_gpt2",
-    "checkpoint": "/shared/27as66/burst-pilot/runs/seed00_twin/step000199_weights_only.pt"
+    "checkpoint": "/shared/27as66/burst-pilot/runs-fixed/seed00_twin/step000199_weights_only.pt"
   },
   "measurement": {
     "epsilon": 1e-06,
@@ -34,20 +34,20 @@
       110
     ],
     "by_direction": {
-      "11": 0.9999376391551721,
-      "22": 0.9999371499850477,
-      "33": 0.9999381704343199,
-      "44": 0.9999371961335668,
-      "55": 0.9999374711756106,
-      "66": 0.999936707610144,
-      "77": 0.999938869561558,
-      "88": 0.9999377040593486,
-      "99": 0.9999371725791313,
-      "110": 0.9999370179659476
+      "11": 0.9999376737397512,
+      "22": 0.9999370597335908,
+      "33": 0.999938113279354,
+      "44": 0.9999372135428501,
+      "55": 0.999937325252405,
+      "66": 0.9999365554134034,
+      "77": 0.9999387177034008,
+      "88": 0.9999376474850541,
+      "99": 0.9999369484498151,
+      "110": 0.9999369716833866
     },
-    "min": 0.999936707610144,
-    "median": 0.9999373336545887,
-    "max": 0.999938869561558
+    "min": 0.9999365554134034,
+    "median": 0.9999372693976276,
+    "max": 0.9999387177034008
   },
   "public_gpt2_comparison": {
     "source": "9-canonicalization-error.json :: step_attribution.variants.shipped_recipe.1e-06",
@@ -61,8 +61,8 @@
     "branch": "plain_loss_barrier",
     "rule": "spread <= 2 and median < 1.01",
     "reason": "spread is 1 and the median is 0.999937. Alignment moves the number by less than one percent, which is not work worth an unbuilt module. The aligned barrier is reported as a robustness check.",
-    "spread": 1.0000021620882578,
-    "median": 0.9999373336545887,
+    "spread": 1.0000021624271918,
+    "median": 0.9999372693976276,
     "aligned_as_robustness_check": true,
     "builds_d6": false,
     "available": true

@@ -964,6 +964,63 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S100. The pilot re-run: S96's headline retracted, and the ladder's banner now lies about its own inputs
+
+Four runs on `3e715a6`, clean tree, 10.2–10.6 h each. Full record in
+`docs/measurements/2026-08-06-pilot-v2-results.md`. Four things belong here.
+
+**S96's central finding is withdrawn.** It reported that the plain barrier
+"floors on the displacement" — 0.000000, `rose_above_chord: False` — and argued
+from that to a claim that the headline metric "cannot express this effect at
+all". On corrected models the displacement barrier is **0.133863** with
+`rose: True`, peaking at alpha 0.5 like every other pair. The metric was never
+the problem; the models were. **A structural argument built on a number from a
+defective run inherits the defect,** and the argument read as more general than
+its evidence because nothing in it pointed back at the checkpoints.
+
+What survives is narrower: the effect is 2.9% of the mean floor. And the reason
+is now measured rather than inferred — **per-layer activation cosine between
+independently-seeded twins is essentially zero at every layer** (0.0115 to
+−0.0053), against 0.82–0.96 for the arm-vs-twin pair. Independently seeded
+models occupy unrelated bases. CKA, which is rotation-invariant, puts the same
+pairs at 0.861–0.993 against 0.939–0.997. So the floor really is largely gauge
+that the burst structurally cannot produce — but that is a claim about what the
+floor contains, not a claim that the barrier is blind.
+
+**The power estimate moved by 5x and delta changed sign.** Void run:
+delta = +0.057710, n ≈ 9.8. Corrected: delta = **−0.013863** (the injected model
+is *better* on the evaluation passage than its twin), sigma = 0.034941,
+**n ≈ 50 seeds**. The void run's agreement with spec v4's planned 10 was
+coincidence manufactured by a bug, and it would have been read as confirmation.
+Both estimates rest on one displacement and three seeds; neither is more than an
+order of magnitude.
+
+**The objective gate cost four minutes and would have saved 44.69 GPU-hours.**
+Training loss over steps 200–210 was 5.853997 against an independent next-token
+evaluation of the step-199 checkpoint at 5.905995 — a gap of 0.052 where S97's
+was 2.34. It works only because the corpus is exactly one epoch, which makes the
+loop's printed loss a held-out estimate. Worth making routine rather than
+remembering.
+
+**`displacement_ladder.py`'s LIMITATION banner is now false about its own
+inputs, and its tests hold it that way.** Run against `runs-fixed/`, it still
+opens "THE PILOT CHECKPOINTS THIS RUNNER READS WERE TRAINED ON THE WRONG
+OBJECTIVE ... no number here transfers to a corrected re-run", over checkpoints
+recording `trained_at commit 3e715a6` — the commit carrying the fix.
+`tests/test_displacement_ladder.py:1391-1401` pins that text on purpose, and the
+test's own docstring argues a banner omitting "the single most important fact
+about its own inputs" would be the S55 shape at the artifact level. That was
+right when every checkpoint in existence was void; it now produces the same
+failure inverted. **Not fixed here** — it is a deliberate, test-pinned decision
+belonging to that module's author, and the clause wants deriving from
+`trained_at` ancestry rather than asserting, failing safe to the warning. No
+`13-*` artifact is committed: publishing a report that misdescribes its inputs
+is worse than citing its numbers under a heading that says so.
+
+Cross-module obligation, added: **a generated artifact's fixed banner is state,
+and state goes stale.** D31 anticipated this for the artifact and S92 for the
+ruler; the banner is the third instance.
+
 ### S99. S97's defect, fixed: the HF branch computes its own cross-entropy
 
 **Asa asked for the fix on 2026-08-05, which is the call S97 said was his and
