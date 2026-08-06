@@ -208,6 +208,42 @@ def test_compute_loss_returns_a_scalar_for_either_signature(tiny_cfg, family):
     assert torch.isfinite(loss)
 
 
+def test_hf_loss_is_next_token_and_not_two_ahead(tiny_cfg):
+    """S97's regression. The bug this pins cost 44.69 GPU-hours.
+
+    `compute_loss` is handed an ALREADY-OFFSET pair. `transformers` shifts
+    `labels` internally, so the old `labels=targets` call composed two shifts
+    and trained a two-tokens-ahead objective. Every suite passed throughout:
+    the loss was finite, near chance at init, scalar, and bitwise reproducible
+    -- correct about the wrong objective. Nothing here compares a loss to a
+    threshold, because no threshold would have caught it.
+
+    The load-bearing assertion is the SECOND one. Matching next-token loss
+    could be arranged by accident; differing from what `labels=` produces is
+    the specific defect, named.
+    """
+    import torch.nn.functional as F
+
+    model = MS.build_model(tiny_cfg, MS.FAMILY_HF_GPT2)
+    model.eval()
+    raw = torch.randint(0, tiny_cfg.model.vocab_size, (2, 16))
+    inputs, targets = raw[:, :-1].contiguous(), raw[:, 1:].contiguous()
+
+    with torch.no_grad():
+        got = MS.compute_loss(model, inputs, targets)
+        logits = model(input_ids=inputs, use_cache=False).logits
+        next_token = F.cross_entropy(
+            logits.view(-1, logits.size(-1)), targets.reshape(-1))
+        via_labels = model(input_ids=inputs, labels=targets).loss
+
+    assert torch.allclose(got, next_token, rtol=0, atol=0), (
+        "compute_loss must score each logit against the very next token")
+    assert not torch.allclose(got, via_labels, rtol=1e-4, atol=1e-4), (
+        "compute_loss agrees with the labels= path, so the shifts are "
+        "composing again and the objective is two tokens ahead -- see S97 and "
+        "docs/2026-08-05-training-objective-defect.md")
+
+
 @pytest.mark.parametrize("family", MS.FAMILIES)
 def test_loss_is_finite_and_near_chance_at_init(tiny_cfg, family):
     """A fresh model should sit near ln(vocab); far off means a broken build."""

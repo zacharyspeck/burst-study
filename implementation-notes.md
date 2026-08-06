@@ -964,6 +964,55 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S99. S97's defect, fixed: the HF branch computes its own cross-entropy
+
+**Asa asked for the fix on 2026-08-05, which is the call S97 said was his and
+Zach's to make.** S97 diagnosed and deliberately did not repair, on the grounds
+that changing the objective changes the experiment. This is that decision taken,
+not a session deciding for itself.
+
+**The change is one function.** `model_seam.compute_loss`'s HF branch no longer
+passes `labels=`; it takes logits and computes the cross-entropy directly
+against the targets it was handed. That is exactly what
+`probes/determinism/hf_model.py:57-62` has always done, and its docstring has
+carried the reason since before the pilot: *"passing `labels` would shift
+twice."* The fix is to make the fifth loss path match the four that were right,
+not to invent a fifth way of being right.
+
+`use_cache=False` came with it, also matching the probe. It changes no
+arithmetic — it only stops the forward building key/value tensors nothing reads.
+
+**Verified against a real checkpoint, in the direction S97 established.** S97
+proved the bug by showing the loop's loss agreed with an explicit two-ahead
+loss. Run over `seed00_twin/step009535_full.pt`, four losses computed from raw
+logits so none route through the code under test:
+
+| | value | vs compute_loss |
+| --- | --- | --- |
+| `compute_loss` (under test) | 6.830878 | — |
+| explicit next-token | 6.830878 | **0.000e+00** |
+| explicit two-ahead | 4.490401 | 2.340 |
+| old `labels=` path | 4.490401 | 2.340 |
+
+The agreement moved: exact against next-token, and the old path still lands
+exactly on two-ahead, which reproduces S97's diagnosis independently rather than
+taking it on trust.
+
+**The regression test is the point, and it was checked red first.** Both suites
+passed before this fix and after it — 44.69 GPU-hours of wrong objective, and
+nothing in 1035 tests noticed, because the loss was finite, near chance at init,
+scalar and bitwise reproducible the whole time. Correct about the wrong thing:
+S55's shape again. `test_hf_loss_is_next_token_and_not_two_ahead` asserts no
+threshold, since no threshold would have caught it. It asserts an identity
+(equals next-token, exactly) and a difference (does NOT equal what `labels=`
+produces), and the second is the load-bearing one — matching next-token could
+happen by accident, differing from the specific defect cannot. Confirmed by
+reverting the fix in place, watching it fail, and restoring.
+
+**Not done here, and deliberately:** no re-run. The four pilot checkpoints are
+still models of the wrong objective and every number over them stays void per
+S97. What this commit buys is that the next run trains the right thing.
+
 ### S98. The displacement ladder: the other three metrics, run on checkpoints, with no verdict
 
 *(Numbered S97 when written. Renumbered to S98 on rebase: `273d672` landed
@@ -6342,7 +6391,7 @@ or driver.
 
 ## Test coverage
 
-1035 tests, counted per file with `--collect-only` rather than from memory.
+1036 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -6364,7 +6413,7 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_corpus_fetch.py` | 19 |
 | `tests/test_corpus_tokenize.py` | 20 |
 | `tests/test_corpus_verify.py` | 13 |
-| `tests/test_model_seam.py` | 25 |
+| `tests/test_model_seam.py` | 26 |
 | `tests/test_rng_state.py` | 17 |
 | `tests/test_train.py` | 23 |
 | `tests/test_injection.py` | 23 |
@@ -6373,7 +6422,7 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_determinism_probe.py` | 16 |
 | `tests/test_injection_point_ruler.py` | 64 |
 | `tests/test_displacement_ladder.py` | 113 |
-| **total** | **1035** |
+| **total** | **1036** |
 
 Measured on the Windows development host, 2026-08-04, after the injection-point
 ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
@@ -6404,6 +6453,15 @@ today's count: `601 + 176 = 777` and `662 + 228 = 890`, a difference of the **11
 tests `tests/test_displacement_ladder.py` adds; `922 + 113 = 1035`. Of those 113,
 **61 run with no ML stack** — the grouping arithmetic, the payload validation,
 the no-verdict guard and the step derivation are all pure — and 52 skip.
+
+**Re-measured 2026-08-05 on gpmoo-a1 after S99's objective fix, via
+`python scripts/check_suites.py`: 661 passed, 229 skipped in `.venv/` and 1032
+passed, 4 skipped in `.venv-ml/`.** Total 1036, one above the line before it —
+`test_hf_loss_is_next_token_and_not_two_ahead`, which needs torch, so the
+torch-free total is unchanged at 890. The gpmoo splits differ from the Windows
+host's in the direction the paragraph above predicts (one corpus-test skip
+lower without torch); the four ML-side skips are the CUDA-present refusal tests
+plus the corpus test, and are host facts rather than regressions.
 
 Two stale numbers above are left in place per rule 2 rather than rewritten, and
 named here so the next reader is not misled by them: the 2026-08-04 line reads

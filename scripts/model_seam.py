@@ -203,11 +203,37 @@ def compute_loss(model, inputs, targets):
     """A scalar loss, whichever forward signature the family has.
 
     The ONE place the two families differ. The probe model returns a loss
-    directly; HF returns an object carrying `.loss`. Both are next-token
-    cross-entropy over the same shift, so the number means the same thing.
+    directly; HF returns logits. Both are next-token cross-entropy over the
+    same shift, so the number means the same thing.
+
+    **THE HF BRANCH MUST NOT PASS `labels=`. S97/S99.** Callers hand this
+    function an ALREADY-OFFSET pair -- `train.py` calls `reader.shift(raw)`
+    immediately before, and the probe's `SyntheticCorpus` does the same -- so
+    `inputs[i]` is already aligned against the next token in `targets[i]`.
+    `transformers` shifts `labels` internally. Passing them composes the two
+    shifts, and the logit at position i, which is conditioned on t_0..t_i,
+    gets scored against t_(i+2): a two-tokens-ahead objective.
+
+    That is not hypothetical. It is what this line used to do, and all four
+    runs of the 2026-08-05 pilot were trained that way -- 44.69 GPU-hours
+    optimising the wrong objective, with `train_record.json` and every
+    determinism digest correct about a model of the wrong thing. See
+    `docs/2026-08-05-training-objective-defect.md`.
+
+    Computing the cross-entropy here rather than delegating is also what makes
+    the two families measurable against each other: identical loss code, so any
+    difference between them is the model and not the objective. This mirrors
+    `probes/determinism/hf_model.py`, which has carried the warning in its
+    docstring -- "passing `labels` would shift twice" -- since before the
+    pilot, and got it right.
     """
-    out = model(input_ids=inputs, labels=targets) if _is_hf(model) \
-        else model(inputs, targets)
+    if _is_hf(model):
+        torch = _torch()
+        logits = model(input_ids=inputs, use_cache=False).logits
+        return torch.nn.functional.cross_entropy(
+            logits.view(-1, logits.size(-1)), targets.reshape(-1))
+
+    out = model(inputs, targets)
     loss = getattr(out, "loss", out)
     if loss is None:
         raise ModelSeamError(
