@@ -197,6 +197,41 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D32. The objective gate needs a MARGIN, because the literal rule fires on untrained models
+
+**Asked for:** *"If two-ahead is the lower of the two, that checkpoint was
+trained on the double-shifted objective — abort."*
+
+**Implemented with a 0.25-nat margin instead of a bare `<`, and measured before
+deciding.** The bare rule is correct for its intended domain and meaningless
+outside it: on an untrained model both objectives score at chance and the sign of
+the difference is noise. Measured on ten junk models through the same code path:
+
+| case | next-token − two-ahead | source |
+| --- | --- | --- |
+| v1 double-shifted | **+2.85** | S97: 7.1085 against 4.2613 |
+| junk, ten models | +0.0014, +0.0079, +0.0035, +0.0052, −0.0051, −0.0026, +0.0012, +0.0010, +0.0048, +0.0013 | measured |
+| public GPT-2 | **−6.90** | measured, 3.4085 against 10.3082 |
+
+**The bare rule called 8 of 10 junk models double-shifted.** `--selftest` runs on
+junk, so implementing it literally would have made the local verification abort
+most of the time, seed-dependently — a gate that fires on correct behaviour is
+not a gate. The margin sits 30x above the largest observed noise and 11x below
+the real signal, placed the way §8.4's thresholds were placed: against an
+observed-good and an observed-bad case rather than by taste.
+
+**A third state came with it, and it is not a hedge.** `indeterminate` is
+returned when the gap is inside the margin. A real run **refuses** it — two
+objectives scoring the same is what an untrained checkpoint looks like, and there
+is no displacement worth measuring between models like that, so calling it a pass
+would defeat the gate. `--selftest` tolerates it and the artifact records that it
+did, because there the models are declared junk and the stem cannot reach
+`docs/measurements/`.
+
+The public-GPT-2 row is also the validation of the scorer itself: a
+correctly-trained model must find two-ahead *worse*, and it does, by 6.9 nats. If
+that ever inverts the scorer is wrong rather than the model, and a test says so.
+
 ### D31. No `docs/measurements/13-*` artifact is committed, because the checkpoints are not on this machine
 
 **Not a shortcut, and not fixable here.** `scripts/displacement_ladder.py` was
@@ -1083,6 +1118,139 @@ one cross-reference in `scripts/displacement_ladder.py` was updated with it.)*
 ever touched a checkpoint on disk, because `scripts/pilot_barrier.py` calls
 `barrier` and stops. `scripts/displacement_ladder.py` is the runner for the other
 three plus per-model loss, over six named pairs. Five things belong here.
+
+**UPDATED FOR THE v2 RUN SET, 2026-08-06.** Asa is fixing the double shift and
+re-running. The run set changes: `seed02_twin` is dropped and
+`seed00_fluent-false` added, buying a **second injecting arm at a matched seed**
+and an arm-against-arm pair, at the cost of two floor pairs. Six labels now:
+`zero_check`, `effect_random_chars`, `effect_fluent_false`, `arm_vs_arm`,
+`floor_s0_s1`, `training_scale`. Five things about the update.
+
+**The floor is n=1 and the banner counts it rather than claiming it.** v1 had
+three floor pairs ranging 2.59 to 4.22 on the barrier; v2 has one. Anyone
+carrying the v1 habit of reading a min/median/max across floor pairs would be
+reading a spread that does not exist, so `floor_sentence` derives the count from
+the pair set and states that a single pair gives none. Derived, so it cannot
+disagree with the set it describes — a test proves it reads `n=3` if the set ever
+has three again.
+
+**An objective gate, and it is deliberately two gates.** Gate A reads the
+ARTIFACT: score next-token and two-ahead loss on the same batch and see which
+the weights prefer. Gate B reads a CLAIM ABOUT the artifact: the training commit
+in `run_provenance.yaml` against `9aa930d`. Both always run and both are
+reported. Treating them as redundant is the mistake S97 is a monument to — a
+claim and the thing it describes can disagree, and the repo had four correct
+loss paths and one wrong one precisely because nobody checked the artifact
+against the claim. Gate A catches a double-shifted checkpoint from any commit,
+including one nobody thought to list; gate B catches a v1 checkpoint whose
+losses are somehow ambiguous. The margin the comparison needs is D32.
+
+`two_ahead_loss` is **transcribed** from quantity (c) of the defect document's
+decisive experiment rather than re-derived, so the gate compares against the same
+number S97 established. Next-token loss is not reimplemented at all: it is
+`metrics.cross_entropy_loss`, quantity (a), one of the four paths S97 found
+shifting correctly.
+
+**The banner is derived, and its absence is now a claim.** The S97 clause was a
+hardcoded opening; it is now emitted only when the gate actually observed a
+double-shifted checkpoint, by either gate. So a clean run does not carry it and a
+v1 checkpoint that reached the artifact through a bypassed gate still does. Kept
+verbatim rather than deleted, and both branches are asserted — present and
+absent. Recomputed at write time like `PROVENANCE`, for S70's reason.
+
+**GATE B DERIVES FROM ANCESTRY, WHICH IS ASA'S CALL TAKEN.** `715dd67` named this
+module and handed it over: *"displacement_ladder.py's LIMITATION banner still
+declares its inputs void over checkpoints stamped trained_at `3e715a6` … that
+module's author owns the call; the clause wants deriving from trained_at
+ancestry, failing safe to the warning."* He was reading `17a78fb`, where the
+banner was a hardcoded constant that always opened with the defect — the
+conditional version above already fixes that half. The ancestry half is his
+refinement and it is strictly better than what I had:
+
+`objective_fix_ancestry` asks `git merge-base --is-ancestor 3e715a6 <trained_at>`.
+A checkpoint is clean on this axis **iff its training commit contains the fix**,
+which is a question about the commit graph rather than about a name — so it
+catches every pre-fix commit, including ones nobody thought to list. Verified on
+the real graph:
+
+| recorded commit | state |
+| --- | --- |
+| `9aa930d` (v1 pilot) | `predates_fix` — refused |
+| `f015fd0` (**not** on the denylist) | `predates_fix` — refused, and this is why ancestry beats a list |
+| `3e715a6` (the fix) | `contains_fix` — clean |
+| `715dd67` (the corrected pilot) | `contains_fix` — clean, the case Asa flagged |
+| unresolvable, or absent | `unknown` |
+
+The explicit `REFUSED_TRAINING_COMMITS` list is **kept alongside** it, not
+replaced: it needs no git, so it still catches the known-bad commit on a machine
+where ancestry cannot be resolved.
+
+**"Failing safe to the warning" is implemented as exactly that, and no further.**
+`unknown` ancestry does **not** abort the run — a shallow clone or a commit this
+checkout has never seen is not evidence of a defect, and gate A reads the weights
+themselves and is the harder check. It does raise the banner clause. And the
+clause distinguishes the two cases in its own words: **"CHECKPOINTS SHOWN TO BE
+AFFECTED"** against **"CHECKPOINTS WHOSE OBJECTIVE COULD NOT BE VERIFIED …
+treated as suspect rather than clean."** Collapsing "unverified" and "known bad"
+into one sentence would be this repo's logged defect committed in the act of
+guarding against it.
+
+**Label integrity is enforced, not just tested.** `verify_pair_identity` checks
+each side's `(seed, arm)` against the **resolved payload** before any number is
+filed under the label, and refuses on a mismatch. `checkpoint_path` builds a path
+from a seed and an arm, but nothing downstream re-read whether the file there
+holds what the name says — `train.py` writes seed and arm into the payload
+precisely so that question has an answer.
+
+**Fail loud on a missing run, and never fall back.** A v1 output directory has
+`seed02_twin` and no `fluent-false`; a v2 one is the reverse. The refusal lists
+every path searched with found/missing beside each, and says what changed between
+the sets. Measuring whichever subset happened to be present would produce a
+complete-looking artifact whose labels misdescribe it.
+
+**THE v2 PAIR SET DOES NOT MATCH THE RUN THAT EXISTS, AND THAT IS DELIBERATE.**
+`715dd67`'s corrected pilot ran **"the same seeds and same arms as the void
+pilot"** — `seed00_twin`, `seed01_twin`, `seed02_twin`, `seed00_random-chars`,
+under `/shared/27as66/burst-pilot/runs-fixed/`. There is **no
+`seed00_fluent-false`** there and `seed02_twin` is still present. The v2 set
+specified for this work drops `seed02_twin` and adds `seed00_fluent-false`, so
+pointing this ladder at `runs-fixed/` **will trip the missing-run refusal**,
+naming `seed00_fluent-false` and listing all four paths searched.
+
+That is the fail-loud requirement working, not a bug, and the pair set was not
+quietly widened to fit what happens to be on disk — which is precisely the
+fallback the refusal exists to prevent. The v2 set describes a run that has not
+happened yet. Whoever launches it either waits for that run or rules on the pair
+set; the ladder will not guess.
+
+**MUTATION AUDIT of the pair-set construction, and one mutation SURVIVED.**
+
+| # | mutation | result |
+| --- | --- | --- |
+| M4 | swap `effect_random_chars`'s arm to `fluent-false`, so two labels name one arm | **RED, 2 tests** |
+| M5 | reintroduce `floor_s0_s2` over the dropped `seed02_twin` | **RED, 3 tests** |
+| M6 | point `training_scale` at `final` on both sides | **GREEN — SURVIVED** |
+
+**M6 is the finding.** Pointing both sides at the final checkpoint turns
+`training_scale` into a duplicate of `zero_check`: an L2 of exactly 0.0 filed
+under a label promising early-against-late. The whole suite stayed green. The
+identity checks could not catch it and it is worth being precise about why —
+both sides genuinely *are* `(0, 'twin')`, so the label's seed-and-arm claim is
+satisfied. What distinguishes that pair is the **step**, and nothing asserted it.
+
+Reported rather than deleted, per the rule, and then closed:
+`test_training_scale_spans_two_different_steps` and
+`test_only_the_zero_check_pair_has_identical_sides` now cover it, and M6 re-run
+against them goes red on both. The second is the more general guard — any pair
+whose two sides resolve to one file is a second `zero_check` wearing another
+name.
+
+**A second name collision, caught by the same guard.** The objective
+classification was first called `verdict`, and `assert_no_verdict_keys` refused
+the payload: `verdict` is on the denylist because in this repo it means a
+conclusion about the study's comparison. Renamed to `objective`. That is twice
+now the guard has caught a field name of mine, and both times the guard was right
+and the name was wrong — which is the argument for a denylist over a convention.
 
 **READ S97 FIRST, BECAUSE IT CHANGES WHAT THIS MEASURES.** S97 landed while this
 was being written: the pilot trained a two-tokens-ahead objective, so the four
@@ -6448,7 +6616,7 @@ or driver.
 
 ## Test coverage
 
-1036 tests, counted per file with `--collect-only` rather than from memory.
+1074 tests, counted per file with `--collect-only` rather than from memory.
 (The prose here read "420" against a table totalling 435 until 2026-08-03 —
 a stale count of exactly the kind rule 2 warns about, corrected in place.)
 
@@ -6478,8 +6646,8 @@ a stale count of exactly the kind rule 2 warns about, corrected in place.)
 | `tests/test_analysis.py` | 47 |
 | `tests/test_determinism_probe.py` | 16 |
 | `tests/test_injection_point_ruler.py` | 64 |
-| `tests/test_displacement_ladder.py` | 113 |
-| **total** | **1036** |
+| `tests/test_displacement_ladder.py` | 151 |
+| **total** | **1074** |
 
 Measured on the Windows development host, 2026-08-04, after the injection-point
 ruler landed: **601 passed, 176 skipped** in `.venv/` and **918 passed, 0
@@ -6502,14 +6670,14 @@ skipped** and **919 passed, 3 skipped**, against a collected total of 922. The
 torch-free count does not move because all four need torch.
 
 **Re-measured 2026-08-05 on the Windows development host after S97's
-displacement ladder landed, via `python scripts/check_suites.py`: 662 passed,
-228 skipped in `.venv/` and 1035 passed, 0 skipped in `.venv-ml/`.** The
+displacement ladder landed, via `python scripts/check_suites.py`: 692 passed,
+236 skipped in `.venv/` and 1074 passed, 0 skipped in `.venv-ml/`.** The
 arithmetic reconciles exactly against the figures above and is worth writing out,
 because the two paragraphs preceding this one disagree with each other and with
-today's count: `601 + 176 = 777` and `662 + 228 = 890`, a difference of the **113**
-tests `tests/test_displacement_ladder.py` adds; `922 + 113 = 1035`. Of those 113,
-**61 run with no ML stack** — the grouping arithmetic, the payload validation,
-the no-verdict guard and the step derivation are all pure — and 52 skip.
+today's count: `601 + 176 = 777` and `692 + 236 = 928`, a difference of the **151**
+tests `tests/test_displacement_ladder.py` adds; `923 + 151 = 1074`. Of those 151,
+**91 run with no ML stack** — the grouping arithmetic, the payload validation,
+the no-verdict guard and the step derivation are all pure — and 60 skip.
 
 **Re-measured 2026-08-05 on gpmoo-a1 after S99's objective fix, via
 `python scripts/check_suites.py`: 661 passed, 229 skipped in `.venv/` and 1032

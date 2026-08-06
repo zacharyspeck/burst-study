@@ -166,6 +166,93 @@ COSINE_IDENTITY_TOL = COSINE_IDENTITY_ULPS * DBL_EPS
 #: so this is float reassociation only and nothing else can hide inside it.
 SUM_OF_PARTS_RTOL = 1e-12
 
+#: Commits whose checkpoints are refused outright, by recorded training commit.
+#: `9aa930d` is the v1 pilot: S97 proved every run from it was optimised to
+#: predict two tokens ahead. This is the SECOND of two independent objective
+#: gates and it reads a CLAIM about the artifact (run_provenance.yaml) rather
+#: than the artifact. Kept separate from the measured gate on purpose -- S97
+#: exists because a claim and the thing it describes can disagree, and a repo
+#: that had only ever checked the claim would have shipped the defect.
+REFUSED_TRAINING_COMMITS = ("9aa930d",)
+
+#: The commit that FIXED the double shift (S99: model_seam's HF branch stopped
+#: passing labels=). A checkpoint is clean on this axis iff its recorded training
+#: commit CONTAINS this one, which is an ancestry question and not a name
+#: question -- so it catches every pre-fix commit, including ones nobody thought
+#: to list. Asa asked for exactly this in 715dd67, handing the call to this
+#: module: "the clause wants deriving from trained_at ancestry, failing safe to
+#: the warning."
+OBJECTIVE_FIX_COMMIT = "3e715a6"
+
+#: What ancestry resolution concluded. UNKNOWN is not clean: a shallow clone, a
+#: commit this checkout has never seen, or no git at all all land here, and the
+#: banner warns on it. Refusing outright would over-block a legitimate run on a
+#: machine without the full history -- gate A reads the weights themselves and is
+#: the harder check anyway.
+ANCESTRY_CONTAINS_FIX = "contains_fix"
+ANCESTRY_PREDATES_FIX = "predates_fix"
+ANCESTRY_UNKNOWN = "unknown"
+
+
+def objective_fix_ancestry(commit) -> dict:
+    """Does `commit` contain OBJECTIVE_FIX_COMMIT? Ancestry, not string matching.
+
+    `git merge-base --is-ancestor FIX TRAINED` exits 0 when the training commit
+    has the fix in its history. Anything else -- a missing commit, a shallow
+    clone, no git -- is UNKNOWN, which the banner treats as suspect. Failing safe
+    means failing to the warning, not to silence.
+    """
+    if not commit:
+        return {"state": ANCESTRY_UNKNOWN, "commit": None,
+                "reason": "no training commit is recorded for this checkpoint"}
+    try:
+        result = subprocess.run(
+            ("git", "merge-base", "--is-ancestor", OBJECTIVE_FIX_COMMIT,
+             str(commit)),
+            cwd=str(REPO), capture_output=True, text=True, timeout=30)
+    except Exception as exc:
+        return {"state": ANCESTRY_UNKNOWN, "commit": str(commit),
+                "reason": f"could not run git: {exc!r}"}
+    if result.returncode == 0:
+        return {"state": ANCESTRY_CONTAINS_FIX, "commit": str(commit),
+                "fix": OBJECTIVE_FIX_COMMIT,
+                "reason": (f"{commit} contains {OBJECTIVE_FIX_COMMIT}, the "
+                           "commit that fixed the double shift")}
+    if result.returncode == 1:
+        return {"state": ANCESTRY_PREDATES_FIX, "commit": str(commit),
+                "fix": OBJECTIVE_FIX_COMMIT,
+                "reason": (f"{commit} does NOT contain "
+                           f"{OBJECTIVE_FIX_COMMIT}, so it predates the fix "
+                           "and trained the double-shifted objective")}
+    return {"state": ANCESTRY_UNKNOWN, "commit": str(commit),
+            "reason": ("git could not resolve the ancestry: "
+                       + (result.stderr.strip() or f"exit {result.returncode}"))}
+
+#: How much LOWER the two-ahead loss must be before a checkpoint is called
+#: double-shifted. Not a taste: the two regimes are separated by orders of
+#: magnitude and this sits between them, the way section 8.4's thresholds were
+#: placed against an observed-good and an observed-bad case.
+#:
+#:   v1 double-shifted   next 7.1085 - two-ahead 4.2613 = +2.85 nats  (S97)
+#:   junk, worst of 10   +0.008 nats            -- both at chance, sign is noise
+#:   public GPT-2        -6.90 nats             -- wrong direction entirely
+#:
+#: 0.25 is 30x above the largest noise observed on an untrained model and 11x
+#: below the real signal. A bare `two_ahead < next_token` test, which is the
+#: literal rule, fired on 8 of 10 junk models -- see D32.
+DOUBLE_SHIFT_MARGIN_NATS = 0.25
+
+#: Objective classifications. NOT named `verdict`: that word is on
+#: FORBIDDEN_PAYLOAD_KEYS because in this repo it means a conclusion about the
+#: study's comparison, and the guard refused the payload the first time this
+#: field carried it. Second time the guard has caught a name of mine -- see S98.
+#: `indeterminate` is a real state, not a hedge: when both
+#: losses sit at chance the comparison carries no information, and calling that
+#: a pass would let an untrained checkpoint through the gate it exists for.
+OBJECTIVE_NEXT_TOKEN = "next_token"
+OBJECTIVE_TWO_AHEAD = "two_ahead"
+OBJECTIVE_INDETERMINATE = "indeterminate"
+
 #: Payload keys that would make this a verdict rather than a measurement.
 #: Checked before writing. See `assert_no_verdict_keys`.
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
@@ -174,24 +261,35 @@ FORBIDDEN_PAYLOAD_KEYS = frozenset({
     "above_noise_floor", "exceeds_floor", "noise_floor", "effect_vs_floor",
 })
 
-LIMITATION = (
-    "THE PILOT CHECKPOINTS THIS RUNNER READS WERE TRAINED ON THE WRONG "
-    "OBJECTIVE. scripts/train.py pre-shifts each block into (inputs, targets) "
-    "and then hands the pair to a path that passes labels=, which transformers "
-    "shifts again -- so every pilot run was optimised to predict TWO TOKENS "
-    "AHEAD. Full account and proof: docs/2026-08-05-training-objective-defect.md "
-    "and S97. That defect voids the four barrier curves and the endpoint-loss "
-    "delta/sigma this ladder was built to look past; it does NOT void the "
-    "section 8.4 ruler branch, the injection verification, or any determinism "
-    "record. WHAT IT MEANS FOR THE NUMBERS BELOW: the checkpoints are real and "
-    "these distances are correctly computed over them, but they are distances "
-    "between models trained on a different objective than the study intends, so "
-    "no number here transfers to a corrected re-run. The per-model loss is the "
-    "sharpest case -- metrics.cross_entropy_loss is one of the FOUR loss paths "
-    "that shift correctly, so the loss reported here is proper next-token loss "
-    "on a model that was never trained for it, and reads roughly 7.1 where the "
-    "training curve reported 4.26. Read this section as a description of what "
-    "those four checkpoints are, not as a measurement of the burst. "
+#: EMITTED ONLY WHEN THE MEASUREMENT SAYS SO. The objective gate aborts on a
+#: double-shifted checkpoint, so in a normal run this clause never appears -- and
+#: that absence is itself a claim, which is why it is derived rather than
+#: hardcoded. It is retained in full for the case the gate is bypassed, disabled,
+#: or extended with an override: a v1 checkpoint that reaches the artifact must
+#: still carry this banner. Kept verbatim from the version written when every
+#: checkpoint on the cluster was v1.
+LIMITATION_DOUBLE_SHIFT = (
+    "THE CHECKPOINTS THIS ARTIFACT READS WERE TRAINED ON THE WRONG OBJECTIVE, "
+    "AND THE OBJECTIVE GATE SAYS SO BELOW. scripts/train.py pre-shifts each "
+    "block into (inputs, targets) and then hands the pair to a path that passes "
+    "labels=, which transformers shifts again -- so the run was optimised to "
+    "predict TWO TOKENS AHEAD. Full account and proof: "
+    "docs/2026-08-05-training-objective-defect.md and S97. That defect voids the "
+    "v1 barrier curves and the endpoint-loss delta/sigma this ladder was built "
+    "to look past; it does NOT void the section 8.4 ruler branch, the injection "
+    "verification, or any determinism record. WHAT IT MEANS FOR THE NUMBERS "
+    "BELOW: the checkpoints are real and these distances are correctly computed "
+    "over them, but they are distances between models trained on a different "
+    "objective than the study intends, so no number here transfers to a "
+    "corrected re-run. The per-model loss is the sharpest case -- "
+    "metrics.cross_entropy_loss is one of the FOUR loss paths that shift "
+    "correctly, so the loss reported here is proper next-token loss on a model "
+    "that was never trained for it, and read roughly 7.1 against a training "
+    "curve of 4.26 on the v1 pilot. Read that section as a description of what "
+    "these checkpoints are, not as a measurement of the burst. "
+)
+
+LIMITATION_BASE = (
     "THIS FILE REPORTS DISTANCES AND COMPUTES NO VERDICT. No comparison of the "
     "effect pair against the floor pairs is made here, no pair is ranked, and "
     "nothing is described as clearing anything. Reading these numbers against "
@@ -228,6 +326,78 @@ LIMITATION = (
     "Reduction order depends on the device, so numbers from a CUDA run and a "
     "CPU run are not bitwise comparable."
 )
+
+
+def floor_sentence(payload) -> str:
+    """The floor's size, COUNTED from the pair set rather than typed.
+
+    v1 had three floor pairs across seeds 0/1/2. v2 drops seed02_twin to buy a
+    second injecting arm, so there is exactly one. A reader who carried the v1
+    habit of reading a min/median/max across floor pairs would be reading a
+    spread that does not exist, so the count is stated and the absence of a
+    spread is stated with it.
+    """
+    labels = [p.get("label") for p in (payload.get("pair_set") or [])]
+    n = sum(1 for lab in labels if lab and lab.startswith("floor"))
+    if n == 1:
+        return (
+            f"THE FLOOR IS n={n}. There is exactly one twin-against-twin pair in "
+            "this run, down from three in v1, because seed02_twin was dropped to "
+            "buy a second injecting arm at a matched seed. ONE PAIR GIVES NO "
+            "SPREAD: there is no min, median or max across floor pairs to read, "
+            "and no way to tell from this artifact how much a floor pair varies. "
+            "v1's three pairs ranged 2.59 to 4.22 on the barrier, so the "
+            "variation being unmeasured here is not small. "
+        )
+    return (
+        f"THE FLOOR IS n={n} pair(s) in this run. Read the per-pair numbers "
+        "rather than any summary across them; this file computes no summary. "
+    )
+
+
+def limitation(payload) -> str:
+    """The banner, DERIVED from what was measured. Recomputed at write time.
+
+    Two parts. The base always applies. The double-shift clause is emitted only
+    when the objective gate actually observed a double-shifted checkpoint --
+    either gate A on the losses or gate B on the recorded commit. So the clause's
+    ABSENCE is a claim about this run's inputs rather than an editing decision,
+    and a v1 checkpoint that reached the artifact through a bypassed gate still
+    carries the warning. Same reasoning as metrics_report.limitation: a stored
+    copy could only ever go stale, and hardcoded prose inside a generated file is
+    S70's defect.
+    """
+    by_ckpt = ((payload.get("objective_gate") or {}).get("by_checkpoint")
+               or {})
+    double_shifted = sorted(
+        ref for ref, cell in by_ckpt.items()
+        if cell.get("objective") == OBJECTIVE_TWO_AHEAD
+        or cell.get("gate_b_refused"))
+    # FAIL SAFE TO THE WARNING, which is what Asa asked for in 715dd67. A
+    # checkpoint whose ancestry cannot be resolved is not shown to be clean, so
+    # the clause appears -- flagged separately from a proven one, because
+    # "unverified" and "known bad" are different facts and one name for both is
+    # this repo's logged defect.
+    unverified = sorted(
+        ref for ref, cell in by_ckpt.items()
+        if ref not in double_shifted and cell.get("gate_b_suspect"))
+    head = ""
+    if double_shifted or unverified:
+        head = LIMITATION_DOUBLE_SHIFT
+        if double_shifted:
+            head += ("CHECKPOINTS SHOWN TO BE AFFECTED: "
+                     + ", ".join(double_shifted) + ". ")
+        if unverified:
+            head += (
+                "CHECKPOINTS WHOSE OBJECTIVE COULD NOT BE VERIFIED FROM THEIR "
+                "RECORDED ANCESTRY, treated as suspect rather than clean: "
+                + ", ".join(unverified)
+                + ". These are not shown to be double-shifted -- their measured "
+                f"losses did not say so -- but neither is it established that "
+                f"they contain {OBJECTIVE_FIX_COMMIT}, so this warning stands "
+                "until it is. ")
+    return head + floor_sentence(payload) + LIMITATION_BASE
+
 
 ORDERING_ATTESTATION = (
     "docs/preregistration.md section 8.5 constraint 1 requires the section 8.4 "
@@ -726,7 +896,15 @@ def load_junk(kind: str, seed: int, side: int, device: str):
 
 @dataclass(frozen=True)
 class Pair:
-    """One row of the ladder. `loader_a`/`loader_b` are zero-arg thunks."""
+    """One row of the ladder. `loader_a`/`loader_b` are zero-arg thunks.
+
+    `expect_a`/`expect_b` are the (seed, arm) the LABEL claims each side is, and
+    they exist so the claim can be checked against what the checkpoint payload
+    actually says rather than against the path the label was built from. A label
+    that names one run while the file holds another is the S55 shape and would
+    not crash: every number would be computed correctly, about the wrong pair.
+    None means "do not check", which only the junk fixtures use.
+    """
 
     label: str
     ref_a: str
@@ -734,6 +912,42 @@ class Pair:
     loader_a: object
     loader_b: object
     note: str
+    expect_a: object = None
+    expect_b: object = None
+
+
+def verify_pair_identity(pair: Pair, meta_a: dict, meta_b: dict) -> dict:
+    """The label's claim about (seed, arm), checked against the RESOLVED payload.
+
+    Refuses rather than warns. `checkpoint_path` builds a path from a seed and an
+    arm, but nothing downstream re-reads whether the file at that path holds what
+    the name says -- `train.py` writes seed and arm INTO the payload precisely so
+    that question has an answer, and this is the place to ask it.
+    """
+    resolved = {}
+    problems = []
+    for side, meta, expected in (("a", meta_a, pair.expect_a),
+                                 ("b", meta_b, pair.expect_b)):
+        got = (meta.get("seed"), meta.get("arm"))
+        resolved[side] = {"seed": got[0], "arm": got[1],
+                          "path": meta.get("path")}
+        if expected is None:
+            continue
+        resolved[side]["expected_seed"] = expected[0]
+        resolved[side]["expected_arm"] = expected[1]
+        if got != tuple(expected):
+            problems.append(
+                f"pair {pair.label!r} side {side} is labelled seed "
+                f"{expected[0]} arm {expected[1]!r}, but the checkpoint at "
+                f"{meta.get('path')} records seed {got[0]} arm {got[1]!r}")
+    if problems:
+        raise LadderError(
+            "A PAIR LABEL DOES NOT MATCH THE CHECKPOINT IT RESOLVED TO.\n"
+            "Every number for this pair would be computed correctly and filed "
+            "under the wrong name, which is the defect this repo keeps finding "
+            "in itself.\n\n"
+            + "".join(f"  - {p}\n" for p in problems))
+    return resolved
 
 
 def ladder_steps(cfg) -> dict:
@@ -785,17 +999,87 @@ def checkpoint_path(runs_root: Path, seed: int, arm: str, step: int,
     return runs_root / run_name_for(seed, arm) / f"step{step:06d}_{kind}.pt"
 
 
-def build_checkpoint_pairs(runs_root: Path, cfg, device: str):
-    """The six pairs, over real checkpoints."""
+#: The v2 run set. Each entry is (label, (seed, arm, when), (seed, arm, when),
+#: note), where `when` is "final" or "pre". DATA, not code, so the mutation audit
+#: has one thing to break and the label-integrity check has one thing to read.
+#:
+#: v1 had three floor pairs across seeds 0/1/2 and one injecting arm. v2 drops
+#: seed02_twin and adds seed00_fluent-false, buying a SECOND injecting arm at a
+#: matched seed and an arm-against-arm pair, at the cost of two floor pairs. The
+#: floor is therefore n=1 and has no spread; the banner says so.
+PAIR_SPEC_V2 = (
+    ("zero_check", (0, "twin", "final"), (0, "twin", "final"),
+     "the same checkpoint, loaded twice independently. The gate."),
+    ("effect_random_chars", (0, "twin", "final"), (0, "random-chars", "final"),
+     "random-chars against its seed-matched twin: shared init, shared data "
+     "order, one burst at the injection step"),
+    ("effect_fluent_false", (0, "twin", "final"), (0, "fluent-false", "final"),
+     "fluent-false against the SAME twin: the second injecting arm at a "
+     "matched seed"),
+    ("arm_vs_arm", (0, "random-chars", "final"), (0, "fluent-false", "final"),
+     "the two injecting arms against each other, at one seed"),
+    ("floor_s0_s1", (0, "twin", "final"), (1, "twin", "final"),
+     "twin against twin across seeds. THE ONLY FLOOR PAIR in v2"),
+    ("training_scale", (0, "twin", "pre"), (0, "twin", "final"),
+     "one run against its own earlier self: the pre-injection checkpoint "
+     "against the finished model"),
+)
+
+
+def required_run_dirs(spec=PAIR_SPEC_V2) -> tuple:
+    """Every seedNN_arm directory the spec needs, de-duplicated, in order."""
+    seen, out = set(), []
+    for _label, a, b, _note in spec:
+        for seed, arm, _when in (a, b):
+            name = run_name_for(seed, arm)
+            if name not in seen:
+                seen.add(name)
+                out.append(name)
+    return tuple(out)
+
+
+def build_checkpoint_pairs(runs_root: Path, cfg, device: str,
+                           spec=PAIR_SPEC_V2):
+    """The six v2 pairs, over real checkpoints. Refuses a missing run loudly.
+
+    The missing-run check runs BEFORE the steps are derived, deliberately: a run
+    directory that is not there is a more fundamental problem than which step to
+    read inside it, and the more useful error to surface first. Same ordering
+    burst/config.py uses for null fields against the family refusal.
+    """
+    # FAIL LOUD, AND NEVER FALL BACK. A v1 run directory has seed02_twin and no
+    # fluent-false; a v2 one is the other way round. Quietly measuring whichever
+    # subset happens to be present would produce a complete-looking artifact
+    # over a different pair set than its labels claim.
+    missing = []
+    for name in required_run_dirs(spec):
+        if not (runs_root / name).is_dir():
+            missing.append(runs_root / name)
+    if missing:
+        raise LadderError(
+            f"{len(missing)} of {len(required_run_dirs(spec))} run "
+            "directories the v2 pair set needs are not present under "
+            f"{runs_root}.\n"
+            "EVERY PATH SEARCHED:\n"
+            + "".join(
+                f"  {'MISSING' if (runs_root / n) in missing else 'found  '}  "
+                f"{runs_root / n}\n" for n in required_run_dirs(spec))
+            + "\nNO FALLBACK IS ATTEMPTED. This is the v2 set: seed02_twin was "
+            "dropped and seed00_fluent-false added, so a v1 output directory "
+            "will be missing fluent-false and will still contain a seed02_twin "
+            "this ladder no longer reads. Measuring whichever subset happened "
+            "to be there would produce a complete-looking artifact over a pair "
+            "set its own labels misdescribe.")
+
     steps = ladder_steps(cfg)
-    final_step, final_kind = steps["final_step"], steps["final_kind"]
-    pre_step, pre_kind = steps["pre_injection_step"], steps["pre_injection_kind"]
+    when_step = {
+        "final": (steps["final_step"], steps["final_kind"]),
+        "pre": (steps["pre_injection_step"], steps["pre_injection_kind"]),
+    }
 
-    def final(seed, arm):
-        return checkpoint_path(runs_root, seed, arm, final_step, final_kind)
-
-    def pre(seed, arm):
-        return checkpoint_path(runs_root, seed, arm, pre_step, pre_kind)
+    def path_for(seed, arm, when):
+        step, kind = when_step[when]
+        return checkpoint_path(runs_root, seed, arm, step, kind)
 
     def ref(path):
         return str(Path(path).relative_to(runs_root)).replace("\\", "/")
@@ -803,25 +1087,14 @@ def build_checkpoint_pairs(runs_root: Path, cfg, device: str):
     def loader(path):
         return lambda: load_reference(path, cfg, device)
 
-    spec = [
-        ("zero_check", final(0, "twin"), final(0, "twin"),
-         "the same checkpoint, loaded twice independently. The gate."),
-        ("effect", final(0, "twin"), final(0, "random-chars"),
-         "arm against its seed-matched twin: shared init, shared data order, "
-         "one burst at the injection step"),
-        ("floor_s0_s1", final(0, "twin"), final(1, "twin"),
-         "twin against twin across seeds"),
-        ("floor_s0_s2", final(0, "twin"), final(2, "twin"),
-         "twin against twin across seeds"),
-        ("floor_s1_s2", final(1, "twin"), final(2, "twin"),
-         "twin against twin across seeds"),
-        ("training_scale", pre(0, "twin"), final(0, "twin"),
-         "one run against its own earlier self: the pre-injection checkpoint "
-         "against the finished model"),
-    ]
-    return [Pair(label=label, ref_a=ref(a), ref_b=ref(b),
-                 loader_a=loader(a), loader_b=loader(b), note=note)
-            for label, a, b, note in spec], steps
+    pairs = []
+    for label, a, b, note in spec:
+        pa, pb = path_for(*a), path_for(*b)
+        pairs.append(Pair(
+            label=label, ref_a=ref(pa), ref_b=ref(pb),
+            loader_a=loader(pa), loader_b=loader(pb), note=note,
+            expect_a=(a[0], a[1]), expect_b=(b[0], b[1])))
+    return pairs, steps
 
 
 def build_selftest_pairs(device: str):
@@ -837,12 +1110,14 @@ def build_selftest_pairs(device: str):
     spec = [
         ("zero_check", "identical", 101,
          "two independent builds of one junk model. The gate."),
-        ("effect", "noise", 202,
+        ("effect_random_chars", "noise", 202,
          "JUNK stand-in for arm against twin: same init, small perturbation"),
+        ("effect_fluent_false", "noise", 707,
+         "JUNK stand-in for the second injecting arm at a matched seed"),
+        ("arm_vs_arm", "noise", 808,
+         "JUNK stand-in for the two injecting arms against each other"),
         ("floor_s0_s1", "independent", 303,
-         "JUNK stand-in for a floor pair: independent init"),
-        ("floor_s0_s2", "independent", 404, "JUNK stand-in: independent init"),
-        ("floor_s1_s2", "independent", 505, "JUNK stand-in: independent init"),
+         "JUNK stand-in for the ONE floor pair: independent init"),
         ("training_scale", "noise", 606,
          "JUNK stand-in for early against late: same init, perturbation"),
     ]
@@ -960,6 +1235,133 @@ def pair_activation_metrics(model_a, model_b, batch) -> dict:
 # ---------------------------------------------------------------------------
 # The zero check -- two halves, gating one phase each
 # ---------------------------------------------------------------------------
+
+
+def objective_gate(pairs, batch, stream, *, tolerate_indeterminate: bool) -> dict:
+    """TWO INDEPENDENT GATES on the training objective. Runs before everything.
+
+    S97: the v1 pilot pre-shifted each block and then passed `labels=` to a path
+    that shifts again, so every v1 checkpoint was optimised to predict two
+    tokens ahead. A ladder pointed at such a checkpoint computes correct
+    distances between models of the wrong objective, which is the worst kind of
+    wrong number -- it is right about something nobody asked.
+
+    GATE A reads the ARTIFACT: score next-token and two-ahead loss on the same
+    batch and see which the weights prefer.
+    GATE B reads a CLAIM ABOUT the artifact: the training commit recorded in
+    run_provenance.yaml, against REFUSED_TRAINING_COMMITS.
+
+    Both always run and both are reported. They are NOT redundant, and treating
+    them as such is the mistake S97 is a monument to: a claim and the thing it
+    describes can disagree. Gate B catches a v1 checkpoint whose losses are for
+    some reason ambiguous; gate A catches a double-shifted checkpoint from any
+    commit at all, including one nobody has thought to add to the list.
+
+    This pass is also where per-model loss and provenance are taken, so each
+    distinct checkpoint is loaded ONCE here and holds one model at a time.
+    """
+    _say(stream, "  objective gate (A: measured losses, B: recorded commit)")
+    checkpoints, objective, losses = {}, {}, {}
+    grouping = None
+    failures = []
+
+    for ref, loader in distinct_refs(pairs):
+        model, meta = loader()
+        view = None
+        try:
+            view = M.parameter_view(model)
+            if grouping is None:
+                grouping = grouping_shape(view)
+            next_token = M.cross_entropy_loss(model, batch)
+            two_ahead = two_ahead_loss(model, batch)
+        finally:
+            del model, view
+
+        cell = classify_objective(next_token, two_ahead)
+        trained = meta.get("trained_at") or {}
+        commit = trained.get("commit")
+        refused_by_commit = [c for c in REFUSED_TRAINING_COMMITS
+                             if commit and str(commit).startswith(c)]
+        ancestry = objective_fix_ancestry(commit)
+        cell.update({
+            "gate_a_objective": cell["objective"],
+            "gate_b_recorded_commit": commit,
+            "gate_b_refused": bool(refused_by_commit)
+                              or ancestry["state"] == ANCESTRY_PREDATES_FIX,
+            "gate_b_matched": refused_by_commit or None,
+            "gate_b_ancestry": ancestry,
+            # UNKNOWN is not clean. The banner warns on it; the gate does not
+            # abort, because gate A reads the weights and is the harder check.
+            "gate_b_suspect": ancestry["state"] != ANCESTRY_CONTAINS_FIX,
+        })
+        objective[ref] = cell
+        checkpoints[ref] = meta
+        losses[ref] = {"loss": next_token, "loss_two_ahead": two_ahead,
+                       "n_tokens": batch.n_tokens, "source": batch.source}
+
+        if cell["objective"] == OBJECTIVE_TWO_AHEAD:
+            failures.append(
+                f"GATE A fired on {ref}: next-token loss "
+                f"{next_token:.6f} against two-ahead {two_ahead:.6f}. The "
+                f"two-ahead objective scores {cell['gap_next_minus_two_ahead']:.6f} "
+                f"nats BETTER, past a margin of {DOUBLE_SHIFT_MARGIN_NATS}, so "
+                "these weights were optimised to predict two tokens ahead "
+                "(S97).")
+        elif cell["objective"] == OBJECTIVE_INDETERMINATE and not tolerate_indeterminate:
+            failures.append(
+                f"GATE A is INDETERMINATE on {ref}: next-token "
+                f"{next_token:.6f} against two-ahead {two_ahead:.6f}, a gap of "
+                f"{cell['gap_next_minus_two_ahead']:.6f} nats inside the "
+                f"{DOUBLE_SHIFT_MARGIN_NATS}-nat margin. Both objectives score "
+                "the same, which is what an UNTRAINED model looks like -- there "
+                "is no displacement worth measuring between checkpoints like "
+                "this, and calling it a pass would defeat the gate.")
+        if refused_by_commit:
+            failures.append(
+                f"GATE B fired on {ref}: run_provenance.yaml records training "
+                f"commit {commit}, which starts with "
+                f"{refused_by_commit[0]!r}. That is the v1 pilot, and S97 "
+                "proved every run from it trained the double-shifted "
+                "objective.")
+        elif ancestry["state"] == ANCESTRY_PREDATES_FIX:
+            failures.append(
+                f"GATE B fired on {ref} by ANCESTRY: {ancestry['reason']}. "
+                "Derived from the commit graph rather than a name, so a "
+                "pre-fix commit nobody thought to list is caught too.")
+
+        _say(stream, f"    {ref:<44} next={next_token:.6f} "
+                     f"two_ahead={two_ahead:.6f} -> {cell['objective']}"
+                     f"  ancestry={ancestry['state']}"
+                     + ("  COMMIT REFUSED" if cell["gate_b_refused"] else ""))
+
+    if failures:
+        raise LadderError(
+            "THE OBJECTIVE GATE FAILED AND THE RUN IS ABANDONED. Nothing is "
+            "written.\n"
+            "A checkpoint trained on the wrong objective yields distances that "
+            "are correctly computed and about the wrong thing. See S97 and "
+            "docs/2026-08-05-training-objective-defect.md.\n\n"
+            + "".join(f"  - {f}\n" for f in failures)
+            + "\nPER CHECKPOINT:\n"
+            + json.dumps(objective, indent=2, default=repr))
+
+    return {
+        "passed": True,
+        "gate_a": ("measured: next-token loss against two-ahead loss on the "
+                   "same batch, margin "
+                   f"{DOUBLE_SHIFT_MARGIN_NATS} nats"),
+        "gate_b": ("recorded: run_provenance.yaml training commit, checked two "
+                   f"ways -- explicitly against {list(REFUSED_TRAINING_COMMITS)}, "
+                   f"and by ANCESTRY against {OBJECTIVE_FIX_COMMIT} (the commit "
+                   "that fixed the double shift). Ancestry catches a pre-fix "
+                   "commit nobody listed; the explicit list still works with no "
+                   "git. UNKNOWN ancestry warns rather than aborting."),
+        "WHY_BOTH": ("gate A reads the artifact and gate B reads a claim about "
+                     "it. S97 exists because those can disagree, so neither "
+                     "substitutes for the other."),
+        "tolerate_indeterminate": tolerate_indeterminate,
+        "by_checkpoint": objective,
+    }, checkpoints, losses, grouping
 
 
 def gate_phase1(pair: Pair, batch) -> dict:
@@ -1138,49 +1540,34 @@ def _gate_failure_text(phase: str, failures, observed) -> str:
 
 
 def run_phase1(pairs, batch, stream) -> tuple:
-    """Per-model loss over distinct checkpoints, then L2 over every pair.
+    """L2, total and per layer, over every pair. Holds two models.
 
-    Two passes. The first holds ONE model at a time and is where provenance and
-    loss are taken; the second holds two. Nothing is cached across pairs.
+    Per-model loss and provenance are NOT taken here: the objective gate already
+    walked every distinct checkpoint to score both objectives, and that pass is
+    where the loss it needed anyway is recorded. Loading each file a second time
+    to recompute a number already in the payload would be the only place in this
+    script that read a checkpoint twice for one quantity.
     """
-    checkpoints, losses = {}, {}
-    _say(stream, "  phase 1a: per-model loss over distinct checkpoints")
-    grouping = None
-    for ref, loader in distinct_refs(pairs):
-        model, meta = loader()
-        view = None
-        try:
-            view = M.parameter_view(model)
-            if grouping is None:
-                grouping = grouping_shape(view)
-            loss = M.cross_entropy_loss(model, batch)
-        finally:
-            # `view` is deleted too, and that is not tidiness. parameter_view
-            # returns DETACHED VIEWS that alias the model's storage, so a live
-            # view keeps the weights alive after the model is gone -- this pass
-            # would hold two checkpoints' weights instead of one.
-            del model, view
-        checkpoints[ref] = meta
-        losses[ref] = {"loss": loss, "n_tokens": batch.n_tokens,
-                       "source": batch.source}
-        _say(stream, f"    {ref:<44} loss={loss:.10f}")
-
-    _say(stream, "  phase 1b: L2, total and per layer")
+    _say(stream, "  phase 1: L2, total and per layer")
     pair_rows = {}
     for pair in pairs:
-        model_a, _ = pair.loader_a()
-        model_b, _ = pair.loader_b()
+        model_a, meta_a = pair.loader_a()
+        model_b, meta_b = pair.loader_b()
         try:
+            # The label's claim about (seed, arm) against the RESOLVED payload,
+            # before any number is filed under it.
+            resolved = verify_pair_identity(pair, meta_a, meta_b)
             row = per_layer_l2(M.parameter_view(model_a),
                                M.parameter_view(model_b))
         finally:
             del model_a, model_b
-        row.update({"a": pair.ref_a, "b": pair.ref_b, "note": pair.note})
+        row.update({"a": pair.ref_a, "b": pair.ref_b, "note": pair.note,
+                    "resolved_identity": resolved})
         pair_rows[pair.label] = row
         _say(stream, f"    {pair.label:<16} "
                      f"l2_total={row['l2_total']:.10g}")
 
-    return checkpoints, losses, grouping, pair_rows
+    return pair_rows
 
 
 def run_phase2(pairs, batch, stream) -> dict:
@@ -1252,6 +1639,16 @@ def assert_no_verdict_keys(payload) -> None:
 _RULE = "=" * 78
 _SUB = "-" * 78
 
+#: Minimum width of a per-pair column. The real width is derived from the LABELS
+#: -- v2's `effect_random_chars` is 19 characters and a hardcoded 16 ran the
+#: headers together into `zero_checkeffect_random_chars`, which is a table a
+#: reader cannot use.
+_MIN_COL = 16
+
+
+def _col_width(labels) -> int:
+    return max([_MIN_COL] + [len(str(lab)) + 2 for lab in labels])
+
 
 def format_report(payload) -> str:
     """The .md, GENERATED from the payload. Never hand-maintained.
@@ -1307,6 +1704,7 @@ def format_report(payload) -> str:
             f"   ({steps.get('final_kind')})",
         ]
 
+    lines += _objective_section(payload)
     lines += _gate_section(payload)
     lines += _checkpoint_section(payload)
     lines += _loss_section(payload)
@@ -1316,6 +1714,37 @@ def format_report(payload) -> str:
 
     lines += ["", "PROVENANCE", _SUB, f"  {payload.get('PROVENANCE', '')}"]
     return "\n".join(lines)
+
+
+def _objective_section(payload) -> list:
+    """The two objective gates, per checkpoint. Rendered before the zero check
+    because it runs before it and because it is the gate a v1 checkpoint trips."""
+    gate = payload.get("objective_gate") or {}
+    if not gate:
+        return ["", "THE OBJECTIVE GATE", _SUB, "  NOT REACHED"]
+    lines = ["", "THE OBJECTIVE GATE -- two independent checks, S97", _SUB,
+             f"  gate A   {gate.get('gate_a')}",
+             f"  gate B   {gate.get('gate_b')}",
+             f"  both run {gate.get('WHY_BOTH')}"]
+    if gate.get("tolerate_indeterminate"):
+        lines.append("  NOTE     indeterminate is tolerated in this run "
+                     "(--selftest, junk models at chance)")
+    lines += ["",
+              f"  {'checkpoint':<44}{'next-token':>14}{'two-ahead':>14}"
+              f"{'gap':>12}  objective"]
+    for ref, cell in (gate.get("by_checkpoint") or {}).items():
+        flag = "  COMMIT REFUSED" if cell.get("gate_b_refused") else ""
+        lines.append(
+            f"  {ref:<44}{cell.get('loss_next_token', float('nan')):>14.6f}"
+            f"{cell.get('loss_two_ahead', float('nan')):>14.6f}"
+            f"{cell.get('gap_next_minus_two_ahead', float('nan')):>12.6f}"
+            f"  {cell.get('objective')}{flag}")
+    lines += ["",
+              "  gap is next-token minus two-ahead. POSITIVE past the margin "
+              "means the",
+              "  two-ahead objective fits better, which is what S97's defect "
+              "looks like."]
+    return lines
 
 
 def _gate_section(payload) -> list:
@@ -1402,20 +1831,22 @@ def _phase1_section(payload) -> list:
         lines.append(f"  reason: {phase['reason']}")
     pairs = phase.get("pairs") or {}
     if pairs:
-        lines.append(f"  {'pair':<16}{'total L2':>20}{'sum-of-parts rel diff':>26}")
+        pad = _col_width(pairs)
+        lines.append(f"  {'pair':<{pad}}{'total L2':>20}"
+                     f"{'sum-of-parts rel diff':>26}")
         for label, row in pairs.items():
             check = row.get("sum_of_parts_check") or {}
-            lines.append(f"  {label:<16}{row['l2_total']:>20.12g}"
+            lines.append(f"  {label:<{pad}}{row['l2_total']:>20.12g}"
                          f"{check.get('relative_difference', float('nan')):>26.3e}")
         buckets = payload.get("parameter_grouping", {}).get("buckets", [])
         lines += ["", "  PER-LAYER L2", ""]
-        header = f"  {'bucket':<16}" + "".join(f"{lab:>16}" for lab in pairs)
-        lines.append(header)
+        lines.append(f"  {'bucket':<16}"
+                     + "".join(f"{lab:>{pad}}" for lab in pairs))
         for bucket in buckets:
             row = f"  {bucket:<16}"
             for label in pairs:
                 cell = pairs[label]["l2_by_bucket"].get(bucket, {})
-                row += f"{cell.get('l2', float('nan')):>16.8g}"
+                row += f"{cell.get('l2', float('nan')):>{pad}.8g}"
             lines.append(row)
     return lines
 
@@ -1431,35 +1862,26 @@ def _phase2_section(payload) -> list:
     if not pairs:
         lines.append("  no per-layer activation numbers were produced.")
         return lines
-    lines += ["", "  PER-LAYER CKA (full list, every layer)", ""]
-    lines.append(f"  {'layer':<8}" + "".join(f"{lab:>16}" for lab in pairs))
+    pad = _col_width(pairs)
     n_layers = max(row["n_layers"] for row in pairs.values())
-    for i in range(n_layers):
-        row = f"  {i:<8}"
-        for label in pairs:
-            cells = pairs[label]["cka"]
-            row += (f"{cells[i]['cka']:>16.10g}" if i < len(cells)
-                    else f"{'--':>16}")
-        lines.append(row)
-    lines += ["", "  PER-LAYER COSINE, median over token positions "
-              "(full list, every layer)", ""]
-    lines.append(f"  {'layer':<8}" + "".join(f"{lab:>16}" for lab in pairs))
-    for i in range(n_layers):
-        row = f"  {i:<8}"
-        for label in pairs:
-            cells = pairs[label]["cosine"]
-            row += (f"{cells[i]['cosine_median']:>16.10g}" if i < len(cells)
-                    else f"{'--':>16}")
-        lines.append(row)
-    lines += ["", "  PER-LAYER NORM RATIO, median over token positions", ""]
-    lines.append(f"  {'layer':<8}" + "".join(f"{lab:>16}" for lab in pairs))
-    for i in range(n_layers):
-        row = f"  {i:<8}"
-        for label in pairs:
-            cells = pairs[label]["cosine"]
-            row += (f"{cells[i]['norm_ratio_median']:>16.10g}"
-                    if i < len(cells) else f"{'--':>16}")
-        lines.append(row)
+
+    def table(title, key):
+        out = ["", f"  {title}", "",
+               f"  {'layer':<8}" + "".join(f"{lab:>{pad}}" for lab in pairs)]
+        for i in range(n_layers):
+            row = f"  {i:<8}"
+            for label in pairs:
+                cells = pairs[label]["cka" if key == "cka" else "cosine"]
+                row += (f"{cells[i][key]:>{pad}.10g}" if i < len(cells)
+                        else f"{'--':>{pad}}")
+            out.append(row)
+        return out
+
+    lines += table("PER-LAYER CKA (full list, every layer)", "cka")
+    lines += table("PER-LAYER COSINE, median over token positions "
+                   "(full list, every layer)", "cosine_median")
+    lines += table("PER-LAYER NORM RATIO, median over token positions",
+                   "norm_ratio_median")
     return lines
 
 
@@ -1479,10 +1901,72 @@ def build_provenance(payload) -> str:
         f"n_pairs={len(payload.get('phase1', {}).get('pairs') or {})}; "
         f"n_checkpoints={len(payload.get('checkpoints') or {})}; "
         f"cka_variant={payload.get('cka_variant')}; "
+        f"objective_gate_passed={(payload.get('objective_gate') or {}).get('passed')}; "
+        f"double_shift_margin_nats={DOUBLE_SHIFT_MARGIN_NATS}; "
         f"phase2_ok={phase2.get('ok')}; "
         f"cosine_identity_ulps={COSINE_IDENTITY_ULPS}; "
         f"python={sys.version.split()[0]}"
     )
+
+
+def two_ahead_loss(model, batch) -> float:
+    """Loss under the DOUBLE-SHIFTED objective the v1 pilot actually trained.
+
+    Transcribed from quantity (c) of the decisive experiment in
+    docs/2026-08-05-training-objective-defect.md:245-256 -- "logits[:, :-1] of
+    the *shortened* input, against raw[:, 2:]" -- so this gate compares against
+    the same number S97 established, not against a re-derivation of it.
+
+    Concretely, for a row t_0 .. t_1023: feed t_0 .. t_1022, take the logits at
+    positions 0 .. 1021, and score them against t_2 .. t_1023. Element i pairs
+    logits[i], conditioned on t_0 .. t_i, with t_(i+2).
+
+    Next-token loss is NOT recomputed here: it is metrics.cross_entropy_loss,
+    which is quantity (a) of the same experiment and one of the four loss paths
+    S97 found shifting correctly. Two routes to the two objectives, one of them
+    already committed and validated.
+    """
+    torch = M._torch()
+    import torch.nn.functional as F
+
+    ids = batch.input_ids()
+    if ids.shape[-1] < 3:
+        raise LadderError(
+            f"the two-ahead objective needs at least 3 tokens; the batch has "
+            f"{ids.shape[-1]}")
+    was_training = model.training
+    model.eval()
+    try:
+        with torch.no_grad():
+            logits = model(input_ids=ids[:, :-1]).logits
+            shift_logits = logits[:, :-1, :].reshape(-1, logits.size(-1))
+            shift_labels = ids[:, 2:].reshape(-1)
+            return float(F.cross_entropy(shift_logits.double(), shift_labels))
+    finally:
+        if was_training:
+            model.train()
+
+
+def classify_objective(next_token: float, two_ahead: float) -> dict:
+    """Which objective a checkpoint's losses say it was trained on.
+
+    The rule is a comparison with a margin, and the margin is why this is a
+    function rather than an inline `<`. See DOUBLE_SHIFT_MARGIN_NATS.
+    """
+    gap = next_token - two_ahead
+    if gap > DOUBLE_SHIFT_MARGIN_NATS:
+        objective = OBJECTIVE_TWO_AHEAD
+    elif gap < -DOUBLE_SHIFT_MARGIN_NATS:
+        objective = OBJECTIVE_NEXT_TOKEN
+    else:
+        objective = OBJECTIVE_INDETERMINATE
+    return {
+        "objective": objective,
+        "loss_next_token": next_token,
+        "loss_two_ahead": two_ahead,
+        "gap_next_minus_two_ahead": gap,
+        "margin_nats": DOUBLE_SHIFT_MARGIN_NATS,
+    }
 
 
 def _say(stream, text: str) -> None:
@@ -1515,6 +1999,7 @@ def _atomic_write(path: Path, text: str) -> None:
 def write_artifacts(payload, reportdir: Path, stem: str, stream) -> None:
     """Recompute derived fields, run the guard, then write BOTH files."""
     payload["stem"] = stem
+    payload["LIMITATION"] = limitation(payload)
     payload["PROVENANCE"] = build_provenance(payload)
     assert_no_verdict_keys(payload)
 
@@ -1675,7 +2160,10 @@ def main(argv=None) -> int:
         payload = {
             "task": ("13. the displacement ladder -- L2, per-layer activation "
                      "similarity, per-layer CKA, and per-model loss"),
-            "LIMITATION": LIMITATION,
+            # Recomputed at write time by `limitation(payload)`; this is only
+            # the placeholder a reader would see if that ever stopped running.
+            "LIMITATION": "",
+            "objective_gate": {},
             "NO_VERDICT": (
                 "No verdict is computed in this file. The effect pair is not "
                 "compared against the floor pairs, no pair is ranked, and "
@@ -1713,19 +2201,26 @@ def main(argv=None) -> int:
         _say(stream, f"    device: {device}   pairs: {len(pairs)}")
         _say(stream, _RULE)
 
-        # ---- the gate, phase 1 half. Aborts everything on failure. ----
+        # ---- THE OBJECTIVE GATE, before anything else. ----
+        # Two independent checks per checkpoint, and this pass is also where
+        # provenance and per-model loss are taken.
+        gate, checkpoints, losses, grouping = objective_gate(
+            pairs, batch, stream, tolerate_indeterminate=args.selftest)
+        payload["objective_gate"] = gate
+        payload["checkpoints"] = checkpoints
+        payload["per_model_loss"] = losses
+        payload["parameter_grouping"] = grouping or {}
+        _say(stream, "    PASSED (both gates)")
+
+        # ---- the zero check, phase 1 half. Aborts everything on failure. ----
         _say(stream, "  zero check (phase 1 half)")
         payload["gate"]["phase1"] = gate_phase1(gate_pair, batch)
         _say(stream, "    PASSED")
 
         # ---- phase 1 ----
         payload["phase1"]["attempted"] = True
-        checkpoints, losses, grouping, pair_rows = run_phase1(
-            pairs, batch, stream)
-        payload["checkpoints"] = checkpoints
-        payload["per_model_loss"] = losses
-        payload["parameter_grouping"] = grouping or {}
-        payload["phase1"].update({"ok": True, "pairs": pair_rows})
+        payload["phase1"].update(
+            {"ok": True, "pairs": run_phase1(pairs, batch, stream)})
 
         # Written BEFORE phase 2 starts, so a phase-2 failure cannot cost these.
         write_artifacts(payload, reportdir, stem, stream)

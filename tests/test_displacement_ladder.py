@@ -26,6 +26,7 @@ are fewer moving parts is the same argument that keeps burst/ PyYAML-only.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 from pathlib import Path
@@ -461,12 +462,47 @@ def test_the_checkpoint_filename_matches_what_the_training_loop_writes():
         == "seed02_random-chars"
 
 
-def test_the_pair_set_has_the_six_labels_and_the_gate_is_one_of_them():
-    pairs = DL.build_selftest_pairs("cpu")
-    labels = [p.label for p in pairs]
-    assert labels == ["zero_check", "effect", "floor_s0_s1", "floor_s0_s2",
-                      "floor_s1_s2", "training_scale"]
-    assert "zero_check" in labels
+#: The v2 labels, in order. Written out here rather than read from
+#: DL.PAIR_SPEC_V2 so a change to the spec has to be a change in two places --
+#: the spec IS the thing under test.
+V2_LABELS = ["zero_check", "effect_random_chars", "effect_fluent_false",
+             "arm_vs_arm", "floor_s0_s1", "training_scale"]
+
+
+def test_the_pair_set_is_the_v2_set_and_the_gate_is_one_of_them():
+    assert [label for label, _a, _b, _n in DL.PAIR_SPEC_V2] == V2_LABELS
+    assert [p.label for p in DL.build_selftest_pairs("cpu")] == V2_LABELS
+    assert "zero_check" in V2_LABELS
+    # seed02_twin is gone: v1 had three floor pairs, v2 has one.
+    assert sum(1 for lab in V2_LABELS if lab.startswith("floor")) == 1
+    assert "floor_s0_s2" not in V2_LABELS and "floor_s1_s2" not in V2_LABELS
+
+
+def test_the_v2_spec_needs_exactly_four_run_directories_and_not_seed02():
+    """seed02_twin was dropped and seed00_fluent-false added. If the spec ever
+    asks for seed02_twin again, a v2 output directory will not have it and the
+    missing-run refusal fires -- which is correct, but this says why."""
+    needed = DL.required_run_dirs()
+    assert set(needed) == {"seed00_twin", "seed00_random-chars",
+                           "seed00_fluent-false", "seed01_twin"}
+    assert "seed02_twin" not in needed
+    assert len(needed) == 4
+
+
+def test_both_injecting_arms_are_paired_against_the_same_twin():
+    """The point of the v2 set: two injecting arms at a MATCHED seed, so the
+    two effect pairs share their reference and differ only in the arm."""
+    by_label = {label: (a, b) for label, a, b, _n in DL.PAIR_SPEC_V2}
+    a_rc, b_rc = by_label["effect_random_chars"]
+    a_ff, b_ff = by_label["effect_fluent_false"]
+    assert a_rc == a_ff == (0, "twin", "final"), "same twin on both sides"
+    assert b_rc == (0, "random-chars", "final")
+    assert b_ff == (0, "fluent-false", "final")
+    # and the arm-vs-arm pair is exactly those two arms, no twin in it
+    a_aa, b_aa = by_label["arm_vs_arm"]
+    assert {a_aa, b_aa} == {(0, "random-chars", "final"),
+                            (0, "fluent-false", "final")}
+    assert all(arm != "twin" for _s, arm, _w in (a_aa, b_aa))
 
 
 def test_distinct_refs_deduplicates_while_keeping_order():
@@ -788,6 +824,442 @@ def test_trained_at_carries_the_dirty_flag_not_only_the_commit(tmp_path):
 def test_trained_at_is_absent_rather_than_guessed_when_there_is_no_record(
         tmp_path):
     assert DL._trained_at(tmp_path / "step000199_weights_only.pt") is None
+
+
+# ===========================================================================
+# Torch: the objective gate (S97)
+# ===========================================================================
+
+
+def test_two_ahead_loss_matches_the_formulation_in_the_defect_document():
+    """Transcribed from quantity (c), not re-derived: shortened input, then
+    logits[:, :-1] against raw[:, 2:].
+
+    Validated against the direction a correctly-trained model must show. On
+    public GPT-2 the two-ahead objective is far WORSE than next-token; if this
+    ever inverts, the scorer is wrong, not the model.
+    """
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    from transformers import GPT2LMHeadModel
+
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    model.eval()
+    batch = M.load_context_batch(stream=io.StringIO())
+    next_token = M.cross_entropy_loss(model, batch)
+    two_ahead = DL.two_ahead_loss(model, batch)
+    del model
+
+    assert two_ahead > next_token, (
+        "public GPT-2 was trained on next-token prediction, so the two-ahead "
+        "objective must fit it worse")
+    assert two_ahead - next_token > 1.0, (
+        f"expected a large gap on a properly trained model; got "
+        f"{two_ahead - next_token:.4f}")
+    assert (DL.classify_objective(next_token, two_ahead)["objective"]
+            == DL.OBJECTIVE_NEXT_TOKEN)
+
+
+def test_two_ahead_loss_refuses_a_batch_too_short_to_express_it():
+    pytest.importorskip("torch")
+    M = _load("metrics")
+    tiny = M.Batch(ids=(1, 2), source="s", file_sha256="a",
+                   token_sha256="b", tokenizer="t")
+    with pytest.raises(DL.LadderError, match="at least 3 tokens"):
+        DL.two_ahead_loss(object(), tiny)
+
+
+def test_classify_objective_calls_v1s_numbers_double_shifted():
+    """S97's measured pair: next-token 7.1085 against two-ahead 4.2613."""
+    cell = DL.classify_objective(7.1085, 4.2613)
+    assert cell["objective"] == DL.OBJECTIVE_TWO_AHEAD
+    assert cell["gap_next_minus_two_ahead"] == pytest.approx(2.8472, abs=1e-4)
+
+
+def test_classify_objective_calls_a_corrected_run_next_token():
+    """Asa's calibration target for a fixed run is roughly 3.4-3.8 next-token,
+    and the two-ahead objective should fit it much worse."""
+    assert (DL.classify_objective(3.6, 9.5)["objective"]
+            == DL.OBJECTIVE_NEXT_TOKEN)
+
+
+def test_classify_objective_is_indeterminate_at_chance():
+    """Both losses at chance carries NO information, and calling that a pass
+    would let an untrained checkpoint through the gate that exists for it.
+
+    Measured: on ten junk models the bare rule `two_ahead < next_token` was
+    true 8 times, with gaps of 0.001 to 0.008 nats. See D32.
+    """
+    for gap in (0.0, 0.001, 0.008, -0.005, 0.2, -0.2):
+        assert (DL.classify_objective(4.17, 4.17 - gap)["objective"]
+                == DL.OBJECTIVE_INDETERMINATE), gap
+
+
+def test_the_double_shift_margin_sits_between_the_two_observed_regimes():
+    """Placed against an observed-good and an observed-bad case, the way
+    section 8.4's thresholds were. Pinned so widening it is a visible edit."""
+    assert DL.DOUBLE_SHIFT_MARGIN_NATS == 0.25
+    assert DL.DOUBLE_SHIFT_MARGIN_NATS > 0.008 * 10, "clear of junk noise"
+    assert DL.DOUBLE_SHIFT_MARGIN_NATS < 2.8472 / 5, "clear below v1's signal"
+
+
+def test_the_refused_commit_list_names_the_v1_pilot():
+    assert "9aa930d" in DL.REFUSED_TRAINING_COMMITS
+
+
+def _gate_pairs(metas):
+    """Pairs whose loaders return a canned (model, meta), for gate tests."""
+    class Fake:
+        pass
+
+    pairs = []
+    for ref, meta in metas.items():
+        def make(m=meta):
+            return (Fake(), m)
+        pairs.append(DL.Pair(label="zero_check", ref_a=ref, ref_b=ref,
+                             loader_a=make, loader_b=make, note="t"))
+    return pairs
+
+
+def _stub_losses(monkeypatch, next_token, two_ahead):
+    M = _load("metrics")
+    monkeypatch.setattr(M, "cross_entropy_loss", lambda m, b: next_token)
+    monkeypatch.setattr(DL, "two_ahead_loss", lambda m, b: two_ahead)
+    monkeypatch.setattr(DL, "grouping_shape", lambda v: {})
+    monkeypatch.setattr(M, "parameter_view", lambda m: {})
+
+
+def test_gate_a_aborts_on_a_double_shifted_checkpoint(monkeypatch):
+    """Names the checkpoint and BOTH numbers, per the requirement."""
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 7.1085, 4.2613)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin", "trained_at": None}}
+    with pytest.raises(DL.LadderError) as caught:
+        DL.objective_gate(_gate_pairs(metas), M.tiny_smoke_batch(),
+                          io.StringIO(), tolerate_indeterminate=False)
+    text = str(caught.value)
+    assert "GATE A fired" in text
+    assert ref in text
+    assert "7.1085" in text and "4.2613" in text
+    assert "THE OBJECTIVE GATE FAILED" in text
+
+
+def test_gate_b_aborts_on_the_refused_training_commit(monkeypatch):
+    """Reads a CLAIM about the artifact. Fires even when the losses are clean."""
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 3.6, 9.5)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin",
+                   "trained_at": {"commit": "9aa930dcafebabe", "dirty": False}}}
+    with pytest.raises(DL.LadderError) as caught:
+        DL.objective_gate(_gate_pairs(metas), M.tiny_smoke_batch(),
+                          io.StringIO(), tolerate_indeterminate=False)
+    text = str(caught.value)
+    assert "GATE B fired" in text
+    assert "9aa930d" in text
+    assert "GATE A fired" not in text, (
+        "gate A should have passed here; that is the point of two gates")
+
+
+def test_the_two_gates_are_independent_and_both_are_reported(monkeypatch):
+    """S97 exists because a claim and the artifact can disagree, so neither
+    gate substitutes for the other and the record says both ran."""
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 3.6, 9.5)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin",
+                   "trained_at": {"commit": "deadbeef", "dirty": False}}}
+    gate, checkpoints, losses, _grouping = DL.objective_gate(
+        _gate_pairs(metas), M.tiny_smoke_batch(), io.StringIO(),
+        tolerate_indeterminate=False)
+
+    assert gate["passed"] is True
+    assert "measured" in gate["gate_a"] and "recorded" in gate["gate_b"]
+    assert "can disagree" in gate["WHY_BOTH"]
+    cell = gate["by_checkpoint"][ref]
+    assert cell["gate_a_objective"] == DL.OBJECTIVE_NEXT_TOKEN
+    assert cell["gate_b_refused"] is False
+    assert cell["gate_b_recorded_commit"] == "deadbeef"
+    assert losses[ref]["loss"] == 3.6
+    assert losses[ref]["loss_two_ahead"] == 9.5
+    assert checkpoints[ref]["arm"] == "twin"
+
+
+def test_a_real_run_refuses_an_indeterminate_objective(monkeypatch):
+    """Tolerated only under --selftest, where the models are declared junk."""
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 4.17, 4.169)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin", "trained_at": None}}
+
+    with pytest.raises(DL.LadderError, match="INDETERMINATE"):
+        DL.objective_gate(_gate_pairs(metas), M.tiny_smoke_batch(),
+                          io.StringIO(), tolerate_indeterminate=False)
+    gate, _c, _l, _g = DL.objective_gate(
+        _gate_pairs(metas), M.tiny_smoke_batch(), io.StringIO(),
+        tolerate_indeterminate=True)
+    assert gate["passed"] is True
+    assert gate["tolerate_indeterminate"] is True
+
+
+def test_the_objective_gate_runs_before_the_zero_check():
+    """'Before anything else' -- including the zero check, which loads models."""
+    body = _code_of("main")
+    assert body.index("objective_gate") < body.index("gate_phase1")
+
+
+def test_the_selftest_tolerates_indeterminate_only_because_it_is_junk():
+    """The tolerance is wired to args.selftest, not to a bare flag anyone could
+    pass at a real run."""
+    body = _code_of("main")
+    assert "tolerate_indeterminate=args.selftest" in body
+
+
+def test_ancestry_places_every_real_commit_correctly():
+    """Asa asked for this in 715dd67: derive from trained_at ancestry rather
+    than a name, failing safe to the warning. Ancestry catches a pre-fix commit
+    nobody listed; a denylist cannot."""
+    assert DL.objective_fix_ancestry("9aa930d")["state"] == DL.ANCESTRY_PREDATES_FIX
+    assert DL.objective_fix_ancestry("f015fd0")["state"] == DL.ANCESTRY_PREDATES_FIX
+    assert DL.objective_fix_ancestry(DL.OBJECTIVE_FIX_COMMIT)["state"] == DL.ANCESTRY_CONTAINS_FIX
+    # 715dd67 is the corrected pilot: the case Asa named as wrongly warned about.
+    assert DL.objective_fix_ancestry("715dd67")["state"] == DL.ANCESTRY_CONTAINS_FIX
+
+
+def test_unresolvable_ancestry_is_unknown_and_never_clean():
+    for commit in (None, "", "deadbeefcafebabe"):
+        assert DL.objective_fix_ancestry(commit)["state"] == DL.ANCESTRY_UNKNOWN
+
+
+def test_ancestry_catches_a_pre_fix_commit_that_is_not_on_the_denylist():
+    """The whole reason ancestry beats the list."""
+    assert not any("f015fd0".startswith(c) for c in DL.REFUSED_TRAINING_COMMITS)
+    assert DL.objective_fix_ancestry("f015fd0")["state"] == DL.ANCESTRY_PREDATES_FIX
+
+
+def test_the_banner_warns_on_unverified_ancestry_without_calling_it_affected():
+    """Fail safe to the WARNING. "unverified" and "known bad" are different
+    facts and one name for both is this repo logged defect."""
+    payload = {
+        "pair_set": [{"label": "floor_s0_s1"}],
+        "objective_gate": {"by_checkpoint": {
+            "a.pt": {"objective": DL.OBJECTIVE_NEXT_TOKEN,
+                     "gate_b_refused": False, "gate_b_suspect": True},
+        }},
+    }
+    text = DL.limitation(payload)
+    assert "COULD NOT BE VERIFIED" in text
+    assert "a.pt" in text
+    assert "SHOWN TO BE AFFECTED" not in text, (
+        "an unverified checkpoint must not be reported as a proven one")
+
+
+def test_a_verified_clean_checkpoint_gets_no_warning_at_all():
+    payload = {
+        "pair_set": [{"label": "floor_s0_s1"}],
+        "objective_gate": {"by_checkpoint": {
+            "a.pt": {"objective": DL.OBJECTIVE_NEXT_TOKEN,
+                     "gate_b_refused": False, "gate_b_suspect": False},
+        }},
+    }
+    text = DL.limitation(payload)
+    assert "wrong objective" not in text.lower()
+    assert "COULD NOT BE VERIFIED" not in text
+
+
+def test_gate_b_aborts_on_a_pre_fix_ancestry_even_off_the_denylist(monkeypatch):
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 3.6, 9.5)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin",
+                   "trained_at": {"commit": "f015fd0", "dirty": False}}}
+    with pytest.raises(DL.LadderError) as caught:
+        DL.objective_gate(_gate_pairs(metas), M.tiny_smoke_batch(),
+                          io.StringIO(), tolerate_indeterminate=False)
+    text = str(caught.value)
+    assert "by ANCESTRY" in text
+    assert "f015fd0" in text
+
+
+def test_the_corrected_pilots_commit_passes_gate_b(monkeypatch):
+    """715dd67 trained from 3e715a6, which contains the fix."""
+    pytest.importorskip("transformers")
+    M = _load("metrics")
+    _stub_losses(monkeypatch, 3.21, 9.5)
+    ref = "seed00_twin/step009535_full.pt"
+    metas = {ref: {"seed": 0, "arm": "twin",
+                   "trained_at": {"commit": "3e715a6", "dirty": False}}}
+    gate, _c, _l, _g = DL.objective_gate(
+        _gate_pairs(metas), M.tiny_smoke_batch(), io.StringIO(),
+        tolerate_indeterminate=False)
+    cell = gate["by_checkpoint"][ref]
+    assert cell["gate_b_refused"] is False
+    assert cell["gate_b_suspect"] is False
+    assert cell["gate_b_ancestry"]["state"] == DL.ANCESTRY_CONTAINS_FIX
+
+
+# ===========================================================================
+# Torch: label integrity
+# ===========================================================================
+
+
+def test_a_label_that_does_not_match_the_resolved_checkpoint_is_refused():
+    """The RESOLVED payload, not the intended path. Mislabeling is the S55
+    shape: every number computed correctly and filed under the wrong name."""
+    pair = DL.Pair(label="effect_fluent_false", ref_a="a", ref_b="b",
+                   loader_a=None, loader_b=None, note="n",
+                   expect_a=(0, "twin"), expect_b=(0, "fluent-false"))
+    good_a = {"seed": 0, "arm": "twin", "path": "/r/seed00_twin/x.pt"}
+    wrong_b = {"seed": 0, "arm": "random-chars",
+               "path": "/r/seed00_random-chars/x.pt"}
+    with pytest.raises(DL.LadderError) as caught:
+        DL.verify_pair_identity(pair, good_a, wrong_b)
+    text = str(caught.value)
+    assert "effect_fluent_false" in text
+    assert "fluent-false" in text and "random-chars" in text
+    assert "seed00_random-chars" in text
+
+
+def test_a_label_matching_its_resolved_checkpoint_passes_and_records_both():
+    pair = DL.Pair(label="floor_s0_s1", ref_a="a", ref_b="b",
+                   loader_a=None, loader_b=None, note="n",
+                   expect_a=(0, "twin"), expect_b=(1, "twin"))
+    resolved = DL.verify_pair_identity(
+        pair,
+        {"seed": 0, "arm": "twin", "path": "/r/seed00_twin/x.pt"},
+        {"seed": 1, "arm": "twin", "path": "/r/seed01_twin/x.pt"})
+    assert resolved["a"]["seed"] == 0 and resolved["a"]["arm"] == "twin"
+    assert resolved["b"]["seed"] == 1
+    assert resolved["a"]["expected_arm"] == "twin"
+
+
+def test_a_wrong_seed_is_caught_even_when_the_arm_is_right():
+    pair = DL.Pair(label="floor_s0_s1", ref_a="a", ref_b="b",
+                   loader_a=None, loader_b=None, note="n",
+                   expect_a=(0, "twin"), expect_b=(1, "twin"))
+    with pytest.raises(DL.LadderError, match="side b is labelled seed 1"):
+        DL.verify_pair_identity(
+            pair,
+            {"seed": 0, "arm": "twin", "path": "/r/seed00_twin/x.pt"},
+            {"seed": 2, "arm": "twin", "path": "/r/seed02_twin/x.pt"})
+
+
+def test_every_v2_pair_carries_the_identity_its_label_claims():
+    """The spec's (seed, arm) per side must match what the label says it is."""
+    expected = {
+        "zero_check": ((0, "twin"), (0, "twin")),
+        "effect_random_chars": ((0, "twin"), (0, "random-chars")),
+        "effect_fluent_false": ((0, "twin"), (0, "fluent-false")),
+        "arm_vs_arm": ((0, "random-chars"), (0, "fluent-false")),
+        "floor_s0_s1": ((0, "twin"), (1, "twin")),
+        "training_scale": ((0, "twin"), (0, "twin")),
+    }
+    for label, a, b, _note in DL.PAIR_SPEC_V2:
+        assert (a[0], a[1]) == expected[label][0], label
+        assert (b[0], b[1]) == expected[label][1], label
+    by_label = {lab: (a, b) for lab, a, b, _n in DL.PAIR_SPEC_V2}
+    a, b = by_label["floor_s0_s1"]
+    assert a[0] == 0 and b[0] == 1, "the label names seeds 0 and 1"
+
+
+def test_the_built_pairs_carry_the_expectations_the_spec_declares(tmp_path):
+    """Not just the spec: the Pair objects the runner actually uses."""
+    runs = tmp_path / "runs"
+    for name in DL.required_run_dirs():
+        (runs / name).mkdir(parents=True)
+    cfg = load_config(REPO_ROOT / "configs" / "base.yaml",
+                      REPO_ROOT / "configs" / "runs" / "seed00_twin.yaml",
+                      outdir=tmp_path / "cfg", write_provenance=False,
+                      family="hf_gpt2")
+    pairs, _steps = DL.build_checkpoint_pairs(runs, cfg=cfg, device="cpu")
+    by_label = {p.label: p for p in pairs}
+    assert by_label["effect_fluent_false"].expect_a == (0, "twin")
+    assert by_label["effect_fluent_false"].expect_b == (0, "fluent-false")
+    assert by_label["arm_vs_arm"].expect_a == (0, "random-chars")
+    assert by_label["floor_s0_s1"].expect_b == (1, "twin")
+    for pair in pairs:
+        assert pair.expect_a is not None and pair.expect_b is not None
+
+
+def test_training_scale_spans_two_different_steps():
+    """ADDED BECAUSE A MUTATION SURVIVED. Pointing both sides at 'final' turned
+    this pair into a duplicate of zero_check -- an L2 of exactly 0.0 filed under
+    a label promising early-against-late -- and the whole suite stayed green.
+
+    The identity checks could not catch it: both sides really are (0, 'twin'),
+    so the label's seed and arm claim is satisfied. What distinguishes the pair
+    is the STEP, which nothing was asserting.
+    """
+    by_label = {lab: (a, b) for lab, a, b, _n in DL.PAIR_SPEC_V2}
+    a, b = by_label["training_scale"]
+    assert a[2] == "pre" and b[2] == "final", (
+        "training_scale must span the pre-injection checkpoint and the final "
+        "one, or it is measuring a model against itself")
+    assert a[2] != b[2]
+
+
+def test_only_the_zero_check_pair_has_identical_sides():
+    """Every other pair must differ in seed, arm, or step. A pair whose two
+    sides resolve to one file reports 0.0 for a reason that has nothing to do
+    with what its label claims."""
+    for label, a, b, _note in DL.PAIR_SPEC_V2:
+        if label == "zero_check":
+            assert a == b, "the gate pair is the same checkpoint twice"
+        else:
+            assert a != b, (
+                f"pair {label!r} has identical sides {a}, so it is a second "
+                "zero_check wearing another name")
+
+
+def test_phase_1_verifies_identity_before_filing_any_number():
+    body = _code_of("run_phase1")
+    assert "verify_pair_identity" in body
+    assert body.index("verify_pair_identity") < body.index("per_layer_l2")
+
+
+# ===========================================================================
+# Torch: missing run directories
+# ===========================================================================
+
+
+def test_a_missing_run_directory_lists_every_path_searched(tmp_path):
+    """No fallback to v1's set, and the message names all four paths."""
+    (tmp_path / "seed00_twin").mkdir()
+    (tmp_path / "seed01_twin").mkdir()
+    with pytest.raises(DL.LadderError) as caught:
+        DL.build_checkpoint_pairs(tmp_path, cfg=None, device="cpu")
+    text = str(caught.value)
+    for name in DL.required_run_dirs():
+        assert name in text, f"{name} not listed among the paths searched"
+    assert "MISSING" in text and "found" in text
+    assert "NO FALLBACK" in text
+
+
+def test_a_v1_run_directory_is_refused_rather_than_partially_measured(tmp_path):
+    """A v1 output dir has seed02_twin and no fluent-false. Measuring the subset
+    that happens to be present would produce a complete-looking artifact whose
+    labels misdescribe it."""
+    for name in ("seed00_twin", "seed01_twin", "seed02_twin",
+                 "seed00_random-chars"):
+        (tmp_path / name).mkdir()
+    with pytest.raises(DL.LadderError, match="seed00_fluent-false"):
+        DL.build_checkpoint_pairs(tmp_path, cfg=None, device="cpu")
+
+
+def test_the_missing_run_refusal_names_what_changed_between_v1_and_v2(tmp_path):
+    """So the reader is not left guessing which run set they pointed at."""
+    (tmp_path / "seed00_twin").mkdir()
+    with pytest.raises(DL.LadderError) as caught:
+        DL.build_checkpoint_pairs(tmp_path, cfg=None, device="cpu")
+    text = str(caught.value)
+    assert "seed02_twin was" in text and "dropped" in text
+    assert "fluent-false added" in text or "seed00_fluent-false added" in text
 
 
 # ===========================================================================
@@ -1301,11 +1773,19 @@ def test_state_sha256_survives_a_non_contiguous_and_an_empty_tensor():
 def test_the_loss_pass_releases_the_parameter_view_with_the_model():
     """parameter_view aliases the model's storage, so a live view pins the
     weights. Holding one past `del model` would make the loss pass carry two
-    checkpoints' weights instead of one."""
-    body = _code_of("run_phase1")
+    checkpoints' weights instead of one.
+
+    The loss pass moved into objective_gate in v2: it already walks every
+    distinct checkpoint to score both objectives, so recomputing the loss in
+    phase 1 would have been the only place reading a checkpoint twice for one
+    quantity.
+    """
+    body = _code_of("objective_gate")
     assert "del model, view" in body, (
         "the parameter view must be released alongside the model, or the "
         "one-model ceiling on the loss pass is not real")
+    assert "cross_entropy_loss" not in _code_of("run_phase1"), (
+        "phase 1 must not recompute a loss the objective gate already took")
 
 
 # ===========================================================================
@@ -1379,26 +1859,88 @@ def test_the_report_is_generated_from_the_payload_not_hand_maintained():
     assert "bursts/context.txt" in text
 
 
-def test_the_limitation_names_the_training_objective_defect():
-    """The inputs this runner reads were trained two-tokens-ahead (S97).
+def _payload_with_objective(objective, *, refused=False, floor_labels=1):
+    """A minimal payload for exercising `limitation`."""
+    pair_set = [{"label": "zero_check"}, {"label": "effect_random_chars"}]
+    pair_set += [{"label": f"floor_{i}"} for i in range(floor_labels)]
+    return {
+        "pair_set": pair_set,
+        "objective_gate": {"by_checkpoint": {
+            "seed00_twin/step009535_full.pt": {
+                "objective": objective, "gate_b_refused": refused},
+        }},
+    }
 
-    A measurement banner that omitted the single most important fact about its
-    own inputs would be the S55 shape at the level of the artifact: numbers
-    correctly computed and correctly labelled, over models that are not what a
-    reader assumes. It must also say what the defect does NOT void, or it
-    over-corrects.
-    """
-    text = DL.LIMITATION.lower()
-    assert "wrong" in text and "objective" in text
-    assert "two tokens" in text
-    assert "2026-08-05-training-objective-defect.md" in DL.LIMITATION
-    assert "s97" in text
-    # And the scope, both directions.
-    assert "voids the four barrier curves" in text
-    assert "does not void" in text
-    assert "8.4 ruler branch" in text
-    # The per-model loss is the case a reader is most likely to misread.
-    assert "next-token loss on a model that was never trained for it" in text
+
+def test_the_limitation_carries_the_s97_clause_when_a_checkpoint_is_double_shifted():
+    """PRESENT branch. The gate aborts on this, so the clause only appears if
+    the gate is bypassed -- and a v1 checkpoint reaching the artifact must still
+    carry the warning. That is why it is derived and not deleted."""
+    text = DL.limitation(_payload_with_objective(DL.OBJECTIVE_TWO_AHEAD))
+    low = text.lower()
+    assert "wrong objective" in low
+    assert "two tokens" in low
+    assert "2026-08-05-training-objective-defect.md" in text
+    assert "s97" in low
+    # The scope, both directions, or the banner over-corrects.
+    assert "voids the" in low and "barrier curves" in low
+    assert "does not void" in low
+    assert "8.4 ruler branch" in low
+    # The case a reader is most likely to misread.
+    assert "next-token loss on a model that was never trained for it" in low
+    # And it names which checkpoints.
+    assert "seed00_twin/step009535_full.pt" in text
+
+
+def test_the_s97_clause_also_fires_on_the_recorded_commit_alone():
+    """Gate B is not decoration: a checkpoint refused by commit gets the clause
+    even when its measured losses said nothing."""
+    text = DL.limitation(_payload_with_objective(
+        DL.OBJECTIVE_INDETERMINATE, refused=True))
+    assert "wrong objective" in text.lower()
+
+
+def test_the_limitation_omits_the_s97_clause_on_a_clean_run():
+    """ABSENT branch. The clause's absence is a claim about this run's inputs,
+    so it has to be able to be absent -- and the rest of the banner must survive
+    intact when it is."""
+    text = DL.limitation(_payload_with_objective(DL.OBJECTIVE_NEXT_TOKEN))
+    low = text.lower()
+    assert "wrong objective" not in low
+    assert "two tokens" not in low
+    assert "2026-08-05-training-objective-defect.md" not in text
+    # everything else still there
+    assert "computes no verdict" in low
+    assert "blind to neuron permutation" in low
+    assert "the floor is n=1" in low
+
+
+def test_the_limitation_is_recomputed_at_write_time_not_stored():
+    """S70: hardcoded prose inside a generated file goes stale silently."""
+    body = _code_of("write_artifacts")
+    # ast.unparse normalises quoting, so match the assignment not the spelling.
+    assert "payload['LIMITATION'] = limitation(payload)" in body
+    assert body.index("LIMITATION") < body.index("_atomic_write")
+
+
+def test_the_floor_sentence_states_n_equals_one_and_the_absent_spread():
+    """v1 had three floor pairs, v2 has one. A reader carrying the v1 habit of
+    reading a spread across floor pairs would be reading one that is not there."""
+    text = DL.floor_sentence(_payload_with_objective(
+        DL.OBJECTIVE_NEXT_TOKEN, floor_labels=1))
+    assert "n=1" in text
+    assert "no spread" in text.lower()
+    assert "down from three" in text
+    for word in ("min", "median", "max"):
+        assert word in text.lower()
+
+
+def test_the_floor_sentence_is_counted_from_the_pair_set_not_typed():
+    """Derived, so it cannot disagree with the pair set it describes."""
+    three = DL.floor_sentence(_payload_with_objective(
+        DL.OBJECTIVE_NEXT_TOKEN, floor_labels=3))
+    assert "n=3" in three
+    assert "n=1" not in three
 
 
 def test_the_defect_document_the_limitation_cites_exists():
@@ -1408,16 +1950,18 @@ def test_the_defect_document_the_limitation_cites_exists():
 
 
 def test_the_limitation_states_every_blindness_it_must():
-    for phrase in ("BLIND TO NEURON PERMUTATION", "openwebtext document 73",
-                   "1024 token positions", "COMPUTES NO VERDICT",
-                   "single passage" if False else "one document"):
-        assert phrase.lower() in DL.LIMITATION.lower(), phrase
+    text = DL.limitation(_payload_with_objective(DL.OBJECTIVE_NEXT_TOKEN)).lower()
+    for phrase in ("blind to neuron permutation", "openwebtext document 73",
+                   "1024 token positions", "computes no verdict",
+                   "one document"):
+        assert phrase in text, phrase
 
 
 def test_the_limitation_says_the_asymmetry_runs_against_the_floor_pairs():
     """The floor pairs may carry permutation drift the effect pair structurally
     cannot -- the specific thing raw L2 cannot separate here."""
-    text = DL.LIMITATION.lower()
+    text = DL.limitation(
+        _payload_with_objective(DL.OBJECTIVE_NEXT_TOKEN)).lower()
     assert "structurally cannot carry permutation drift" in text
     assert "independently initialized" in text
 
