@@ -115,7 +115,7 @@ a different family, but it cannot stop a second invocation pointed at a fresh
 
 ### What does NOT block
 
-None of the five open decisions in `docs/decisions-pending.md`. D-3, D-4 and
+None of the ~~five~~ **four** open decisions in `docs/decisions-pending.md` (D-4 ruled 2026-08-07). D-3 and
 D-8 are analysis and wording; D-5 is a config edit that stays free until the
 full launch; D-6 affects only the three unbuilt metrics. D-7 is now **closed**
 by a decision rule. And the model swap does not block — see the note at the top.
@@ -470,8 +470,8 @@ Told plainly so you do not discover it at an inconvenient moment.
 - **No multi-GPU.** The loop is single-device. Multi-GPU adds NCCL all-reduce
   ordering, which nothing here has tested.
 
-`docs/decisions-pending.md` holds ~~six~~ **five** open decisions — D-3, D-4,
-D-5, D-6, D-8 — with what each one blocks, plus two ruled (D-1, D-2) and one
+`docs/decisions-pending.md` holds ~~six~~ ~~five~~ **four** open decisions — D-3,
+D-5, D-6, D-8 (**D-4 ruled 2026-08-07**: family = 2, correction `holm`) — with what each one blocks, plus two ruled (D-1, D-2) and one
 CLOSED (D-7, by a decision rule) kept for the record. **Corrected 2026-08-06:**
 this said six and counted D-7, which this same section calls closed two bullets
 above. Read it

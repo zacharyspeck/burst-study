@@ -193,7 +193,7 @@ whether an aligned metric should be primary.
 These are unresolved as of this writing and are **not** to be settled by
 implementation default:
 
-1. **The matching tolerance.** Not set.
+1. **The matching tolerance.** Not set. **Still open as of 2026-08-07** — item 3's ruling says *what* to measure, not *how close counts*, and the two are independent decisions.
 2. **The token length N.** ~~Enforced by nothing~~ — **now set to 194 in
    `configs/base.yaml` and enforced**: `scripts/injection.py` refuses a burst
    text that does not tokenize to exactly `burst_length_tokens`, and every arm
@@ -203,8 +203,29 @@ implementation default:
    the byte content of a passage written for v3, and under v4 it is a number
    that should be negotiated across six arms rather than inherited from one.
    Setting it in the config records the value; it does not justify it.
-3. **The matching target** — burst alone, burst in a 1024-token sequence, or
-   full-batch delta. Analysed in `docs/v4-gap-analysis.md`; not decided.
+3. ~~**The matching target** — burst alone, burst in a 1024-token sequence, or
+   full-batch delta. Analysed in `docs/v4-gap-analysis.md`; not decided.~~
+
+   **RULED 2026-08-07 by Asa: the FULL-BATCH DELTA.** Arms are matched on what
+   the burst contributes to the optimizer step that actually lands,
+   `grad(batch with burst) − grad(batch without)`, assembled as
+   `scripts/train.py` assembles it. **The sequence-level criterion is reported
+   alongside for every arm, always** — the ruling selects which number decides,
+   not which numbers are shown, and comparison to `8b-i` stays possible.
+
+   Full reasoning and the objection to it: `docs/preregistration.md` §10 A-2.
+   Evidence: `docs/measurements/2026-08-07-arm-match-real-model.md` §6, three
+   seeds. In short — both criteria reproduce across seeds and the delta is the
+   steadier (spread 1.10/1.11/1.12 against 2.28/2.26/2.53); they disagree
+   *stably* rather than noisily; and under the sequence-level criterion
+   `fluent-false` carries the larger gradient norm at all three seeds, a
+   systematic mismatch that 8b-iii already showed is not about truth, while
+   under the delta the sign flips between seeds.
+
+   `docs/v4-gap-analysis.md` §3 declined this option on cost — "~1350× option A"
+   and "not CPU-feasible". That was true when written and is no longer: it is
+   **4 seconds per arm** on one A100, and the data pipeline it said did not
+   exist now does. The option was never rejected on its merits.
 4. **The definition of "anisotropy."** Per-tensor norm spread, participation
    ratio, and gradient-outer-product eigenspectrum are all defensible and
    imply very different implementations and costs.

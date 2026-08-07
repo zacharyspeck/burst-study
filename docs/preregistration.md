@@ -41,6 +41,14 @@ which has value independent of the correction arithmetic.
 
 **Nothing in this document changes any default, any config value, or any code.**
 
+> **SUPERSEDED IN PART, 2026-08-07.** §10 A-1 *does* now rule D-4, from inside
+> this document. The section above is kept unedited because it is the record of
+> what this file claimed on the day it was written, and because its substantive
+> point still holds: recording the contrasts is what made the family-of-2
+> reading *available*, and that availability is what A-1 spends. The sentence
+> immediately above remains true — no default, config value or line of code is
+> changed by anything here, including §10.
+
 ## 3. The timing claim, and how to check it
 
 The claim is: **these contrasts were fixed before any data existed.**
@@ -241,6 +249,134 @@ falsified is decoration:
   splitting the pooled `fluent` in §6 into two more tests) — that would make
   the family larger than 2 and the correction wrong
 
+## 10. AMENDMENTS, recorded before the data they bear on
+
+**Added 2026-08-07 by Asa.** Three decisions this document previously left open
+or deferred. They are gathered here, rather than only in their home documents,
+because each is worthless unless it was fixed *before* the runs it governs — and
+this is the file whose whole purpose is to make a "before" checkable.
+
+### The timing claim for these amendments, and how to check it
+
+The runs these govern are the **confirmatory arms**: `fluent-false`,
+`fluent-true` and `pos-substituted`. As of this commit **not one of them has
+ever been trained**, at any seed. Verify directly:
+
+```bash
+# no confirmatory-arm run directory exists anywhere
+find /shared/27as66 -maxdepth 3 -type d \
+  \( -name '*fluent*' -o -name '*pos-substituted*' -o -name '*scrambled*' \)
+
+# what does exist, and it is the pilot only
+ls -d /shared/27as66/burst-pilot/runs*/*/
+```
+
+Run on 2026-08-07: the first returned **empty**; the second returned exactly
+`seed00_twin`, `seed01_twin`, `seed02_twin`, `seed00_random-chars`. Three twins
+and one **exploratory** arm (§7). No confirmatory contrast has any data.
+
+Be precise about what that establishes, in the same spirit as §3. It establishes
+that no confirmatory outcome existed when these were fixed, so they cannot have
+been chosen by looking at a contrast's result. It does **not** establish that
+nothing relevant was seen: the pilot's `random-chars` arm and the arm-matching
+measurements below were both examined first, and A-2 in particular was ruled
+*because of* what they showed. That is stated rather than hidden — the guard
+these amendments provide is against choosing on the **outcome of a registered
+contrast**, which is the thing that was not available and still is not.
+
+### A-1. D-4 is ruled: family of **2**, correction **Holm–Bonferroni**
+
+Canonical record: `docs/decisions-pending.md` D-4.
+
+The family is the two contrasts §5 and §6 fix — reading 3 of the three D-4
+lists. This document made that reading *available* (§2); A-1 selects it.
+Correction is `holm`, passed to `scripts/analysis.py` as `--correction holm`.
+
+Rationale, recorded so it can be argued with: Holm controls the chance of **any**
+false positive and assumes nothing about how the tests relate. At a family of 2
+its cost against no correction at all is negligible — the smaller p is tested at
+0.025, and if it passes the other at 0.05 — so the extra power Benjamini–Hochberg
+buys does not arise, while BH's assumption of positive dependence would have to
+be argued. Exploratory comparisons (§7) are reported **separately**, labelled
+exploratory, and are not members of this family; if they are ever corrected among
+themselves that is a second, disclosed family and does not touch these two.
+
+**OWNERSHIP NOTE, stated because this file previously said otherwise.** §2 above
+and `decisions-pending.md` both record D-4 as **Zach's** to rule. It is ruled
+here by Asa on 2026-08-07. That is a real change of hands and it is written down
+rather than smoothed over: **Zach's confirmation is outstanding**, and if he
+rules differently his ruling governs and this amendment is superseded in place.
+
+### A-2. Spec-v4 "still open" item 3 is ruled: the matching target is the **full-batch delta**
+
+Canonical record: `docs/spec-v4.md`, "Deliberately still open" item 3.
+
+Arms are matched on what the burst contributes to the optimizer step that
+actually lands — `grad(batch with burst) − grad(batch without)` — computed as
+`scripts/train.py` computes it. The sequence-level criterion is **also reported**
+for every arm, always, so nothing is hidden by the choice and comparison to
+`8b-i` stays possible.
+
+Evidence, from `docs/measurements/2026-08-07-arm-match-real-model.md` §6, three
+seeds:
+
+- Both criteria **travel**. Spread across the six arms is 1.1034 / 1.1112 /
+  1.1232 under the full-batch delta and 2.2785 / 2.2599 / 2.5301 under
+  sequence-level gradient norm. The delta is the steadier, which answers the
+  objection that it is an artifact of one particular batch.
+- The two criteria **disagree stably**, not noisily: `fluent` pooled against
+  `pos-substituted` is +38.8/39.1/39.1% under sequence-level loss and
+  +1.0/0.9/2.2% under the delta. This is a definitional fork, and no further
+  measurement resolves it.
+- Under the sequence-level criterion `fluent-false` carries the larger gradient
+  norm at **all three seeds** — a systematic mismatch sitting directly on the
+  primary contrast. `8b-iii` already showed it is **not** truth: a fabricated
+  passage matched to `fluent-true`'s register scored *lower* than the true one
+  (17.4198 against 18.0029). Under the delta the gap falls to 0.14–0.87% and
+  **the sign flips between seeds**, which is what a residual with no systematic
+  component looks like.
+
+So the delta is the criterion under which a **named nuisance**, already shown not
+to be the variable under test, does not contaminate the primary contrast.
+
+**THE OBJECTION TO THIS RULING, recorded because it is real.** The delta is also
+the criterion that makes the arms look best, and choosing a criterion after
+seeing which one flatters the data is how a pre-registration decays. Two things
+are offered against that and neither is decisive on its own: the argument — *it
+is the quantity that physically reaches the weights* — is one
+`docs/v4-gap-analysis.md` §3 already made when it called the delta "the
+actually-applied contribution", declining it **only** on compute cost, which no
+longer exists (4 seconds per arm); and the sequence-level numbers are reported
+alongside forever, so any reader can apply the other criterion themselves. A
+reader who thinks this was chosen for its answer should read §6 of the
+measurement document and decide.
+
+**Item 1, the matching tolerance, is NOT ruled here and remains open.** Ruling
+the target says what to measure, not how close counts.
+
+### A-3. The interim look at the calibration runs is **variance-only**
+
+The next six runs — `fluent-false` and `fluent-true` at seeds 0–2 — exist partly
+to estimate a quantity the pilot cannot supply: the standard deviation, across
+seeds, of the within-seed paired difference. Every seed count this study has
+published (9.8, 50, 34, 32) substitutes the twin-vs-twin floor for it, which is
+a different quantity.
+
+**The commitment, fixed here and before those runs exist:** when they land, the
+**spread** of the three paired differences may be computed and used to set the
+seed count. Their **mean, sign, confidence interval, and any test statistic may
+not be examined** until the full seed count is complete.
+
+Without this, choosing `n` after seeing the effect is choosing the experiment's
+size knowing its answer, and the resulting p-values do not mean what they say.
+This is an ordinary internal-pilot design and it is legitimate — but only when
+recorded first, which is why it is here and not in a later analysis note.
+
+The six runs are **study runs**, not calibration overhead: they are seeds 0–2 of
+two confirmatory arms and enter the final analysis unchanged.
+
+---
+
 ---
 
 ## Summary
@@ -254,4 +390,6 @@ falsified is decoration:
 | reference / noise floor | `twin` |
 | pairing | within seed, 10 seeds |
 | outcome metric | **FIXED BY RULE — see §8.4.** Branch selected by a single-checkpoint measurement at the pilot; three of its four branches give the plain loss barrier |
-| correction method | **NOT RULED HERE — D-4 is Zach's, see §2** |
+| correction method | **`holm`, family = 2** — ruled 2026-08-07 by Asa, §10 A-1. Zach's confirmation outstanding |
+| matching target | **full-batch delta**, sequence-level reported alongside — §10 A-2 |
+| interim look | **variance-only** until the full seed count is complete — §10 A-3 |

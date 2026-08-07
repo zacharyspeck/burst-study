@@ -12,9 +12,15 @@ This file said "nothing here has been acted on", which stopped being true on
 steps, with `CanonicalizeHeadInternal` and `AbsorbLayerNormGains` gone.
 
 Each entry below carries its own **Status** line and that is the authority.
-Open as of 2026-08-03: D-3 (head sort), D-4 (multiple-comparison correction),
+~~Open as of 2026-08-03: D-3 (head sort), D-4 (multiple-comparison correction),
 D-5 (full-checkpoint interval), D-6 (step 10's second half, skipped),
-D-8 (three confirmed wordings).
+D-8 (three confirmed wordings).~~
+
+**Open as of 2026-08-07: D-3 (head sort), D-5 (full-checkpoint interval),
+D-6 (step 10's second half, skipped), D-8 (three confirmed wordings) — FOUR.**
+**D-4 was RULED on 2026-08-07** (family = 2, correction `holm`); its entry
+below is kept in full with the original options, because which alternatives
+were live is the part that makes a ruling auditable.
 
 **D-7 is CLOSED**, by a decision rule in `docs/preregistration.md` §8 rather
 than by a pick. Kept below with the reasoning, including the fact that the
@@ -303,7 +309,25 @@ machinery exists; I have not made it.
 
 ## D-4. Multiple-comparison correction: spec-v4 section 9.4 does not exist
 
-**Status: open. Raised 2026-08-03 by step 16. Nothing decided.**
+~~**Status: open. Raised 2026-08-03 by step 16. Nothing decided.**~~
+
+**RULED 2026-08-07 by Asa. Family of tests = 2 (the two pre-registered
+contrasts, reading 3 below). Correction = `holm`.** Recorded in full at
+`docs/preregistration.md` §10 A-1, which also carries the timing check showing
+no confirmatory-arm run existed when this was fixed.
+
+Holm controls the family-wise error rate and assumes nothing about dependence
+between the tests. At a family of 2 that costs almost nothing against no
+correction — the smaller p is tested at 0.025, the other at 0.05 — so
+Benjamini-Hochberg's extra power does not arise while its positive-dependence
+assumption would have to be argued. The exploratory comparisons of §7 are a
+separate, disclosed family and are not corrected into this one.
+
+**This entry and `docs/preregistration.md` §2 both recorded D-4 as Zach's.
+It was ruled by Asa. Zach's confirmation is outstanding; if he rules
+differently his ruling governs.** The original text is kept below unstruck,
+because what was open and why is the part that stops this from being a
+decision nobody can audit.
 
 ### The decision
 

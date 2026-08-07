@@ -1021,6 +1021,45 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S105. Three decisions ruled, and the one that needed a timing claim got one
+
+Asa ruled D-4, spec-v4 item 3, and the interim-look rule on 2026-08-07. All
+three are recorded in `docs/preregistration.md` §10 as well as in their home
+documents, because §10 is the only file in this repo whose purpose is to make a
+"before" checkable, and all three are worthless if fixed after the data.
+
+**The timing claim is narrower than §3's and says so.** §3 could assert that no
+data existed at all. §10 cannot: the pilot exists, and A-2 was ruled *because
+of* what the arm-matching measurements showed. What §10 claims instead is that
+no **confirmatory-arm** run exists — `fluent-*` and `pos-substituted` have never
+been trained at any seed, checkable by `find` — so no registered contrast's
+outcome was available. Writing the weaker true claim rather than the stronger
+familiar one is the point; §3's form would have been a lie here.
+
+**D-4 changed hands and that is written down rather than smoothed.**
+`preregistration.md` §2 and `decisions-pending.md` both record D-4 as Zach's to
+rule. Asa ruled it. Both documents now say so, both name Zach's confirmation as
+outstanding, and both keep the original text unstruck — which alternatives were
+live is what makes a ruling auditable at all. §2's "THIS FILE DOES NOT RULE D-4"
+is now false about its own document and carries a note saying so; the section is
+otherwise unedited, because its substantive point — that recording the contrasts
+made the family-of-2 reading *available* — is exactly what A-1 spends.
+
+**A-2 records the objection to itself.** The full-batch delta is also the
+criterion under which the arms look best, and picking a criterion after seeing
+which one flatters the data is how a pre-registration decays. The defence
+offered is not that the worry is wrong: it is that `v4-gap-analysis.md` §3
+already called the delta "the actually-applied contribution" and declined it
+**only** on compute cost (now 4 seconds per arm), and that the sequence-level
+numbers are reported alongside forever so any reader can apply the other
+criterion. Whether that is enough is left to the reader rather than asserted.
+
+**Counts that would have gone stale silently, updated:**
+`decisions-pending.md`'s header list and `handoff-pilot.md` at two sites all
+said five open decisions naming D-4; all three now say four. This is the S70
+shape — a static block beside a derived one — and it is the third time in this
+session that a count, not a claim, was the thing that drifted.
+
 ### S104. Arm matching on the real model: the proxy reordered, and the concern I raised from it was backwards
 
 Full record in `docs/measurements/2026-08-07-arm-match-real-model.md`. This
