@@ -195,12 +195,24 @@ The generated files sit at
 
 - One arm, one displacement, three seeds. Nothing here speaks to the §5 primary
   contrast, `fluent-false` vs `fluent-true`.
-- **The evaluation text is training data.** `bursts/context.txt` is openwebtext
+- ~~**The evaluation text is training data.** `bursts/context.txt` is openwebtext
   document 73, which every one of these models trained on. No memorisation
   confound is controlled, and every loss, CKA and cosine number above inherits
-  that.
+  that.~~
+  **THIS BULLET IS WRONG. Corrected 2026-08-07, kept in place per CLAUDE.md §2.**
+  `bursts/context.txt` **is** openwebtext document 73, and that is exactly why
+  the held-out slice was taken from the **front** of the corpus: front placement
+  puts the committed corpus-derived texts (documents 73, 104 and 193) *outside*
+  the training slice, with 50x-114x margin. See `scripts/corpus_spec.py`'s
+  layout docstring, cross-module obligation 1 in `implementation-notes.md`, and
+  `docs/measurements/10-metrics.md`, which states it directly. No model in this
+  study trained on this passage and there is no memorisation confound. The
+  limitation that is real is the next bullet — it is one passage.
 - The activation basis is a single 1,024-token passage; for CKA those positions
-  are the entire sample.
+  are the entire sample. **Measured 2026-08-07: on the endpoint-loss axis this
+  single-passage choice was worth roughly an order of magnitude in the noise
+  term that sets the study's seed count.** See
+  `docs/measurements/2026-08-07-heldout-remeasurement.md`.
 - `scripts/analysis.py` was not run: D-4 (family of tests, correction method) is
   open and it refuses without both.
 - The barrier is a lower bound on a 21-point grid.

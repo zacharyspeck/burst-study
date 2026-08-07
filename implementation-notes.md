@@ -1021,6 +1021,82 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S102. The evaluation batch was one passage, and it cost an order of magnitude of precision but not the seed count
+
+Full record in `docs/measurements/2026-08-07-heldout-remeasurement.md`. Job
+54937, no retraining. Five things belong here.
+
+**A claim in S100's write-up was false and is struck.**
+`2026-08-06-pilot-v2-results.md` listed "the evaluation text is training data"
+under what the pilot does not establish. `bursts/context.txt` is openwebtext
+document 73, and the held-out slice is cut from the **front** of the corpus
+precisely so documents 73, 104 and 193 land outside the training slice — that is
+obligation 1's third property, and `10-metrics.md` states it outright. There was
+never a memorisation confound. **I asserted a limitation without checking the
+module that exists to prevent it**, which is the same failure as inventing one:
+a caveat nobody can rely on is worse than none.
+
+**Widening the batch was worth ~10x in precision and almost nothing in `n`.**
+Endpoint loss over 10,240 held-out windows: delta moves −0.013863 → **−0.001361**
+and sigma 0.034941 → **0.002849**. Both fell together, so sigma/delta went 2.52
+→ 2.09 and `n` went 50 → 34. **The pilot's delta, its sign, and the sign flip
+between the void and corrected pilots were all inside single-passage noise.**
+Three published numbers — +0.057710, −0.013863, −0.001361 — none of them
+resolved.
+
+**The barrier survives widening and hardens S100's retraction.** The
+displacement rises above the chord on **256 of 256** held-out windows, widened
+value **0.148087** against 0.133863 on the one passage, per-window sem 0.0024.
+The metric was never the problem; the models were, and now the text is not
+either.
+
+**`n` had never been computed on the metric §8.4 selects.** Both pilots computed
+it on endpoint loss. On the barrier it is 32.0 — same neighbourhood. Four
+estimates now exist spanning 12 to 50, and the two widened ones agree at ~32–34,
+which is worth less than it looks: every sigma comes from three floor values, and
+an sd from n=3 carries ~40% CV that `n` then squares.
+
+**The substitution no evaluation text can fix.** Preregistration §4 and
+`analysis.py` both make the test a paired difference within seed, so its noise
+term is the sd **across seeds** of `d_s`. The pilot has one injecting arm at one
+seed — one `d_s`, no sd. Every `n` ever quoted here substitutes the twin-vs-twin
+floor, a different quantity: how far apart two **unrelated** models sit. The
+substitution is conservative and measurably so (same-seed cosine 0.82–0.96
+against ~0 between seeds). **Six runs fix it** — `fluent-false` and `fluent-true`
+at seeds 0–2, two waves, reusing the existing twins — and those runs are study
+data, not calibration overhead.
+
+**A gap found while checking that, recorded and not closed — and narrower than
+I first wrote it.** `analysis.py` wants a per-run scalar per (arm, seed); the
+barrier is pairwise. Under the obvious mapping
+`metric(arm, s) = barrier(arm_s, twin_s)`, both of S101's contrasts are fine:
+`arm_vs_arm_differences` reduces to `barrier(ff_s, twin_s) - barrier(ft_s,
+twin_s)`, which is exactly §5's contrast between two displacements, and
+`pooled_differences` averages those within seed. **`noise_floor` is what
+degenerates.** It is `ref[b] - ref[a]` over the twin arm's own values, and under
+that mapping `metric(twin, s)` is identically 0, so it returns a list of zeros —
+while the twin-vs-twin barriers that the pilots actually report (4.67–5.09) have
+no slot in the panel at all.
+
+So the headline metric and the confirmatory tests connect; the headline metric
+and the **reported noise floor** do not. Someone has to decide whether
+`noise_floor` is suppressed for pairwise metrics or redefined to carry
+`barrier(twin_i, twin_j)`. Not fixed here: a design decision beside D-4, not
+inside it. Written down after checking against S101's `analysis.py` rather than
+the version I first read — the wider claim I drafted would have been wrong.
+
+**Suite counts on the rebased tree**, since this entry landed on top of S101 and
+S101 moved them: `720 passed, 241 skipped` in `.venv/` and `1103 passed, 4
+skipped` in `.venv-ml/`, on gpmoo-a1. Both match README's stated expectation.
+This change adds no tests — it adds no repo code, only two measurement scripts
+that stay in scratch until they are tested, which is the follow-up below.
+
+**`heldout_barrier.py` predates S101's `gate_checkpoint` and does not call it.**
+Its own gate is different in kind — it reproduces a committed barrier before
+measuring anything new — and the checkpoints it read stamp `trained_at 3e715a6`.
+But "different gate" is not "same gate", and when these scripts are promoted
+into `scripts/` they should import `gate_checkpoint` for the same reason
+`pilot_barrier.py` now does: two safety checks of the same kind is one too many.
 ### S101. Both pre-registered contrasts, computable for the first time; and pilot_barrier gets the ladder's gates
 
 A pre-launch gate scan found that **neither confirmatory contrast could be

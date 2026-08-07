@@ -1,0 +1,113 @@
+{
+  "WHAT_THIS_IS": "Score the pilot's four finished models on the ENTIRE held-out slice.\n\nWHY THIS EXISTS. Every loss number in both pilot write-ups was computed on a\nSINGLE 1024-token passage (bursts/context.txt). That passage is held out -- it\nis openwebtext document 73, and the held-out slice is taken from the FRONT of\nthe corpus precisely so the committed texts fall outside training -- so it\ncarries no memorisation confound. What it does carry is sampling noise: one\npassage is one draw, and docs/2026-08-05-training-objective-defect.md measured\nsd = 1.007 nats ACROSS held-out windows for a single model.\n\nThe study's sample size is set by sigma/delta. Both terms were estimated from\nthat one passage. This re-estimates both over all 10,240 held-out sequences,\nwhich is what cross-module obligation 1 reserved the slice for and what\ndocs/measurements/10-metrics.md says to do \"once against trained checkpoints\".\n\nWHAT IT DOES NOT DO. It does not change the study's metric. The barrier and the\nsection 8.4 branch are untouched; this is the endpoint-loss axis only, measured\non more text. Nothing here is arm-vs-twin-before-the-branch: the branch is\nalready recorded twice (docs/measurements/12-injection-point-ruler.json), so\nsection 8.5 constraint 1 is discharged.\n\nTHE PAIRING POINT, which is the reason the numbers below matter. The study's\ntest is a paired difference WITHIN seed (preregistration section 4, and\nscripts/analysis.py's paired_differences). Its noise term is the sd ACROSS\nSEEDS of that paired difference. The pilot has exactly one seed with an\ninjecting arm, so it cannot estimate that quantity, and both write-ups\nsubstituted the UNPAIRED sd (twin-vs-twin across seeds, x sqrt(2)) instead.\nThis script cannot fix that either -- it reports the per-window spread of each\npair so the substitution's size is at least visible.",
+  "loss_path_gate": {
+    "sanctioned_cpu": 3.025127774899621,
+    "device": 3.0251279983970965,
+    "abs_gap": 2.2349747563765732e-07,
+    "tolerance": 1e-06,
+    "window": "heldout.bin@seq0"
+  },
+  "checkpoints": {
+    "seed00_twin": {
+      "step": 9535,
+      "kind": "full",
+      "arm": "twin",
+      "seed": 0,
+      "family": "hf_gpt2",
+      "model_sha256": "5970afe3a31a84006e29fbc7984ba698b56b25b74116aec807fde7d767d96745",
+      "trained_at": "3e715a634d4fd8e0839bd506851cfdb7714ffcf9"
+    },
+    "seed00_random-chars": {
+      "step": 9535,
+      "kind": "full",
+      "arm": "random-chars",
+      "seed": 0,
+      "family": "hf_gpt2",
+      "model_sha256": "8acfb58486b0f6de7b5383ac24865821a01a00da91fe2deff306a5e758bb1cf7",
+      "trained_at": "3e715a634d4fd8e0839bd506851cfdb7714ffcf9"
+    },
+    "seed01_twin": {
+      "step": 9535,
+      "kind": "full",
+      "arm": "twin",
+      "seed": 1,
+      "family": "hf_gpt2",
+      "model_sha256": "ebfdac35dd12981c23adec91cd4b74058b0f1f72efd2018f1ae039d8a77025c5",
+      "trained_at": "3e715a634d4fd8e0839bd506851cfdb7714ffcf9"
+    },
+    "seed02_twin": {
+      "step": 9535,
+      "kind": "full",
+      "arm": "twin",
+      "seed": 2,
+      "family": "hf_gpt2",
+      "model_sha256": "15523801641ffa3d8022bb36121d2f8ebc597d5176f5380fea8134e502b71c66",
+      "trained_at": "3e715a634d4fd8e0839bd506851cfdb7714ffcf9"
+    }
+  },
+  "windows": {
+    "n": 10240,
+    "tokens_per_model": 10485760,
+    "source": "/shared/27as66/corpus/heldout.bin",
+    "selection": "every held-out sequence in file order"
+  },
+  "per_model_loss": {
+    "seed00_twin": {
+      "mean": 3.2124732799801534,
+      "sd_across_windows": 0.3754991933234878,
+      "n": 10240,
+      "sem": 0.0037107272201816026
+    },
+    "seed00_random-chars": {
+      "mean": 3.211112703667717,
+      "sd_across_windows": 0.37560970008236994,
+      "n": 10240,
+      "sem": 0.003711819260978198
+    },
+    "seed01_twin": {
+      "mean": 3.210307858445487,
+      "sd_across_windows": 0.3759191460601649,
+      "n": 10240,
+      "sem": 0.0037148772425488544
+    },
+    "seed02_twin": {
+      "mean": 3.2084480625703486,
+      "sd_across_windows": 0.37544213193729753,
+      "n": 10240,
+      "sem": 0.0037101633328478286
+    }
+  },
+  "per_window_pair_differences": {
+    "effect_s0 (random-chars - twin, SAME seed)": {
+      "mean": -0.0013605763124368742,
+      "sd_across_windows": 0.01938607927939075,
+      "n": 10240,
+      "sem": 0.00019157551694834525,
+      "pearson_r": 0.9986677367336911
+    },
+    "floor_s0_s1 (twin - twin, different seeds)": {
+      "mean": 0.0021654215346668068,
+      "sd_across_windows": 0.024836019396288867,
+      "n": 10240,
+      "sem": 0.0002454324665762276,
+      "pearson_r": 0.9978157298933689
+    },
+    "floor_s0_s2 (twin - twin, different seeds)": {
+      "mean": 0.004025217409805179,
+      "sd_across_windows": 0.025214438096144324,
+      "n": 10240,
+      "sem": 0.0002491720447035491,
+      "pearson_r": 0.9977451671508002
+    },
+    "floor_s1_s2 (twin - twin, different seeds)": {
+      "mean": 0.0018597958751383717,
+      "sd_across_windows": 0.024979192017410595,
+      "n": 10240,
+      "sem": 0.00024684731526785573,
+      "pearson_r": 0.9977903121924934
+    }
+  },
+  "between_seed_twin_sd": 0.0020145415655583683,
+  "unpaired_sigma_sd_times_sqrt2": 0.0028489920039769722,
+  "CAVEAT_ON_SIGMA": "unpaired_sigma is what BOTH pilot write-ups used. It is NOT the noise term of the study's test, which is the sd ACROSS SEEDS of the within-seed paired difference. One injecting arm at one seed cannot estimate that. See the module docstring."
+}
