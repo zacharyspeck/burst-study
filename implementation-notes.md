@@ -1021,6 +1021,57 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S104. Arm matching on the real model: the proxy reordered, and the concern I raised from it was backwards
+
+Full record in `docs/measurements/2026-08-07-arm-match-real-model.md`. This
+discharges 8b-i's limitation 2 and 8b-iv's LIMITATION, both of which say in
+their own text that they are proxies "until re-verified against a real step-200
+checkpoint". That checkpoint now exists.
+
+**The reconstruction is exact, and that is what makes the rest readable.**
+Rebuilding the real step-200 batch from the run's own permutation and splicing
+through `injection.apply` reproduces the pilot's recorded step-200 mean loss to
+**ten decimal places** — 5.8612629771 for the twin, 5.8629262596 for
+`random-chars`. Grad norms agree to ~2e-5, `clip_grad_norm_` reducing under
+`foreach` against a concatenate-then-norm, which is S77's class of difference.
+Without that gate none of the numbers below would be distinguishable from a
+plausible re-implementation.
+
+**I raised a blocker from the proxy and it was backwards.** I flagged that
+`fluent-false` and `fluent-true` differ by 14.33% in gradient norm, and that if
+that held on the real model the primary contrast would be confounded by "one
+burst pushed harder". On the real model they differ by **1.80%** on gradient
+norm and **0.14%** on the full-batch delta, with delta cosine 0.9455. The 14%
+was a property of public GPT-2. **A proxy flagged as unreliable is not thereby
+conservative** — I treated its number as a lower bound on the problem when it
+was not a bound in either direction.
+
+**The proxy did not shift, it reordered.** Burst-region loss spread across the
+six arms improved, 2.0341 -> 1.4105; gradient-norm spread got nearly 2x
+*worse*, 1.2933 -> 2.2785. The whole of the second is `random-chars`, at 9.6478
+against 4.23–5.22 for every other arm — random characters are far more anomalous
+to a model 200 steps from init than to a trained one. Excluding it the spread is
+1.2317. `random-chars` is exploratory under §7 so no confirmatory contrast is
+touched, but it is the study's largest matching failure and the proxy hid it.
+
+**The full-batch delta had never been computed, and dilution does most of the
+matching.** The injected sequence is one row of 256. |delta| spread across the
+six arms is **1.1034** against 2.2785 at sequence level, and the burst moves the
+update by ~2.2% for every arm. Computed the way `train.py` computes it — /accum
+before backward, bf16 autocast — because assembled any other way it is a
+different number.
+
+**The secondary contrast's answer depends on which target is chosen, which
+means spec-v4 item 3 has to be ruled before launch.** `fluent` pooled against
+`pos-substituted` is **38.8%** apart on burst-region loss and **1.0%** apart on
+the full-batch delta. Item 3 lists all three targets and picks none; that is now
+a decision with a visible consequence rather than a tidy-up. Not ruled here.
+
+**Nothing here applies a tolerance or uses the word "anisotropy".** Items 1 and
+4 are open; participation ratio is reported under its own name with its
+basis-dependence stated, and `tests/test_sequence_assembly.py`'s guard on the
+proxy artifact is the reason the umbrella word is avoided.
+
 ### S103. The A6000 is 1.82x slower and produces different bits; b2 is advertised idle and cannot run anything
 
 Full record in `docs/measurements/2026-08-07-a6000-preflight.md`. Jobs 54950,

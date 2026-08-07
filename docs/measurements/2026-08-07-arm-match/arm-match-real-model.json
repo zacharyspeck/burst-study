@@ -1,0 +1,222 @@
+{
+  "WHAT_THIS_IS": "Arm matching and gradient direction, on the REAL step-199 model.\n\nWHY THIS EXISTS. Every arm-matching number this study has was measured on\nfully-trained public GPT-2. `docs/measurements/8b-i-in-context-match.md` says so\nin its own limitations:\n\n    These numbers come from fully-trained public GPT-2. The burst is injected\n    into a from-scratch model at step 200 ... Arms matched here are NOT\n    guaranteed to be matched on that model, and that model is the one whose\n    weights actually move. This is a PROXY until it can be re-verified against\n    a real step-200 checkpoint.\n\n`8b-iv`'s LIMITATION says the same thing harder (\"THAT MODEL DOES NOT EXIST\",\n\"PROXY OF UNKNOWN FIDELITY\"). That model now exists:\n`runs-fixed/seed00_twin/step000199_weights_only.pt`, trained at `3e715a6`, and\nbit-identical to the injecting arm's checkpoint at the same step. This is the\nre-verification those two documents ask for.\n\nDEFINITIONS ARE INHERITED, NOT REINVENTED. The sequences come from\n`injection.build_plan`, so they are the sequences the runs actually inject --\nnot a re-assembly that happens to agree. The single-sequence statistics use\n`burst_match.per_token_losses` / `flat_gradient` and `gradient_direction`'s\nregion-loss definition, so the numbers are comparable to 8b-i and 8b-iv rather\nthan merely similar in spirit.\n\nTHREE MATCHING TARGETS, AND THE SPEC HAS NOT PICKED ONE. `docs/spec-v4.md`\n\"Deliberately still open\" item 3 lists them: burst alone, burst in a 1024-token\nsequence, or full-batch delta. All three are reported and NONE is recommended.\nItem 1 -- the tolerance -- is not set, and nothing here applies one. Item 4 --\nthe definition of \"anisotropy\" -- is open, so the two statistics that bear on it\nare reported under their own names and the umbrella word is not used.\n\nTHE FULL-BATCH DELTA HAS NEVER BEEN COMPUTED, by this script's predecessors or\nanyone. It is the one that says what the burst does to the update that actually\nlands: the injected sequence is 1 row of 256, so a difference that is large at\nsequence level can be diluted 256x by the time it reaches the optimizer. It is\ncomputed here the way `train.py` computes it -- 32 micro-batches of 8, each\nloss divided by `accum` before `backward`, under bf16 autocast -- because a\ngradient assembled any other way is a different number (S77).\n\nNO VERDICT. Nothing here says whether the arms are matched. That is the\ntolerance decision, and it belongs to whoever runs the study.",
+  "checkpoint": {
+    "path": "/shared/27as66/burst-pilot/runs-fixed/seed00_twin/step000199_weights_only.pt",
+    "step": 199,
+    "arm": "twin",
+    "seed": 0,
+    "family": "hf_gpt2"
+  },
+  "position": 400,
+  "burst_length": 194,
+  "NO_VERDICT": "no tolerance is applied and no arm is recommended; spec-v4 'Deliberately still open' item 1 leaves the tolerance to whoever runs the study",
+  "THREE_TARGETS_NONE_CHOSEN": "spec-v4 item 3 lists burst alone / burst in a 1024-token sequence / full-batch delta and does not choose; all are below",
+  "single_sequence": {
+    "fluent-false": {
+      "region_loss": 6.51986837387085,
+      "sequence_loss": 6.1977219581604,
+      "grad_norm_from_region_loss": 4.310449846522253,
+      "grad_norm_from_sequence_loss": 2.1520631179179666,
+      "participation_ratio": 36673.6461242855
+    },
+    "fluent-true": {
+      "region_loss": 6.317897319793701,
+      "sequence_loss": 6.157841205596924,
+      "grad_norm_from_region_loss": 4.234268161416276,
+      "grad_norm_from_sequence_loss": 2.1496213471765686,
+      "participation_ratio": 27957.221102475996
+    },
+    "scrambled-false": {
+      "region_loss": 7.760465621948242,
+      "sequence_loss": 6.435921669006348,
+      "grad_norm_from_region_loss": 4.836771690176417,
+      "grad_norm_from_sequence_loss": 2.19875340196789,
+      "participation_ratio": 45082.14022788823
+    },
+    "scrambled-true": {
+      "region_loss": 7.917572498321533,
+      "sequence_loss": 6.4619245529174805,
+      "grad_norm_from_region_loss": 5.215315995029589,
+      "grad_norm_from_sequence_loss": 2.240241912022873,
+      "participation_ratio": 38931.68268275117
+    },
+    "pos-substituted": {
+      "region_loss": 8.911459922790527,
+      "sequence_loss": 6.641374588012695,
+      "grad_norm_from_region_loss": 4.634211089693393,
+      "grad_norm_from_sequence_loss": 2.1583814328780693,
+      "participation_ratio": 66242.27941303756
+    },
+    "random-chars": {
+      "region_loss": 7.352681636810303,
+      "sequence_loss": 6.403816223144531,
+      "grad_norm_from_region_loss": 9.647777736682222,
+      "grad_norm_from_sequence_loss": 2.46288271134572,
+      "participation_ratio": 45065.46320122714
+    },
+    "__filler__": {
+      "region_loss": 5.945021629333496,
+      "sequence_loss": 6.035812854766846,
+      "grad_norm_from_region_loss": 4.170835126514629,
+      "grad_norm_from_sequence_loss": 2.2498948695331,
+      "participation_ratio": 30931.337842990622
+    }
+  },
+  "full_batch": {
+    "twin": {
+      "grad_norm": 0.47940192950382854,
+      "mean_loss": 5.8612629771232605,
+      "injection_fired": false
+    },
+    "fluent-false": {
+      "grad_norm": 0.4800871698894856,
+      "mean_loss": 5.8621241599321365,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.010697781669163475,
+      "delta_as_fraction_of_grad_norm": 0.02228299846385411
+    },
+    "fluent-true": {
+      "grad_norm": 0.4802040129094245,
+      "mean_loss": 5.861966907978058,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.010683143830705243,
+      "delta_as_fraction_of_grad_norm": 0.022247094034010675
+    },
+    "scrambled-false": {
+      "grad_norm": 0.48011879645785355,
+      "mean_loss": 5.8630544394254684,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.010853123782698855,
+      "delta_as_fraction_of_grad_norm": 0.022605079956813517
+    },
+    "scrambled-true": {
+      "grad_norm": 0.4802775406532634,
+      "mean_loss": 5.863157689571381,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.010941776595599402,
+      "delta_as_fraction_of_grad_norm": 0.02278219502147993
+    },
+    "pos-substituted": {
+      "grad_norm": 0.47983952122606965,
+      "mean_loss": 5.863853216171265,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.010792591066524342,
+      "delta_as_fraction_of_grad_norm": 0.022492084518064455
+    },
+    "random-chars": {
+      "grad_norm": 0.47972218615638695,
+      "mean_loss": 5.862926259636879,
+      "injection_fired": true,
+      "delta_from_twin_norm": 0.011788130786220527,
+      "delta_as_fraction_of_grad_norm": 0.02457282803755434
+    }
+  },
+  "cosine_burst_region_gradients": {
+    "fluent-false": {
+      "fluent-false": 1.0000000000004743,
+      "fluent-true": 0.3952424360804297,
+      "scrambled-false": 0.5665368857038601,
+      "scrambled-true": 0.3172830716590539,
+      "pos-substituted": -0.0030804865020840314,
+      "random-chars": -0.05811548475840474
+    },
+    "fluent-true": {
+      "fluent-false": 0.3952424360804297,
+      "fluent-true": 1.0000000000003917,
+      "scrambled-false": 0.29594943847616884,
+      "scrambled-true": 0.5358949717828664,
+      "pos-substituted": -0.00889209965053459,
+      "random-chars": -0.043907426337334715
+    },
+    "scrambled-false": {
+      "fluent-false": 0.5665368857038601,
+      "fluent-true": 0.29594943847616884,
+      "scrambled-false": 1.0000000000001212,
+      "scrambled-true": 0.4532503225995863,
+      "pos-substituted": 0.004288291623508217,
+      "random-chars": -0.08676000026672127
+    },
+    "scrambled-true": {
+      "fluent-false": 0.3172830716590539,
+      "fluent-true": 0.5358949717828664,
+      "scrambled-false": 0.4532503225995863,
+      "scrambled-true": 1.0000000000001372,
+      "pos-substituted": 0.023112086713431162,
+      "random-chars": -0.06959167146455189
+    },
+    "pos-substituted": {
+      "fluent-false": -0.0030804865020840314,
+      "fluent-true": -0.00889209965053459,
+      "scrambled-false": 0.004288291623508217,
+      "scrambled-true": 0.023112086713431162,
+      "pos-substituted": 1.0000000000000515,
+      "random-chars": -0.005197264202495273
+    },
+    "random-chars": {
+      "fluent-false": -0.05811548475840474,
+      "fluent-true": -0.043907426337334715,
+      "scrambled-false": -0.08676000026672127,
+      "scrambled-true": -0.06959167146455189,
+      "pos-substituted": -0.005197264202495273,
+      "random-chars": 0.9999999999998479
+    }
+  },
+  "cosine_full_batch_deltas": {
+    "fluent-false": {
+      "fluent-false": 1.000000000021631,
+      "fluent-true": 0.9454916651157361,
+      "scrambled-false": 0.9554904886741795,
+      "scrambled-true": 0.9265485569284593,
+      "pos-substituted": 0.9039937652473763,
+      "random-chars": 0.790109866461893
+    },
+    "fluent-true": {
+      "fluent-false": 0.9454916651157361,
+      "fluent-true": 1.000000000021799,
+      "scrambled-false": 0.9286901734278723,
+      "scrambled-true": 0.948622479184468,
+      "pos-substituted": 0.9051690576711461,
+      "random-chars": 0.7962474625226673
+    },
+    "scrambled-false": {
+      "fluent-false": 0.9554904886741795,
+      "fluent-true": 0.9286901734278723,
+      "scrambled-false": 1.0000000000210827,
+      "scrambled-true": 0.9350592364186868,
+      "pos-substituted": 0.8965894073998163,
+      "random-chars": 0.7752446851367409
+    },
+    "scrambled-true": {
+      "fluent-false": 0.9265485569284593,
+      "fluent-true": 0.948622479184468,
+      "scrambled-false": 0.9350592364186868,
+      "scrambled-true": 1.0000000000210505,
+      "pos-substituted": 0.8931748165172048,
+      "random-chars": 0.7730460213228684
+    },
+    "pos-substituted": {
+      "fluent-false": 0.9039937652473763,
+      "fluent-true": 0.9051690576711461,
+      "scrambled-false": 0.8965894073998163,
+      "scrambled-true": 0.8931748165172048,
+      "pos-substituted": 1.0000000000212759,
+      "random-chars": 0.7863092233160477
+    },
+    "random-chars": {
+      "fluent-false": 0.790109866461893,
+      "fluent-true": 0.7962474625226673,
+      "scrambled-false": 0.7752446851367409,
+      "scrambled-true": 0.7730460213228684,
+      "pos-substituted": 0.7863092233160477,
+      "random-chars": 1.0000000000866895
+    }
+  },
+  "cosine_vs_filler_control": {
+    "fluent-false": -0.012120318918595064,
+    "fluent-true": 0.013785769151732392,
+    "scrambled-false": 0.0074132107714195514,
+    "scrambled-true": 0.0064149969481791785,
+    "pos-substituted": 0.030204136411567637,
+    "random-chars": -0.030466830028969286
+  }
+}

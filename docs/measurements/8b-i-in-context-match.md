@@ -55,4 +55,15 @@ WHAT THIS DOES NOT SAY
    here are NOT guaranteed to be matched on that model, and that
    model is the one whose weights actually move. This is a proxy
    until it can be re-verified against a real step-200 checkpoint.
+
+   RE-VERIFIED 2026-08-07 on the real step-199 checkpoint --
+   docs/measurements/2026-08-07-arm-match-real-model.md. The warning
+   above was correct and the direction was not predictable: burst-region
+   loss spread IMPROVED (2.0341 -> 1.4105) while gradnorm spread got
+   nearly 2x WORSE (1.2933 -> 2.2785), the latter entirely because
+   random-chars reads 9.6478 against 4.23-5.22 for every other arm.
+   The primary contrast moved the other way -- fluent-false vs
+   fluent-true is 1.80% apart on gradnorm on the real model against
+   14.33% here. Read the numbers in this file as public GPT-2's, which
+   is what they are, and not as bounds on the study's.
 3. This is one position. scripts/position_sweep.py sweeps the range.
