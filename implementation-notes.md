@@ -1021,6 +1021,55 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S103. The A6000 is 1.82x slower and produces different bits; b2 is advertised idle and cannot run anything
+
+Full record in `docs/measurements/2026-08-07-a6000-preflight.md`. Jobs 54950,
+54954, 54955. Asked because gpmoo-b2 shows eight idle A6000s against a1's four
+A100s, and 2x the cards looked like 2x the study.
+
+**§0.C now has a digest behind it.** Same seed, same 30 steps, same config: the
+A100 returns `7e1fb0b9…d1358d` and the A6000 returns `1953bab5…e609f01`. S94
+measured the mechanism — 95 kernels against 92 on identical code — and this is
+the consequence. **An arm and a twin on different card models are not a valid
+pair**, and that is now a measurement rather than a rule taken on trust.
+
+**The S95 determinism gate is closed on both card models, and was already closed
+on one when the handoff said otherwise.** 54955 gives same-card/two-load and
+card-to-card agreement on the A6000 through `scripts/train.py` at bf16. Checking
+it turned up that pre-flight 54727's `a1`/`a2` legs — one physical card, two
+processes, same seed, bf16 — had already done this on the A100, **in the same
+job the handoff cites for its other half**. Corrected in place. The lesson is
+narrow and worth having: a bullet that names a gap can be falsified by evidence
+sitting in the artifact it already links to.
+
+**The pool is not worth moving to, and this is the finding that settles the
+question.** A6000 bf16 is **7.267 s/step** against the A100's 3.84–3.99, startup
+cancelled the sizing doc's way — **1.82x slower**, so 19.25 h/run against 10.56.
+Eight A6000s therefore beat four A100s by **10%**, not by 2x. Only sixteen
+(b1+b2) would be worth it, and that needs b2 repaired and b1 empty.
+
+**A prediction habit corrected in the other direction.** S94 concluded that this
+loop's throughput "is not a function of the number on the box" after datasheet
+peaks mispredicted it twice. Across *card models at one dtype* the box was
+approximately right (1.82x against a 2x datasheet ratio). The cases S94 got
+wrong were across *dtypes on one card*. Both stand; neither generalises.
+
+**gpmoo-b2 cannot run CUDA at all, and SLURM does not know.** `nvidia-smi` fails
+with a driver/library mismatch — NVML 580.173 against the 560.35.05 kernel
+module a1 and b1 both run — so all ten legs of 54950 died at model construction
+with CUDA error 803. **SLURM still reports the node `idle` with
+`gpu:rtx_a6000:8` and accepts jobs it cannot run.** `sinfo` saying `idle` is not
+evidence a node works; for a 10-hour study run that is a live hazard, not a
+20-minute annoyance.
+
+**My own failure, recorded because it is the recurring one.** 54954 died OOM on
+every leg against another process holding 39.45 GiB: the script pinned
+`CUDA_VISIBLE_DEVICES` to absolute `0,1,2` rather than the cards SLURM
+allocated, which were `3 6 7`. **`preflight.sbatch` has the same bug and passes
+anyway**, because it requests all 8 cards so the two indexings coincide — a
+latent trap in a script that currently works. `pilot-v2.sbatch` parses the
+allocation and is the pattern to copy.
+
 ### S102. The evaluation batch was one passage, and it cost an order of magnitude of precision but not the seed count
 
 Full record in `docs/measurements/2026-08-07-heldout-remeasurement.md`. Job

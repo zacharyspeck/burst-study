@@ -450,14 +450,23 @@ Told plainly so you do not discover it at an inconvenient moment.
   Not "one A6000 only": the probe has since reproduced bitwise on an A100X at
   both fp32 and bf16, two fresh processes on the same physical card
   (`docs/measurements/2026-08-05-bf16-determinism.md`), and the v2 pre-flight
-  found one digest across all three of a1's A100 SKUs. **What has still never
+  found one digest across all three of a1's A100 SKUs. ~~**What has still never
   been run is two-processes-same-seed-same-card through `scripts/train.py`
   itself at bf16** — the committed dtype. The only same-card pair through
   `train.py` is fp32 + TF32-on + `micro_batch` 32
   (`docs/measurements/2026-08-05-hardware-sizing.md:103-116`), a configuration
-  the study does not use. S95 named this gate and it is still open. The AdamW
-  step-counter digest gap is fixed in `train.py` and still present in the
-  probe.
+  the study does not use. S95 named this gate and it is still open.~~
+  **THAT GATE IS CLOSED, and was already closed when the sentence was written —
+  corrected 2026-08-07.** The v2 pre-flight this bullet cites for its other half
+  (job 54727) also ran legs `a1_a100x_run1` and `a2_a100x_run2` **on one
+  physical card**, two processes, same seed, through `scripts/train.py` itself
+  at bf16: both `7e1fb0b9…d1358d`. Job 54955 adds the same on an RTX A6000
+  across two load conditions, plus card-to-card agreement within that model —
+  `docs/measurements/2026-08-07-a6000-preflight.md`. **The same job also
+  confirms §0.C with a digest:** the A6000 answer is `1953bab5…e609f01`, so the
+  two card models do **not** agree and the rule above is load-bearing rather
+  than cautious. The AdamW step-counter digest gap is fixed in `train.py` and
+  still present in the probe.
 - **No multi-GPU.** The loop is single-device. Multi-GPU adds NCCL all-reduce
   ordering, which nothing here has tested.
 
