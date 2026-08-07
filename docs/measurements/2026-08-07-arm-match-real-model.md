@@ -182,6 +182,63 @@ the gradient-outer-product eigenspectrum are not computed. The word is not used
 for any of them, per `tests/test_sequence_assembly.py`'s guard on the proxy
 artifact.
 
+## 6. Three seeds: does the verdict travel? (added 2026-08-07, job 54993)
+
+The objection to using the full-batch delta as the matching criterion is that it
+is measured *inside a particular batch*, so it might be a property of which
+corpus sequence happened to be displaced rather than of the passages. Seeds 1
+and 2 answer it. Their step-199 checkpoints exist, so this costs no training.
+
+**Spread (max/min) across the six injecting arms:**
+
+| criterion | seed 0 | seed 1 | seed 2 |
+|---|---|---|---|
+| **B** burst-region loss | 1.4105 | 1.4206 | 1.4168 |
+| **B** gradnorm from region loss | 2.2785 | 2.2599 | 2.5301 |
+| **C** full-batch \|delta\| | **1.1034** | **1.1112** | **1.1232** |
+
+**Both criteria travel, and C is the steadiest of the three.** The objection is
+answered: C is not an artifact of one batch. Algebraically it should not have
+been — the batch loss is a mean over rows and gradients add across rows, so the
+displaced corpus sequence appears in both arms' deltas and cancels when two arms
+are compared — but "should not have been" and "was not" are different claims.
+
+**The primary contrast, `fluent-false` vs `fluent-true`:**
+
+| criterion | seed 0 | seed 1 | seed 2 | sign |
+|---|---|---|---|---|
+| **B** burst-region loss | 3.20% | 4.27% | 3.69% | ff > ft, 3/3 |
+| **B** gradnorm | **1.80%** | **7.36%** | **6.07%** | **ff > ft, 3/3** |
+| **C** full-batch \|delta\| | 0.14% | 0.87% | 0.62% | ff>ft, ft>ff, ff>ft |
+
+**Correction to §3 above, which quoted seed 0 alone.** The primary contrast is
+**1.80%–7.36%** apart on gradnorm across three seeds, not 1.80%. Still far below
+public GPT-2's 14.33%, and the direction of that earlier finding stands — but
+the single-seed figure was the most favourable of the three and should not have
+been quoted as *the* number.
+
+**Under B the mismatch is systematic; under C it is not.** `fluent-false` has
+the larger gradient norm at every seed. `8b-iii` already established this is not
+about truth: a fabricated passage matched to `fluent-true`'s register scored
+*lower* than the true one (17.4198 against 18.0029), so falsity does not raise
+burst-region gradient norm. The consistent ff > ft gap under B is therefore a
+**nuisance** — register and vocabulary, not the variable under test. Under C it
+falls to 0.14–0.87% and **the sign flips between seeds**, which is what a
+residual with no systematic component looks like.
+
+**The secondary contrast, `fluent` pooled vs `pos-substituted`:**
+
+| criterion | seed 0 | seed 1 | seed 2 |
+|---|---|---|---|
+| **B** burst-region loss | +38.8% | +39.1% | +39.1% |
+| **B** gradnorm | +8.5% | +11.6% | +20.6% |
+| **C** full-batch \|delta\| | +1.0% | +0.9% | +2.2% |
+
+**The two criteria disagree stably, not noisily.** ~39% under B at every seed,
+~1–2% under C at every seed. Whichever is ruled, the answer is reproducible;
+the disagreement is definitional, and spec-v4 item 3 is a real fork rather than
+a measurement problem.
+
 ## What this does not establish
 
 - **One seed.** All of it is seed 0's step-200 batch. Matching at another seed's

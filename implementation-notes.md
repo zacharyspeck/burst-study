@@ -1067,6 +1067,24 @@ means spec-v4 item 3 has to be ruled before launch.** `fluent` pooled against
 the full-batch delta. Item 3 lists all three targets and picks none; that is now
 a decision with a visible consequence rather than a tidy-up. Not ruled here.
 
+**Three seeds, added the same day (job 54993): both criteria travel, and the
+number I quoted was the best of three.** Spread across the six arms under the
+full-batch delta is 1.1034 / 1.1112 / 1.1232 at seeds 0/1/2 — the steadiest of
+the three criteria, which answers the objection that it is an artifact of one
+batch. But the primary contrast's gradnorm gap is **1.80% / 7.36% / 6.07%**, and
+I had reported 1.80% as *the* figure. It was seed 0's, and seed 0 was the most
+favourable. The finding it supported still stands — public GPT-2 said 14.33% —
+but quoting one seed as the answer was the same error in miniature as trusting
+the proxy. Corrected in the measurement doc rather than restated.
+
+**The two criteria disagree stably, which makes spec-v4 item 3 a real fork.**
+`fluent` pooled against `pos-substituted` is +38.8/39.1/39.1% under B and
++1.0/0.9/2.2% under C. Neither is noisy; they measure different things. And
+under B `fluent-false` has the larger gradient norm at all three seeds, while
+under C the sign flips between seeds — so B carries a systematic mismatch that
+8b-iii already showed is **not** about truth (a register-matched fabrication
+scored *lower* than the true passage), and C does not.
+
 **Nothing here applies a tolerance or uses the word "anisotropy".** Items 1 and
 4 are open; participation ratio is reported under its own name with its
 basis-dependence stated, and `tests/test_sequence_assembly.py`'s guard on the
