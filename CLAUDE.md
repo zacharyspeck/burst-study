@@ -2,10 +2,13 @@
 
 Standing instructions for every session here, regardless of what the task is.
 
-This is a research repo whose central claim is that 70 training runs were
-identical except for `seed` and `arm`. (10 seeds x 7 arms. It said 40 until
+This is a research repo whose central claim is that 40 training runs were
+identical except for `seed` and `arm`. (10 seeds x 4 arms. It said 40 until
 2026-08-03, when the arm list was reconciled to spec v4 and the run count
-became a computed number rather than a typed one.) Most of the rules below exist because
+became a computed number rather than a typed one; it read 70 from then until
+2026-08-08, when Asa cut the arm list to four and the computed number came
+back to 40 on its own. The two 40s are not the same 40 -- the first was v3
+arithmetic over retired arm names.) Most of the rules below exist because
 that claim is only as good as the record backing it.
 
 ---

@@ -189,7 +189,7 @@ def test_an_empty_selection_is_refused(tmp_path):
 
 def test_all_must_be_typed_and_takes_every_run():
     selection = L.parse_selection(None, None, True, 10)
-    assert len(selection) == 10 * len(ARMS) == 70
+    assert len(selection) == 10 * len(ARMS) == 40
 
 
 def test_all_cannot_be_combined_with_a_filter():
@@ -280,7 +280,7 @@ def test_hand_edited_overrides_are_refused(tmp_path):
 def test_the_shipped_overrides_pass_the_check():
     result = L.check_overrides()
     assert result["checked"] is True
-    assert "70 ok" in result["output"]
+    assert "40 ok" in result["output"]
 
 
 # ---------------------------------------------------------------------------
@@ -546,15 +546,15 @@ def test_the_pilot_and_the_study_emit_from_the_same_path(tmp_path, ready_base):
     study = _build(tmp_path, ready_base,
                    L.parse_selection(None, None, True, 10))
     assert len(pilot.commands) == 4
-    assert len(study.commands) == 70
+    assert len(study.commands) == 40
     assert all(c.startswith("CUBLAS_WORKSPACE_CONFIG=") for c in study.commands)
 
 
 def test_every_injecting_arm_and_twin_can_be_emitted(tmp_path, ready_base):
     selection = [(0, arm) for arm in ARMS]
     emission = _build(tmp_path, ready_base, selection)
-    assert len(emission.commands) == len(ARMS) == 7
-    assert len(INJECTING_ARMS) == 6
+    assert len(emission.commands) == len(ARMS) == 4
+    assert len(INJECTING_ARMS) == 3
 
 
 # ---------------------------------------------------------------------------

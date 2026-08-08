@@ -16,11 +16,22 @@ Each entry below carries its own **Status** line and that is the authority.
 D-5 (full-checkpoint interval), D-6 (step 10's second half, skipped),
 D-8 (three confirmed wordings).~~
 
-**Open as of 2026-08-07: D-3 (head sort), D-5 (full-checkpoint interval),
-D-6 (step 10's second half, skipped), D-8 (three confirmed wordings) — FOUR.**
+~~**Open as of 2026-08-07: D-3 (head sort), D-5 (full-checkpoint interval),
+D-6 (step 10's second half, skipped), D-8 (three confirmed wordings) — FOUR.**~~
 **D-4 was RULED on 2026-08-07** (family = 2, correction `holm`); its entry
 below is kept in full with the original options, because which alternatives
 were live is the part that makes a ruling auditable.
+
+**Open as of 2026-08-08: D-3 (head sort), D-5 (full-checkpoint interval),
+D-6 (step 10's second half, skipped), D-8 (three confirmed wordings), and
+D-9 (what replaces the secondary contrast) — FIVE.**
+
+**D-4's ruling no longer describes the study.** It was ruled at family = 2 on
+2026-08-07 and invalidated the next day by the arm cut recorded in D-9, which
+removed `pos-substituted` and with it the second of the two contrasts that
+*were* the family. The entry stays below in full: it was correctly ruled on
+the study as it stood, and what overtook it was a later decision, not an error
+in that one.
 
 **D-7 is CLOSED**, by a decision rule in `docs/preregistration.md` §8 rather
 than by a pick. Kept below with the reasoning, including the fact that the
@@ -678,3 +689,77 @@ The docstring says "two-sided" and the cross-check test compares against
 Purely a naming question — `student_t_two_sided_sf` would be unambiguous — and
 it is churn in tested code with no behavioural defect, which is why it is here
 rather than done.
+
+---
+
+## D-9. What replaces the secondary confirmatory contrast
+
+**Status: RAISED 2026-08-08, by the arm cut ruled the same day by Asa. OPEN.**
+
+### What was decided, and by whom
+
+The study drops from seven arms to four. `fluent-false`, `fluent-true`,
+`random-chars` and `twin` are kept; `scrambled-false`, `scrambled-true` and
+`pos-substituted` are cut as run conditions. The run count falls from 70 to 40
+— computed, not typed, so it moved on its own when `ARMS` did. Ruled by Asa on
+2026-08-08 on schedule and cost grounds, with the consequences below stated
+before the ruling rather than discovered after it.
+
+The texts stay in `bursts/`, on exactly the terms `scrambled-corpus` was cut on
+2026-08-03: every measurement already taken from them stays reproducible.
+
+### What it costs, stated rather than buried
+
+**The secondary confirmatory contrast is gone, not deferred.**
+`docs/preregistration.md` §6 named pooled `fluent-*` against `pos-substituted`,
+and that arm can no longer appear in any panel this study produces. It is the
+contrast that asked whether semantic coherence *beyond part-of-speech
+structure* contributes to displacement. Nothing else in the design asks that
+question, and no surviving arm can be substituted in without asking a
+different one: `random-chars` has no grammatical structure to hold fixed,
+which is the entire point of the comparison.
+
+`scripts/analysis.py` keeps `SECONDARY_AGAINST = "pos-substituted"`
+deliberately. Every analysis output will now carry the secondary contrast
+reported as *uncomputable, naming the missing arm*, rather than silently
+listing one contrast as though a second had never been registered. That
+behaviour is pinned by
+`tests/test_analysis.py::test_the_preregistered_secondary_contrast_is_uncomputable`.
+
+**D-4 is left describing nothing.** Ruled 2026-08-07 at family = 2 — "the
+family is the two contrasts §5 and §6 fix" — where the arithmetic quoted was
+"the smaller p is tested at 0.025, and if it passes the other at 0.05". With
+one computable confirmatory contrast there is no family to correct over and no
+second p-value to order.
+
+**The ladder loses three of four rungs.** The exploratory descending-structure
+ordering was fluent > scrambled > pos-substituted > random-chars. What remains
+is fluent vs. random-chars: the two ends, with nothing in between. `v4`'s
+stated purpose — "an exploratory six-way categorical comparison, reported as a
+leverage ordering" — is not what a four-arm study does. `random-chars` is now
+the only exploratory arm.
+
+### The decision this raises
+
+**Is the study now single-contrast, or does something replace §6?**
+
+1. **Single confirmatory contrast.** `fluent-false` vs `fluent-true` alone.
+   No correction is needed at family = 1, D-4 closes as moot, and the study
+   answers exactly one question: whether truth value, holding form fixed,
+   changes displacement. Cheapest and most honest about what 40 runs buy.
+2. **Promote `random-chars` to confirmatory.** Pooled `fluent-*` vs
+   `random-chars` restores a family of 2 and keeps D-4's ruling standing
+   as-written. But it is not §6's question — it contrasts fluent text against
+   *no linguistic structure at all* rather than against structure-without-
+   meaning, so it cannot separate semantics from grammar. Re-registering it as
+   though it were §6 would be the "quietly widened at analysis time" failure
+   `docs/preregistration.md` §9 warns about.
+3. **Restore `pos-substituted` as a fifth arm.** 50 runs rather than 40,
+   ~12 h more wall clock at 8 concurrent runs and ~1.06 TB more checkpoints at
+   the current interval. Keeps the pre-registration intact as written and
+   costs the least scientifically of the three.
+
+**What I need:** which of the three, recorded here with a date and a name. The
+code change is done either way — this decides what the analysis is allowed to
+claim, and option 3 additionally requires re-running
+`scripts/generate_overrides.py` against a five-arm `ARMS`.

@@ -274,12 +274,13 @@ experiment:
   # control across the scrambled family was traded for run count. The three
   # remaining scrambled/fluent arms are all Beatles-derived, which is a stated
   # limitation of the design rather than an oversight. See S79.
+  # NARROWED 2026-08-08, ruled by Asa: four arms, not seven. 40 runs, not 70.
+  # scrambled-false, scrambled-true and pos-substituted are cut as run
+  # conditions; their texts stay in bursts/. This list must match ARMS in
+  # burst/config.py exactly -- the loader refuses to load if it does not.
   arms:
     - fluent-false        # grammatical English asserting something FALSE
     - fluent-true         # same register and structure, asserting something TRUE
-    - scrambled-false     # fluent-false with word order broken
-    - scrambled-true      # fluent-true with word order broken
-    - pos-substituted     # grammar preserved, lexical content destroyed
     - random-chars        # no word structure at all
     - twin                # no injection at all -- the matched control
 
@@ -361,12 +362,13 @@ injection:
   # six listed below are run conditions. scrambled-corpus was cut as an arm on
   # 2026-08-03; its text and measurements stay reproducible and it is not
   # reachable from a run -- the loader refuses `arm: scrambled-corpus`.
+  # One entry per INJECTING arm, and no others: the loader requires these keys
+  # to equal INJECTING_ARMS exactly. The scrambled-false, scrambled-true and
+  # pos-substituted entries were removed 2026-08-08 with the arm cut -- leaving
+  # them here would have been rejected, not ignored.
   burst_text_paths:
     fluent-false: bursts/fluent_false.txt
     fluent-true: bursts/fluent_true.txt
-    scrambled-false: bursts/scrambled_false.txt
-    scrambled-true: bursts/scrambled_true.txt
-    pos-substituted: bursts/pos_substituted.txt
     random-chars: bursts/random_chars.txt
 
 # ---------------------------------------------------------------------------

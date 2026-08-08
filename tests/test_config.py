@@ -163,7 +163,7 @@ def test_null_injection_fields_raise_for_injecting_arm(tmp_path):
     assert "cannot be launched" in message
 
 
-@pytest.mark.parametrize("arm", ["fluent-false", "scrambled-false", "pos-substituted"])
+@pytest.mark.parametrize("arm", ["fluent-false", "fluent-true", "random-chars"])
 def test_every_injecting_arm_requires_injection_fields(tmp_path, arm):
     base = write_base(tmp_path, checkpointing__weights_only_interval=50,
                       checkpointing__full_interval=1000,
@@ -556,7 +556,9 @@ def test_checkpoint_plan_for_the_real_config(tmp_path):
     assert plan.full_count == 10
     assert plan.estimated_bytes_per_run == 181 * 500_000_000 + 10 * 1_500_000_000
     assert plan.estimated_bytes_per_run == 105_500_000_000       # 105.5 GB
-    assert plan.estimated_bytes_all_runs == 105_500_000_000 * 70  # 7.385 TB
+    # 40 runs since the 2026-08-08 arm cut; 70 until then. The count is
+    # computed as n_seeds * len(ARMS), so this moved on its own.
+    assert plan.estimated_bytes_all_runs == 105_500_000_000 * 40  # 4.22 TB
     assert plan.last_step == 9535
 
 
@@ -910,9 +912,9 @@ def test_run_name_is_zero_padded(tmp_path):
 
 
 def test_filename_must_match_contents(tmp_path):
-    """seed05_scrambled-false.yaml containing `seed: 4` is a copy-paste error."""
+    """seed05_random-chars.yaml containing `seed: 4` is a copy-paste error."""
     base = write_base(tmp_path)
-    run = write_run(tmp_path, "seed: 4\narm: scrambled-false\n", name="seed05_scrambled-false.yaml")
+    run = write_run(tmp_path, "seed: 4\narm: random-chars\n", name="seed05_random-chars.yaml")
     with pytest.raises(ConfigError, match="filename says"):
         load(tmp_path, base, run)
 

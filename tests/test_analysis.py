@@ -123,15 +123,12 @@ def test_a_fabricated_effect_is_reported_significant():
 
 def test_an_ordering_of_known_effects_comes_back_in_order():
     """The ladder is the study's headline shape, so it has to survive."""
-    effects = {"fluent-false": 8.0, "fluent-true": 6.0,
-               "scrambled-false": 4.0, "scrambled-true": 3.0,
-               "pos-substituted": 2.0, "random-chars": 1.0}
+    effects = {"fluent-false": 8.0, "fluent-true": 6.0, "random-chars": 1.0}
     result = A.analyse(
         A.load_panel(_noisy_records(effects, spread=0.2), "aligned_l2"),
         correction="holm")
     assert result["ordering"] == [
-        "fluent-false", "fluent-true", "scrambled-false", "scrambled-true",
-        "pos-substituted", "random-chars"]
+        "fluent-false", "fluent-true", "random-chars"]
 
 
 def test_the_effect_is_recovered_through_seed_variation():
@@ -574,15 +571,22 @@ def test_cli_refuses_a_ragged_panel(tmp_path, capsys):
 # ===========================================================================
 
 
-def _contrast_panel(ff=0.30, ft=0.20, pos=0.05, **kw):
+def _contrast_panel(ff=0.30, ft=0.20, rc=0.05, **kw):
     """A panel with KNOWN per-arm displacements, so each contrast has an answer.
 
-    primary   = ff - ft
-    secondary = mean(ff, ft) - pos
+    primary       = ff - ft
+    pooled_vs_arm = mean(ff, ft) - rc
+
+    NARROWED 2026-08-08. The comparator was `pos-substituted` at 0.05, which
+    made the second line the PRE-REGISTERED secondary contrast. That arm was
+    cut, so the second line now exercises the pooling MECHANISM against a
+    surviving arm and is no longer §6's contrast. §6 itself is uncomputable
+    from here on; `test_the_preregistered_secondary_contrast_is_uncomputable`
+    is what records that.
     """
     return A.load_panel(_records(
-        {"fluent-false": ff, "fluent-true": ft, "pos-substituted": pos,
-         "random-chars": 0.02}, **kw), metric="aligned_l2")
+        {"fluent-false": ff, "fluent-true": ft, "random-chars": rc},
+        **kw), metric="aligned_l2")
 
 
 def test_the_primary_contrast_recovers_the_difference_it_was_given():
@@ -665,20 +669,25 @@ def test_pooling_averages_the_arms_within_each_seed():
         assert value == pytest.approx(0.25, abs=1e-9), "mean(0.30, 0.20)"
 
 
-def test_the_secondary_contrast_recovers_the_difference_it_was_given():
-    """§6: pooled fluent minus pos-substituted, per seed."""
-    panel = _contrast_panel(ff=0.30, ft=0.20, pos=0.05)
+def test_pooled_vs_arm_recovers_the_difference_it_was_given():
+    """The pooled-vs-arm MECHANISM, against a surviving arm.
+
+    Until the 2026-08-08 arm cut this was §6's pre-registered secondary
+    contrast, with `pos-substituted` as the comparator. The mechanism is
+    unchanged and still needs testing; what it is no longer is §6.
+    """
+    panel = _contrast_panel(ff=0.30, ft=0.20, rc=0.05)
     diffs = A.pooled_vs_arm_differences(
-        panel, A.SECONDARY_POOLED, A.SECONDARY_AGAINST)
+        panel, A.SECONDARY_POOLED, "random-chars")
     assert len(diffs) == len(panel.seeds)
     for d in diffs:
         assert d == pytest.approx(0.20, abs=1e-9), "0.25 - 0.05"
 
 
-def test_the_secondary_contrast_reports_no_effect_when_there_is_none():
-    panel = _contrast_panel(ff=0.20, ft=0.20, pos=0.20)
+def test_pooled_vs_arm_reports_no_effect_when_there_is_none():
+    panel = _contrast_panel(ff=0.20, ft=0.20, rc=0.20)
     cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
-                      against=A.SECONDARY_AGAINST)
+                      against="random-chars")
     assert cell["mean"] == pytest.approx(0.0, abs=1e-12)
     assert cell["ci_excludes_zero"] is False
 
@@ -686,7 +695,7 @@ def test_the_secondary_contrast_reports_no_effect_when_there_is_none():
 def test_the_pooled_cell_records_its_row_count_and_says_why():
     panel = _contrast_panel()
     cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
-                      against=A.SECONDARY_AGAINST)
+                      against="random-chars")
     assert cell["n_rows"] == len(panel.seeds)
     assert cell["n_arms_pooled"] == 2
     assert "AVERAGED within each seed" in cell["POOLING"]
@@ -719,10 +728,10 @@ def test_the_primary_label_names_the_arms_the_numbers_came_from():
     assert cell["reference_arm"] in cell["label"]
 
 
-def test_the_secondary_label_names_every_pooled_arm_and_the_comparator():
+def test_the_pooled_label_names_every_pooled_arm_and_the_comparator():
     panel = _contrast_panel()
     cell = A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
-                      against=A.SECONDARY_AGAINST)
+                      against="random-chars")
     for arm in cell["arms"]:
         assert arm in cell["label"]
     assert cell["against"] in cell["label"]
@@ -777,11 +786,13 @@ def test_the_noise_floor_describes_the_reference_it_actually_used():
 
 def test_the_contrasts_apply_no_correction_and_say_so():
     """Adding two contrasts changes the size of the family of tests, which is
-    D-4 and open. Nothing here divides by anything."""
+    D-4 -- ruled 2026-08-07 at family 2, then left describing nothing by the
+    2026-08-08 arm cut, and reopened as D-9. Nothing here divides by anything,
+    which is exactly why that churn never reached these numbers."""
     panel = _contrast_panel()
     for cell in (A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST),
                  A.contrast(panel, "pooled_vs_arm", arms=A.SECONDARY_POOLED,
-                            against=A.SECONDARY_AGAINST)):
+                            against="random-chars")):
         assert "p_raw" in cell
         assert "p_adjusted" not in cell
         assert "significant" not in cell
@@ -814,7 +825,27 @@ def test_registered_contrasts_match_the_preregistered_arms():
     out = A.registered_contrasts(panel)
     assert out["primary"]["arms"] == ["fluent-false", "fluent-true"]
     assert out["secondary"]["against"] == "pos-substituted"
-    assert out["primary"]["computed"] and out["secondary"]["computed"]
+    assert out["primary"]["computed"]
+
+
+def test_the_preregistered_secondary_contrast_is_uncomputable():
+    """THE RECORD OF THE 2026-08-08 ARM CUT.
+
+    §6 named `pos-substituted`, and that arm is no longer a run condition, so
+    no panel this study can produce will ever contain it. SECONDARY_AGAINST
+    deliberately still names it: the contrast has to keep appearing in the
+    output, reported as absent and naming what is missing, rather than being
+    deleted so that nothing records a pre-registered contrast went away.
+
+    The consequence for D-4: one computable confirmatory contrast, so the
+    Holm correction at family 2 ruled 2026-08-07 no longer describes this
+    study. See D-9 in docs/decisions-pending.md.
+    """
+    assert A.SECONDARY_AGAINST not in ARMS
+    out = A.registered_contrasts(_contrast_panel())
+    assert out["secondary"]["computed"] is False
+    assert out["secondary"]["missing_arms"] == ["pos-substituted"]
+    assert "could not be computed" in out["secondary"]["WHY_ABSENT"]
 
 
 def test_analyse_carries_the_registered_contrasts_beside_the_per_arm_rows():

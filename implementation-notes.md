@@ -1021,6 +1021,115 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S108. The corpus manifest hash is a timing hash, so it cannot verify a rebuild
+
+`docs/handoff-pilot.md` §4 says to compare the printed `manifest sha256`
+against a value carried out of band. That is correct for a corpus that was
+COPIED. It is unachievable for one that was REBUILT, and the reason is inside
+the hashed bytes: `manifest.json` carries `elapsed_seconds_last_run` (a
+wall-clock float -- `2003.37` on the Thunder host) and
+`blocks_written_last_run`, and `corpus_verify.py` hashes the whole file. Two
+byte-identical corpora built on two machines therefore have two different
+manifest hashes, necessarily.
+
+The rebuild on 2026-08-08 passed every other check --
+`OK -- complete and consistent`, tokenizer probe agreeing on both the file and
+token digests, all ten `data_order` permutation digests reproducing -- and
+still printed a different manifest hash. Read literally, the handoff
+instruction says to reject that corpus. The instruction is what is wrong.
+
+**Nothing committed here can settle content identity.**
+`docs/measurements/11-corpus.json` records the manifest hash, the tokenizer
+probe hashes and the data-order digests. None is a hash of the shard bytes, and
+no per-block hash list was ever committed. The blocks' own sha256 values live
+only in each machine's `manifest.json`.
+
+The workable check, recorded in `docs/measurements/2026-08-08-thunder-a100.md`
+§5, is a digest over `sorted((filename, sha256))` across all 150 blocks, which
+excludes the timing fields by construction. It gives
+`c338fd06805d2f3ef18b44f3a612e19b97626977354a886b40d068a620e68ed1` here and
+needs the same number from Zach's machine to mean anything. **Until that
+comparison happens the rebuilt corpus is structurally sound and of unproven
+provenance**, which is a weaker claim than the verifier's `OK` reads as.
+
+Worth fixing properly at some point: either move the timing fields out of the
+hashed object, or have `corpus_verify.py` print a content digest alongside the
+manifest one. Not done here -- it changes what the verifier reports, which is
+more than a corpus rebuild should quietly carry.
+
+
+### S107. This box is a virtualised A100, and it is not slower -- but two things about it are load-bearing
+
+Everything in `docs/measurements/2026-08-08-thunder-a100.md`. Three results
+worth carrying here because they change what the launcher may assume:
+
+**Step time is at parity, not degraded.** 3.725 s/step against the pilot v2's
+3.84--3.99 on cluster A100X, projecting 9.87 h/run against its measured
+10.17--10.56. The GPU is network-attached -- there is no `/dev/nvidia*` on this
+host at all -- and that turned out not to matter for this workload.
+
+**Packing two runs onto one card is NET NEGATIVE, and the FLOP arithmetic said
+otherwise.** At 3.725 s/step the loop sustains ~52 TFLOP/s against the 237
+TFLOP/s the card delivers on bf16 matmul, and `micro_batch: 8` uses 12.3 of 80
+GiB. Both numbers say "four fifths idle, pack it." Measured: two concurrent
+runs take 8.6--9.1 s/step each, three take ~12.4 -- aggregate throughput FALLS
+10--15%. The loop is bound by kernel-launch and virtualisation-channel
+serialisation, not by arithmetic, and co-tenants contend for the one channel.
+**One run per card.** The utilisation figure is not a headroom figure, and this
+is the second time in this repo that an inferred number has disagreed with a
+measured one (cf. S67's invented `micro_batch`).
+
+**Determinism survives a co-tenant, and `--profile-kernels` does not survive
+the virtualisation layer.** `probes/determinism/check.py --model hf --steps 20
+--dtype bf16` gives `28f3ea04985094d46b3384064c62cd9af7bfca37e7c3467821dea3f30dc0b7b1`
+both alone and with an unrelated training process on the same card -- not
+merely A == B within a run, but the same digest across both conditions. With
+`--profile-kernels` the Thunder runtime panics (`panic(TnrDataSockMon)`) and
+kills the training subprocess. The flag is a measurement convenience, so it is
+simply not used here; nothing in a real run touches CUPTI.
+
+### S106. The arm list cut to four, and what it cost the pre-registration
+
+Asa ruled on 2026-08-08 that the study runs `fluent-false`, `fluent-true`,
+`random-chars` and `twin` -- 40 runs, not 70 -- on schedule and cost grounds.
+The full entry is D-9 in `docs/decisions-pending.md` and the amendment is
+`docs/preregistration.md` §10 A-4. Logged here for the parts that are about the
+code rather than the design.
+
+**The count moved on its own.** `n_seeds * len(ARMS)` is computed, so editing
+the tuple moved 70 -> 40 and the checkpoint estimate 7.385 TB -> 4.22 TB with
+no second edit. That property was put in on 2026-08-03 (`c2df6c7`) precisely so
+a later change could not leave a typed number behind, and this is the first
+time it has been exercised.
+
+**Three things did NOT move on their own, and the loader is why two of them
+were caught immediately.** `configs/base.yaml`'s `experiment.arms` list must
+equal `ARMS` exactly, and `injection.burst_text_paths` keys must equal
+`INJECTING_ARMS` exactly -- so both refused to load until edited, rather than
+drifting. The third is `scripts/generate_overrides.py`, which iterates the
+cross-product it is given and therefore writes the new 40 without ever noticing
+the 30 stale files for cut arms; `--check` reports "40 ok" over a directory
+holding 70. What catches that is `tests/test_config.py`, which globs `*.yaml`
+and compares the count to `10 * len(ARMS)`. **The generator's own check is not
+a guard against extras** and should not be read as one.
+
+**`SECONDARY_AGAINST` still names a cut arm, deliberately.**
+`scripts/analysis.py:232` keeps `pos-substituted` so `registered_contrasts()`
+reports the pre-registered secondary as uncomputable and names what is missing,
+on the path already built and tested for an absent arm. Deleting the constant
+would have made the output of a four-arm study indistinguishable from that of a
+study where only one contrast had ever been registered. Pinned by
+`test_the_preregistered_secondary_contrast_is_uncomputable`.
+
+**Test counts moved, and no test was deleted.** 720 -> 685 passed torch-free
+and 1103 -> 1065 with torch, entirely from parametrised cases over arms
+shrinking. Nine fixtures in `tests/test_analysis.py` fabricated panels
+containing cut arms; `load_panel` refused them, which is the loader-shaped
+behaviour working. The pooled-vs-arm tests were retargeted to `random-chars`
+rather than deleted: the mechanism is still live code even though the contrast
+it used to implement is gone.
+
+
 ### S105. Three decisions ruled, and the one that needed a timing claim got one
 
 Asa ruled D-4, spec-v4 item 3, and the interim-look rule on 2026-08-07. All

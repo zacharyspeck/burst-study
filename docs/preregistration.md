@@ -377,6 +377,46 @@ two confirmatory arms and enter the final analysis unchanged.
 
 ---
 
+### A-4. The arm list is cut to **four**, and §6 dies with it
+
+**Ruled 2026-08-08 by Asa.** The study runs `fluent-false`, `fluent-true`,
+`random-chars` and `twin` — 10 seeds × 4 arms = **40 runs**, down from 70.
+`scrambled-false`, `scrambled-true` and `pos-substituted` are cut as run
+conditions on schedule and cost grounds.
+
+**This amendment invalidates §6 and, through it, A-1.** Both are left standing
+below rather than edited, because a pre-registration that quietly rewrites its
+own contrasts after the fact is worth nothing:
+
+- **§6 cannot be computed.** It names `pos-substituted`, which no panel this
+  study produces can contain. `scripts/analysis.py` still declares
+  `SECONDARY_AGAINST = "pos-substituted"` so that every analysis output reports
+  the contrast as absent and names the missing arm, instead of presenting one
+  contrast as if a second had never been registered.
+- **A-1's family of 2 no longer exists.** It was ruled on the two contrasts §5
+  and §6 fix. One of them is gone, so there is one confirmatory p-value, and
+  Holm at family 2 — "the smaller p is tested at 0.025, and if it passes the
+  other at 0.05" — has nothing to order. **No correction is applied under this
+  amendment.** What replaces §6, if anything, is D-9 in
+  `docs/decisions-pending.md` and is **not decided here**.
+
+**What is lost, stated plainly.** §6 asked whether semantic coherence *beyond
+part-of-speech structure* contributes to displacement. That question is no
+longer asked by this study, and no surviving arm asks it: `random-chars` holds
+no grammar fixed, so pooling the fluent arms against it tests fluent-vs-nothing,
+not meaning-vs-grammar. Substituting it into §6's slot would be exactly the
+"contrasts quietly widened at analysis time" failure §9 lists.
+
+The exploratory ladder of §7 loses three of four rungs; what remains is
+`fluent` vs `random-chars`, the two ends with nothing between them.
+`random-chars` is now the only exploratory arm.
+
+**§9 fires on this amendment by its own terms** — "the arm definitions …
+changing after this date in a way that alters what `fluent-*` or
+`pos-substituted` mean". Removing an arm outright is the stronger form of that,
+and this section is the record that it happened deliberately, with the cost
+priced, rather than being noticed later.
+
 ---
 
 ## Summary
@@ -384,12 +424,12 @@ two confirmatory arms and enter the final analysis unchanged.
 | | |
 | --- | --- |
 | primary | `fluent-false` vs `fluent-true` |
-| secondary | `fluent` (pooled) vs `pos-substituted` |
-| confirmatory family size | **2** |
-| exploratory | `scrambled-false`, `scrambled-true`, `random-chars`, the full ladder, all other pairs |
+| secondary | ~~`fluent` (pooled) vs `pos-substituted`~~ **UNCOMPUTABLE — arm cut 2026-08-08, §10 A-4. Reported as absent, not dropped** |
+| confirmatory family size | ~~**2**~~ **1** — §10 A-4 |
+| exploratory | ~~`scrambled-false`, `scrambled-true`,~~ `random-chars`, ~~the full ladder,~~ all other pairs — §10 A-4 |
 | reference / noise floor | `twin` |
-| pairing | within seed, 10 seeds |
+| pairing | within seed, 10 seeds (10 x 4 arms = **40 runs**, was 70 — §10 A-4) |
 | outcome metric | **FIXED BY RULE — see §8.4.** Branch selected by a single-checkpoint measurement at the pilot; three of its four branches give the plain loss barrier |
-| correction method | **`holm`, family = 2** — ruled 2026-08-07 by Asa, §10 A-1. Zach's confirmation outstanding |
+| correction method | ~~**`holm`, family = 2** — ruled 2026-08-07 by Asa, §10 A-1~~ **NONE — family is 1 after §10 A-4. What replaces §6 is D-9, undecided** |
 | matching target | **full-batch delta**, sequence-level reported alongside — §10 A-2 |
 | interim look | **variance-only** until the full seed count is complete — §10 A-3 |

@@ -6,17 +6,20 @@
 > **RECONCILED 2026-08-03.** `burst/`, `configs/` and `bursts/` now agree.
 > The arm list below is the live one.
 >
-> The design is **v4**: six injecting arms (fluent-false, fluent-true,
+> The design is **v4**: ~~six injecting arms (fluent-false, fluent-true,
 > scrambled-false, scrambled-true, POS-substituted, random-characters) plus
-> twin, **70 runs**, injection fixed at **step 200**. The arms named `coherent`,
-> `noise` and `ordinary` are gone, and `scrambled-corpus` was cut — its text
-> stays in `bursts/` but it is not a run condition. Read
+> twin, **70 runs**~~ — **NARROWED 2026-08-08 to three injecting arms
+> (fluent-false, fluent-true, random-characters) plus twin, 40 runs**, ruled by
+> Asa; see `docs/preregistration.md` §10 A-4 and D-9 in
+> `docs/decisions-pending.md`. Injection fixed at **step 200**. The arms named
+> `coherent`, `noise` and `ordinary` are gone, and `scrambled-corpus` was cut —
+> its text stays in `bursts/` but it is not a run condition. Read
 > **[`docs/spec-v4.md`](docs/spec-v4.md)** first, then
 > **[`docs/v4-gap-analysis.md`](docs/v4-gap-analysis.md)**.
 
-The config system for a study that trains 70 GPT-2 Base models from scratch.
-The 70 runs must be identical except for two things: a random **seed** and
-which of seven **arms** the run belongs to. At a fixed step mid-training, a
+The config system for a study that trains 40 GPT-2 Base models from scratch.
+The 40 runs must be identical except for two things: a random **seed** and
+which of four **arms** the run belongs to. At a fixed step mid-training, a
 short burst of text is injected into one training batch, then training
 continues.
 
@@ -24,11 +27,15 @@ continues.
 | --- | --- |
 | `fluent-false` | grammatical English asserting something specific and false |
 | `fluent-true` | same register and structure, asserting something true |
-| `scrambled-false` | `fluent-false` with word order broken |
-| `scrambled-true` | `fluent-true` with word order broken |
-| `pos-substituted` | each word replaced by one of the same part of speech |
 | `random-chars` | no word structure at all |
 | `twin` | nothing at all — the matched control |
+
+Cut as run conditions on 2026-08-08: `scrambled-false`, `scrambled-true`,
+`pos-substituted`. Their texts stay in `bursts/`, like `scrambled-corpus`'s,
+so every measurement already taken from them stays reproducible. Cutting
+`pos-substituted` retired the pre-registered **secondary** contrast; that cost
+is priced in `docs/preregistration.md` §10 A-4 and the replacement question is
+open as D-9.
 
 The v3 names `coherent`, `noise` and `ordinary` are retired. `scrambled-corpus`
 was cut as an arm; its text remains in `bursts/`. Because of that cut, all six
@@ -68,8 +75,10 @@ python -m burst.config \
     --outdir /tmp/testrun
 ```
 
-Expected: `720 passed, 241 skipped` on a fresh clone (one more test skips until
-a corpus is built locally; with one present it is `721 passed, 240 skipped`),
+Expected: `685 passed, 241 skipped` on a fresh clone (one more test skips until
+a corpus is built locally; with one present it is `686 passed, 240 skipped`).
+It was `720 passed, 241 skipped` until the 2026-08-08 arm cut, which removed no
+test but shrank every case parametrised over the arm list,
 then the resolved config printed, exit
 status 0, and
 `resolved_config.yaml` + `run_provenance.yaml` in `/tmp/testrun`. The run ends
@@ -154,7 +163,7 @@ undecided, and prints a `NOT LAUNCH-READY` block listing what is missing. With
 `--launch`, a missing value that this arm needs is a hard failure.
 
 `twin` receives no injection, so it does **not** need `injection_step`,
-`burst_length_tokens`, `burst_position` or a burst text. The other **six** arms
+`burst_length_tokens`, `burst_position` or a burst text. The other **three** arms
 each need all of them — and only *their own* burst text, not the other arms'.
 
 `model.tie_embeddings` (`true`) and the two `checkpointing` intervals (`50` and
@@ -207,10 +216,10 @@ the record of what produced everything else in that directory. Re-running the
 ## Layout
 
 ```
-configs/base.yaml                    every value shared by all 70 runs
+configs/base.yaml                    every value shared by all 40 runs
 configs/runs/seedNN_arm.yaml         40 generated overrides, two lines each
 burst/config.py                      the loader — read this one
-scripts/generate_overrides.py        regenerates all 70 override files
+scripts/generate_overrides.py        regenerates all 40 override files
 scripts/burst_match.py               measurement primitives, in context
 scripts/make_bursts.py               generates the three generated arms
 scripts/build_pos_pool.py            one-time POS pool build (nltk)
@@ -256,7 +265,7 @@ containing `seed: 4` is a copy-paste error and fails.
 ### Regenerating the override files
 
 ```bash
-python scripts/generate_overrides.py            # write all 70
+python scripts/generate_overrides.py            # write all 40
 python scripts/generate_overrides.py --check    # verify, change nothing
 ```
 
@@ -327,7 +336,7 @@ The measurement scripts are the only things in the repo that need torch, which
 is why it is an optional dependency:
 
 ```bash
-pip install -e ".[dev]"            # config work — no ML stack, 777 tests run
+pip install -e ".[dev]"            # config work — no ML stack
 pip install -e ".[dev,measure]"    # adds torch, transformers, datasets
 ```
 
@@ -413,7 +422,7 @@ script's job — a highlighted row would become the decision by default.
 | field | type | meaning |
 | --- | --- | --- |
 | `seed` | int, 0–9 | The single stochastic knob. Controls **both weight initialization and data order** — two runs sharing a seed see the same initial weights and the same batches in the same order. That is what makes an arm-to-arm comparison a matched pair. |
-| `arm` | str | Exactly one of `fluent-false`, `fluent-true`, `scrambled-false`, `scrambled-true`, `pos-substituted`, `random-chars`, `twin`. Case-sensitive. |
+| `arm` | str | Exactly one of `fluent-false`, `fluent-true`, `random-chars`, `twin`. Case-sensitive. Was seven names until the 2026-08-08 cut. |
 
 ### `model` — GPT-2 Base
 
@@ -477,7 +486,7 @@ arrives, the corpus location belongs on its command line.
 | field | value | meaning |
 | --- | --- | --- |
 | `n_seeds` | 10 | valid seeds are `0 .. n_seeds - 1` |
-| `arms` | the seven names | must match `ARMS` in `burst/config.py` |
+| `arms` | the four names | must match `ARMS` in `burst/config.py` |
 
 ### `injection` — decided 2026-08-03
 
@@ -488,10 +497,12 @@ arrives, the corpus location belongs on its command line.
 | `burst_position` | `400` | where in the 1024-token sequence the burst starts |
 | `burst_text_paths.fluent-false` | `bursts/fluent_false.txt` | repo-relative path to this arm's burst text |
 | `burst_text_paths.fluent-true` | `bursts/fluent_true.txt` | |
-| `burst_text_paths.scrambled-false` | `bursts/scrambled_false.txt` | |
-| `burst_text_paths.scrambled-true` | `bursts/scrambled_true.txt` | |
-| `burst_text_paths.pos-substituted` | `bursts/pos_substituted.txt` | |
 | `burst_text_paths.random-chars` | `bursts/random_chars.txt` | |
+
+The `scrambled-false`, `scrambled-true` and `pos-substituted` entries were
+removed with the 2026-08-08 arm cut. They could not simply be left behind: the
+loader requires these keys to equal `INJECTING_ARMS` exactly, so a stale entry
+is rejected rather than ignored.
 
 There is deliberately no `burst_text_paths.twin`; twin receives no text, and
 adding one is rejected by the schema check.
@@ -674,7 +685,7 @@ what the instructions above do) rather than executing it directly.
 
 ## What is tracked
 
-Tracked: the configs (`configs/base.yaml`, all 70 overrides), the burst texts
+Tracked: the configs (`configs/base.yaml`, all 40 overrides), the burst texts
 (`bursts/*.txt`), the package, the tests, the
 generator, and the docs.
 

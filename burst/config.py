@@ -60,7 +60,7 @@ __all__ = [
 # Constants that describe the study
 # ---------------------------------------------------------------------------
 
-#: The seven arms, exactly as they must appear in a run override file.
+#: The four arms, exactly as they must appear in a run override file.
 #:
 #: Reconciled to spec v4 on 2026-08-03. Until then this held the retired v3
 #: four -- coherent, noise, ordinary, twin -- while `bursts/` held v4 texts and
@@ -69,12 +69,25 @@ __all__ = [
 #: `scrambled-corpus` is CUT. Its text and provenance entry stay in `bursts/`
 #: so the measurements taken from it remain reproducible, but it is not a run
 #: condition. See S79 for the cost of that cut.
+#:
+#: NARROWED 2026-08-08, ruled by Asa. This held seven arms from 2026-08-03
+#: until then -- the six injecting arms plus twin, giving 70 runs. It now
+#: holds four, giving 40. `scrambled-false`, `scrambled-true` and
+#: `pos-substituted` are CUT as run conditions on the same terms as
+#: `scrambled-corpus`: their texts and provenance entries stay in `bursts/`,
+#: and every measurement already taken from them remains reproducible.
+#:
+#: THE COST, stated rather than buried: `pos-substituted` was the second
+#: pre-registered confirmatory contrast (preregistration.md section 6, wired
+#: as SECONDARY_AGAINST in scripts/analysis.py). Cutting it leaves ONE
+#: confirmatory contrast, so the Holm correction at family 2 that D-4 ruled
+#: on 2026-08-07 no longer describes this study. See D-9 in
+#: docs/decisions-pending.md and the 2026-08-08 amendment in
+#: docs/preregistration.md. The descending-structure ladder loses three of its
+#: rungs and `random-chars` is now the only exploratory arm.
 ARMS: tuple[str, ...] = (
     "fluent-false",
     "fluent-true",
-    "scrambled-false",
-    "scrambled-true",
-    "pos-substituted",
     "random-chars",
     "twin",
 )
