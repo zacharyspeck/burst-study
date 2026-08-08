@@ -398,7 +398,10 @@ own contrasts after the fact is worth nothing:
   Holm at family 2 — "the smaller p is tested at 0.025, and if it passes the
   other at 0.05" — has nothing to order. **No correction is applied under this
   amendment.** What replaces §6, if anything, is D-9 in
-  `docs/decisions-pending.md` and is **not decided here**.
+  `docs/decisions-pending.md`. **D-9 was ruled the same day, by Asa: option 1,
+the single confirmatory contrast.** §6 is not replaced, `random-chars` is not
+promoted into its slot, and with a family of one **no correction is applied**.
+This study tests exactly one confirmatory hypothesis: §5.
 
 **What is lost, stated plainly.** §6 asked whether semantic coherence *beyond
 part-of-speech structure* contributes to displacement. That question is no
@@ -430,6 +433,6 @@ priced, rather than being noticed later.
 | reference / noise floor | `twin` |
 | pairing | within seed, 10 seeds (10 x 4 arms = **40 runs**, was 70 — §10 A-4) |
 | outcome metric | **FIXED BY RULE — see §8.4.** Branch selected by a single-checkpoint measurement at the pilot; three of its four branches give the plain loss barrier |
-| correction method | ~~**`holm`, family = 2** — ruled 2026-08-07 by Asa, §10 A-1~~ **NONE — family is 1 after §10 A-4. What replaces §6 is D-9, undecided** |
+| correction method | ~~**`holm`, family = 2** — ruled 2026-08-07 by Asa, §10 A-1~~ **NONE — family is 1 after §10 A-4. D-9 ruled 2026-08-08: single confirmatory contrast, §6 not replaced** |
 | matching target | **full-batch delta**, sequence-level reported alongside — §10 A-2 |
 | interim look | **variance-only** until the full seed count is complete — §10 A-3 |

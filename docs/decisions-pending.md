@@ -23,8 +23,9 @@ below is kept in full with the original options, because which alternatives
 were live is the part that makes a ruling auditable.
 
 **Open as of 2026-08-08: D-3 (head sort), D-5 (full-checkpoint interval),
-D-6 (step 10's second half, skipped), D-8 (three confirmed wordings), and
-D-9 (what replaces the secondary contrast) — FIVE.**
+D-6 (step 10's second half, skipped), D-8 (three confirmed wordings) — FOUR.**
+**D-9 was RULED the same day it was raised** (option 1, single confirmatory
+contrast, no correction), which also closes D-4 as moot.
 
 **D-4's ruling no longer describes the study.** It was ruled at family = 2 on
 2026-08-07 and invalidated the next day by the arm cut recorded in D-9, which
@@ -694,7 +695,19 @@ rather than done.
 
 ## D-9. What replaces the secondary confirmatory contrast
 
-**Status: RAISED 2026-08-08, by the arm cut ruled the same day by Asa. OPEN.**
+**Status: RAISED 2026-08-08 by the arm cut, and RULED the same day by Asa —
+option 1, the single confirmatory contrast.**
+
+The study is `fluent-false` vs `fluent-true`, one confirmatory contrast, on the
+four arms as cut. §6 is not replaced and `pos-substituted` is not restored.
+With a family of one, **no multiple-comparison correction is applied**, and
+D-4 closes as moot rather than being re-ruled. `random-chars` stays exploratory
+and is not promoted to fill the empty slot — doing so would have been the
+"contrasts quietly widened at analysis time" failure `preregistration.md` §9
+names, since it asks a different question from the one §6 asked.
+
+The options below are kept in full. Which alternatives were live, and what each
+was judged to cost, is the part that makes a ruling auditable.
 
 ### What was decided, and by whom
 
