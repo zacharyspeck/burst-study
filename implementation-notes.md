@@ -1047,10 +1047,11 @@ only in each machine's `manifest.json`.
 The workable check, recorded in `docs/measurements/2026-08-08-thunder-a100.md`
 §5, is a digest over `sorted((filename, sha256))` across all 150 blocks, which
 excludes the timing fields by construction. It gives
-`c338fd06805d2f3ef18b44f3a612e19b97626977354a886b40d068a620e68ed1` here and
-needs the same number from Zach's machine to mean anything. **Until that
-comparison happens the rebuilt corpus is structurally sound and of unproven
-provenance**, which is a weaker claim than the verifier's `OK` reads as.
+`c338fd06805d2f3ef18b44f3a612e19b97626977354a886b40d068a620e68ed1` here, and
+**Asa's copy printed the same value on 2026-08-08 -- the two builds are
+byte-identical and the rebuild is a drop-in for the pilot's corpus.** The
+manifest hash still disagrees on that same byte-identical data, which settles
+which of the two checks is broken.
 
 Worth fixing properly at some point: either move the timing fields out of the
 hashed object, or have `corpus_verify.py` print a content digest alongside the
