@@ -102,6 +102,13 @@ changes how far a single gradient step displaces the model. This is the study's
 sharpest question, because truth is the one property here with no surface
 correlate the optimizer could be reading instead.
 
+> **QUALIFIED 2026-08-08, §10 A-5.** The final clause is too strong and is
+> retained unedited as the record of what was claimed. There *is* a surface
+> correlate: `fluent-true`'s subject is attested in the training corpus and
+> `fluent-false`'s is not. Truth and corpus attestation are entangled in this
+> pair, and the contrast measures them together. See
+> `docs/measurements/2026-08-08-corpus-attestation.md`.
+
 ### What a null result would mean
 
 No detectable difference in displacement between the two arms, relative to the
@@ -422,11 +429,78 @@ priced, rather than being noticed later.
 
 ---
 
+### A-5. The primary contrast differs in attestation as well as truth
+
+**Recorded 2026-08-08, before any study run existed.** Whole-corpus counts on
+the verified corpus (digest `c338fd06...`) establish:
+
+| | `fluent-false` | `fluent-true` |
+| --- | --- | --- |
+| subject | Gizmo Harrington | Jimmie Nicol |
+| occurrences in 2.5B training tokens | **0** | **4** |
+
+Four mentions reads like noise and is not. All four are precisely on-point --
+fill-in drummer, 1964, Melbourne, Ringo's replacement, bankruptcy the following
+year -- and three fall inside a single 2,735-token article about him carrying 25
+further surname mentions. The corpus contains, once, most of what the true burst
+asserts. It contains nothing about the false burst's subject, whose claimed role
+competes with attested content.
+
+**§5 therefore measures truth-with-attestation, not truth alone**, and its
+"no surface correlate" clause is withdrawn.
+
+**This was not a design choice.** S30 records that `fluent_true.txt` was written
+to match `fluent_false.txt` in register, structure and length and then
+fact-checked. Attestation was never a selection criterion. The asymmetry is
+discovered, and **no analysis may present it as the intended manipulation.**
+
+**It is also close to unavoidable.** A claim is fact-checkable because it is
+documented, and the corpus is drawn from documents; a true passage therefore
+tends to be attested and a fabricated one is necessarily at zero. Selecting a
+true-but-unattested subject would replace a measured confound with an
+unmeasured one, and would cost the 0.1% gradient match below.
+
+### Why the contrast is kept anyway
+
+`fluent-false` and `fluent-true` agree to **0.1%** on the sequence-level
+gradient norm -- A-2's ruled matching target, and what enters the optimizer
+step. They are the best-matched pair in the study. Every alternative is worse:
+`random-chars` carries 2.24x the region gradient and cannot be matched, so
+pooling the fluent arms against it would trade a second-order interpretive
+confound for a first-order mechanical one. Rebuilding the pair around attested
+entities would forfeit a match that took several measurement rounds to reach.
+
+### What each outcome licenses, fixed now
+
+- **A difference.** Two passages delivering gradients matched to a tenth of a
+  percent produced different persistent displacement. Not explicable by
+  magnitude. **Attributable to truth *or* to attestation, and this design
+  cannot separate them** -- that requires the attested-entity follow-up, and
+  the claim must be written that way.
+- **No difference.** Two passages differing in content, truth and attestation,
+  matched on injected gradient magnitude, produced indistinguishable
+  displacement. A genuine upper bound on how much semantic content matters at
+  this scale, and a result rather than a failure.
+
+Neither reading may be widened after the data are seen. §9's warning about
+contrasts "quietly widened at analysis time" governs this amendment as much as
+any other.
+
+### What is unaffected
+
+The **existence question** -- whether 194 tokens in one row of one batch leave a
+trace above the twin-vs-twin floor 9,336 steps later -- is untouched by any of
+this. So are the noise floor, the determinism record, and the arm-matching
+methodology. Those do not depend on what the corpus knows about a session
+pianist who never existed.
+
+---
+
 ## Summary
 
 | | |
 | --- | --- |
-| primary | `fluent-false` vs `fluent-true` |
+| primary | `fluent-false` vs `fluent-true` — differs in truth **and corpus attestation**, entangled and inseparable in this design (§10 A-5) |
 | secondary | ~~`fluent` (pooled) vs `pos-substituted`~~ **UNCOMPUTABLE — arm cut 2026-08-08, §10 A-4. Reported as absent, not dropped** |
 | confirmatory family size | ~~**2**~~ **1** — §10 A-4 |
 | exploratory | ~~`scrambled-false`, `scrambled-true`,~~ `random-chars`, ~~the full ladder,~~ all other pairs — §10 A-4 |

@@ -1021,6 +1021,68 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S109. Nobody had asked what the corpus already knew about Jimmie Nicol
+
+`docs/preregistration.md` §5 claimed truth was "the one property here with no
+surface correlate the optimizer could be reading instead." That went unchecked
+from 2026-08-03 until 2026-08-08, when counting it took twenty minutes. Full
+numbers in `docs/measurements/2026-08-08-corpus-attestation.md`; the amendment
+is §10 A-5.
+
+**"Jimmie Nicol" appears 4 times in 2.5B training tokens. "Gizmo Harrington"
+appears 0.** So the primary contrast differs in corpus attestation as well as
+truth value, and the two cannot be separated in this design.
+
+**Four occurrences is not the same as four incidental occurrences.** All four
+are precisely the fact the burst asserts -- fill-in drummer, 1964, Melbourne,
+Ringo's replacement, bankrupt the following year -- and three sit inside one
+2,735-token article carrying 25 further surname mentions and a "Nichol"
+misspelling. Frequency was the wrong summary statistic; reading the contexts was
+the right one. Worth remembering the next time a count looks like noise.
+
+**This was never a design choice, and that is the part that matters.** S30
+records the selection criteria for `fluent_true.txt`: match `fluent_false.txt`
+in register, structure and length, then fact-check. Attestation was not among
+them and nobody counted. The asymmetry is *discovered*, so no analysis may
+present it as the intended manipulation -- which is a live temptation, because
+"consolidating attested knowledge versus implanting competing knowledge" is a
+more interesting story than the one that was registered. It is also a story
+about an accident.
+
+**The confound is close to structural, not an oversight to be engineered away.**
+A claim is fact-checkable because it is documented, and the corpus is sampled
+from documents. True passages therefore tend to be attested; fabricated ones are
+necessarily at zero. Choosing a true-but-unattested subject would make its
+absence an accident of this 25-of-80-file slice -- the same arbitrariness
+relabelled.
+
+**Three responses were considered and rejected, each for a measured reason:**
+
+- *Corpus surgery.* The knowledge is a document, not four tokens. Removing the
+  bigram leaves the biography; removing the article deletes 2,735 tokens from a
+  contiguous stream cut into fixed 1024-token sequences, shifting every
+  downstream boundary and breaking `expected_token_budget`. And absence of a
+  paraphrase elsewhere cannot be proven, so the ablation would be uncertifiable
+  even if it were affordable.
+- *Re-pointing the confirmatory contrast at pooled-fluent vs `random-chars`.*
+  Trades a second-order interpretive confound for a first-order mechanical one:
+  `random-chars` carries **2.24x** the region gradient (9.648 against ~4.3) and
+  cannot be matched.
+- *Rebuilding the pair around attested entities.* Forfeits a match that took
+  several measurement rounds to reach.
+
+**Why the pair is kept.** `fluent-false` and `fluent-true` agree to **0.1%** on
+the sequence-level gradient norm -- A-2's ruled matching target, the quantity
+that enters the optimizer step -- and 1.8% on the region-level gradient. It is
+the best-matched comparison in the study. The response is disclosure, not
+redesign.
+
+**What survives regardless:** the existence question (does 194 tokens in one row
+of one batch leave a trace above the twin floor 9,336 steps later), the noise
+floor, the determinism record, and the arm-matching methodology. None depends on
+what the corpus knows about a session pianist who never existed.
+
+
 ### S108. The corpus manifest hash is a timing hash, so it cannot verify a rebuild
 
 `docs/handoff-pilot.md` §4 says to compare the printed `manifest sha256`
