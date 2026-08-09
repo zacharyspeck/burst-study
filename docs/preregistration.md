@@ -496,6 +496,35 @@ pianist who never existed.
 
 ---
 
+### A-6. The study stopped at n=8, on compute, before any effect was examined
+
+**Recorded 2026-08-09 by Asa.** The suite ran 16 runs -- `fluent-false` and
+`fluent-true`, seeds 0-7 -- and stopped there because compute ran out, not
+because of anything in the data.
+
+**This supersedes A-3's expectation of a full seed count, and it does not
+invalidate the analysis.** A-3 forbade choosing `n` while knowing the answer.
+The order of events here was: the variance-only look A-3 permits
+(`2026-08-09-paired-spread.md`), then a resourcing decision to stop, then the
+effect. A stopping rule driven by an external constraint and fixed before the
+outcome is examined is not optional stopping, and the resulting p-value means
+what it says -- for n=8, which is below the n=10 this design intended.
+
+`MIN_SEEDS = 10` in `scripts/analysis.py` was **not** overridden. The panel gate
+was bypassed by calling `paired_t_test` and `bootstrap_ci` directly on the
+paired differences; the arithmetic is identical, the floor simply does not apply
+to the estimators themselves. Any future run reaching 10 seeds should go through
+the panel.
+
+**What n=8 buys, from the measured spread:** a minimum detectable effect of
+0.00132 nats at 80% power on held-out loss. Effects smaller than that are not
+distinguishable from zero by this study and must not be reported as absent, only
+as undetected.
+
+Results: `docs/measurements/2026-08-09-boxA-results.md`.
+
+---
+
 ## Summary
 
 | | |

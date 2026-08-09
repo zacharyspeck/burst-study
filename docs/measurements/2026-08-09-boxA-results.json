@@ -1,0 +1,327 @@
+{
+  "arm_vs_arm_barrier": {
+    "mean": 0.1227805365383241,
+    "n": 8,
+    "per_seed": {
+      "0": 0.1083417342052746,
+      "1": 0.10786739396560208,
+      "2": 0.11001746024042047,
+      "3": 0.14102024400802637,
+      "4": 0.1618000571364453,
+      "5": 0.13635551056676132,
+      "6": 0.09282109581552422,
+      "7": 0.12402079636853847
+    },
+    "sd": 0.022463853885815843
+  },
+  "arm_vs_arm_l2": {
+    "mean": 225.2279042644876,
+    "per_seed": {
+      "0": 220.08273990366797,
+      "1": 217.7024014512976,
+      "2": 223.63906328707984,
+      "3": 231.6295696267767,
+      "4": 233.12226450723787,
+      "5": 235.61043732138444,
+      "6": 214.52873946902992,
+      "7": 225.50801854942648
+    },
+    "sd": 7.665135835216687
+  },
+  "heldout_loss_delta": {
+    "ci_high": 0.00024231087102627447,
+    "ci_low": -0.001221671571207339,
+    "df": 7,
+    "mean": -0.00044246461702557305,
+    "n": 8,
+    "p": 0.30971119228760635,
+    "per_seed": {
+      "0": 0.00023836676603705698,
+      "1": -0.0011463844757009234,
+      "2": -0.0005548516062234832,
+      "3": 0.0004087642535757219,
+      "4": -0.0026957253961561456,
+      "5": 0.0009730808975341176,
+      "6": -0.0008040391535204527,
+      "7": 4.1071778249524016e-05
+    },
+    "sd": 0.001142788119259329,
+    "t": -1.095110198858807
+  },
+  "heldout_loss_raw": {
+    "0": {
+      "fluent-false": 3.2116880601081843,
+      "fluent-true": 3.2114496933421472
+    },
+    "1": {
+      "fluent-false": 3.2127915211933225,
+      "fluent-true": 3.2139379056690234
+    },
+    "2": {
+      "fluent-false": 3.2090250883787546,
+      "fluent-true": 3.209579939984978
+    },
+    "3": {
+      "fluent-false": 3.218702947928831,
+      "fluent-true": 3.218294183675255
+    },
+    "4": {
+      "fluent-false": 3.2176023335149035,
+      "fluent-true": 3.2202980589110597
+    },
+    "5": {
+      "fluent-false": 3.2157586148582347,
+      "fluent-true": 3.2147855339607005
+    },
+    "6": {
+      "fluent-false": 3.214310374790117,
+      "fluent-true": 3.2151144139436374
+    },
+    "7": {
+      "fluent-false": 3.2147843857482377,
+      "fluent-true": 3.214743313969988
+    }
+  },
+  "runs": {
+    "seed00_fluent-false": {
+      "batch_slot": 75,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "1c5aaefaef28737d7396db245ea805709312dddec6fffe6efa5499776dbdf30a",
+      "heldout_loss": 3.2116880601081843,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35408.96
+    },
+    "seed00_fluent-true": {
+      "batch_slot": 75,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "ad0816c8f4fcfee7c91532e80fdcb60e1b1b4fe7eff9e84323e31b6a9ef26401",
+      "heldout_loss": 3.2114496933421472,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35420.61
+    },
+    "seed01_fluent-false": {
+      "batch_slot": 191,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "d06172d2a12f5a7861c8269d6d9bb0d2c9eeb523c92bdfcb0e79d4197faa888e",
+      "heldout_loss": 3.2127915211933225,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35427.91
+    },
+    "seed01_fluent-true": {
+      "batch_slot": 191,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "e1add0e74dcbd18396ff509ff75716678758953391fff4a52dc6a650aff833e0",
+      "heldout_loss": 3.2139379056690234,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35436.89
+    },
+    "seed02_fluent-false": {
+      "batch_slot": 229,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "d5e51351cb07c812d888b3e44dd66869e9a720594490a8956babac9c89855f5e",
+      "heldout_loss": 3.2090250883787546,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35388.08
+    },
+    "seed02_fluent-true": {
+      "batch_slot": 229,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "b80d3ec5253f017d81254dbae50d17ee879831520de26da5ad721c40c78bda14",
+      "heldout_loss": 3.209579939984978,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35433.73
+    },
+    "seed03_fluent-false": {
+      "batch_slot": 129,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "e9254835b90a3c496f2713c655c8836d58cb21f7220b2a9f35bc27883770b5db",
+      "heldout_loss": 3.218702947928831,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35447.58
+    },
+    "seed03_fluent-true": {
+      "batch_slot": 129,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "a2a8a3ec2267802e925d63a5887029874021f434cdd68c8edcbde9965f683710",
+      "heldout_loss": 3.218294183675255,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35415.44
+    },
+    "seed04_fluent-false": {
+      "batch_slot": 19,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "b57d7c7abf9052b1d89a7835f2d93dc3e9f82013043ed340eaabb6542a6ff25b",
+      "heldout_loss": 3.2176023335149035,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35448.31
+    },
+    "seed04_fluent-true": {
+      "batch_slot": 19,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "0deecc6398e472c78f0d112a87f6da4a11634c09e3536f1d1d0467c000329bed",
+      "heldout_loss": 3.2202980589110597,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35428.2
+    },
+    "seed05_fluent-false": {
+      "batch_slot": 44,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "df05c2ee3c7756f9ebf0a6e8dce05851b1291bcac6c622eec03dba5ba35965d8",
+      "heldout_loss": 3.2157586148582347,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35435.4
+    },
+    "seed05_fluent-true": {
+      "batch_slot": 44,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "4de22c02c719bb0cb6b4f5d49aa971643ae5c827886592f7590181d33f09f4fa",
+      "heldout_loss": 3.2147855339607005,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35402.45
+    },
+    "seed06_fluent-false": {
+      "batch_slot": 192,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "b644de9dbbf3e9841f05de915398c19b3a24f5c0800d03bd5e1d0a5c9179e6e5",
+      "heldout_loss": 3.214310374790117,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35410.0
+    },
+    "seed06_fluent-true": {
+      "batch_slot": 192,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "e78fb688b0b73e77a1775e12492522ec1477dea8b87144558af640f23735113b",
+      "heldout_loss": 3.2151144139436374,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35424.09
+    },
+    "seed07_fluent-false": {
+      "batch_slot": 93,
+      "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "4e68e461d13984336bcbbcdb8e4fa9ab750fe4aa751a37680a8bd9dd9d3f12ed",
+      "heldout_loss": 3.2147843857482377,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35418.87
+    },
+    "seed07_fluent-true": {
+      "batch_slot": 93,
+      "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
+      "device": "NVIDIA A100-SXM4-80GB",
+      "final_state_digest": "4b4592bcadab136366c421d5b8a8f2dd83dd6ddba2e94afbfec6958e531762b8",
+      "heldout_loss": 3.214743313969988,
+      "injection_step": 200,
+      "resume": null,
+      "steps_run": [
+        0,
+        9536
+      ],
+      "torch": "2.13.0+cu130",
+      "wall_seconds": 35428.05
+    }
+  }
+}
