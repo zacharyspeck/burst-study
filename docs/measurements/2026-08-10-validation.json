@@ -1,0 +1,101 @@
+{
+ "WHAT_THIS_IS": "Two validation runs behind the preprint's robustness and replication sections: the 2048-window precision check, and the recomputation of box A's arm-vs-arm barrier on different hardware.",
+ "precision_check": {
+  "windows": 2048,
+  "pairs": {
+   "armtwin_seed00_fluent-false": {
+    "at_512": 0.141219535866695,
+    "at_2048": 0.13936648446686073,
+    "l2_at_2048": 227.50897777431163
+   },
+   "armtwin_seed00_fluent-true": {
+    "at_512": 0.14792988828923193,
+    "at_2048": 0.14598853149787283,
+    "l2_at_2048": 230.62093263366185
+   },
+   "armtwin_seed03_fluent-false": {
+    "at_512": 0.13924138800380614,
+    "at_2048": 0.13952274256225694,
+    "l2_at_2048": 234.63134733064103
+   },
+   "armtwin_seed03_fluent-true": {
+    "at_512": 0.14278158605663993,
+    "at_2048": 0.14294424781964876,
+    "l2_at_2048": 232.86921332309177
+   },
+   "armtwin_seed06_fluent-false": {
+    "at_512": 0.16179783247335333,
+    "at_2048": 0.16107450697752457,
+    "l2_at_2048": 241.09994558313775
+   },
+   "armtwin_seed06_fluent-true": {
+    "at_512": 0.15637334261646796,
+    "at_2048": 0.15514586668564645,
+    "l2_at_2048": 236.6298268963432
+   },
+   "twintwin_seed00_seed01": {
+    "at_512": 4.811979614029241,
+    "at_2048": 4.839452264888811,
+    "l2_at_2048": 532.3867900753291
+   },
+   "twintwin_seed02_seed05": {
+    "at_512": 4.746678652652603,
+    "at_2048": 4.7896608948311075,
+    "l2_at_2048": 531.8016360197782
+   }
+  }
+ },
+ "armpair_replication": {
+  "windows": 512,
+  "seeds": {
+   "0": {
+    "box_a_max_excess": 0.1083417342052746,
+    "recomputed_max_excess": 0.1083417208623425,
+    "box_a_l2": 220.08273990366797,
+    "recomputed_l2": 220.08273990366797
+   },
+   "1": {
+    "box_a_max_excess": 0.10786739396560208,
+    "recomputed_max_excess": 0.10786740784752347,
+    "box_a_l2": 217.7024014512976,
+    "recomputed_l2": 217.7024014512976
+   },
+   "2": {
+    "box_a_max_excess": 0.11001746024042047,
+    "recomputed_max_excess": 0.11001746657825828,
+    "box_a_l2": 223.63906328707984,
+    "recomputed_l2": 223.63906328707984
+   },
+   "3": {
+    "box_a_max_excess": 0.14102024400802637,
+    "recomputed_max_excess": 0.14102025180273658,
+    "box_a_l2": 231.6295696267767,
+    "recomputed_l2": 231.6295696267767
+   },
+   "4": {
+    "box_a_max_excess": 0.1618000571364453,
+    "recomputed_max_excess": 0.16180004631160028,
+    "box_a_l2": 233.12226450723787,
+    "recomputed_l2": 233.12226450723787
+   },
+   "5": {
+    "box_a_max_excess": 0.13635551056676132,
+    "recomputed_max_excess": 0.13635552458062739,
+    "box_a_l2": 235.61043732138444,
+    "recomputed_l2": 235.61043732138444
+   },
+   "6": {
+    "box_a_max_excess": 0.09282109581552422,
+    "recomputed_max_excess": 0.09282109868753707,
+    "box_a_l2": 214.52873946902992,
+    "recomputed_l2": 214.52873946902992
+   },
+   "7": {
+    "box_a_max_excess": 0.12402079636853847,
+    "recomputed_max_excess": 0.12402078901454905,
+    "box_a_l2": 225.50801854942648,
+    "recomputed_l2": 225.50801854942648
+   }
+  }
+ }
+}

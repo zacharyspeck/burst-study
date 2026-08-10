@@ -207,7 +207,7 @@ HTML=f"""<title>One row, nine thousand steps — burst-study preprint</title>
       <li><a href="#headline">The pre-registered contrast</a></li>
       <li><a href="#heldout">Held-out loss</a></li>\n      <li><a href="#traj">Where the signal goes</a></li>
       <li><a href="#prereg">Pre-registration and departures</a></li>
-      <li><a href="#limits">Limitations</a></li>\n      <li><a href="#robust">Robustness</a></li>\n      <li><a href="#prov">Provenance</a></li>
+      <li><a href="#limits">Limitations</a></li>\n      <li><a href="#robust">Robustness</a></li>\n      <li><a href="#repl">Replication</a></li>\n      <li><a href="#prov">Provenance</a></li>
     </ol>
   </div>
 </header>
@@ -440,6 +440,24 @@ correlated <em>within</em> a seed — at seed 0 both arms move −1.31% together
 almost all of the evaluation noise: the per-seed contrasts move by 0.0001–0.0005 against a between-arm spread
 of ~0.008. That is the same cancellation the paired design relies on for seeds, turning up in a place nobody
 designed it into.</p>
+</section>
+
+<section id="repl">
+<span class="eyebrow">Replication</span>
+<h2>The pipeline checked against an independent computation</h2>
+<p class="measure">The arm-vs-twin barrier above is new. The <em>arm-vs-arm</em> barrier is not — it was computed
+on 2026-08-09 on different hardware by a different script. Recomputing all eight seeds here is an end-to-end
+check of this pipeline against a number produced independently.</p>
+<div class="tablewrap"><table>
+<thead><tr><th></th><th class="n">mean</th><th class="n">sd</th><th class="n">raw L2</th></tr></thead>
+<tbody>
+<tr><td>original (A100, cu130)</td><td class="n">0.12278054</td><td class="n">0.02246385</td><td class="n">225.2279</td></tr>
+<tr><td>recomputed (A6000, cu126)</td><td class="n">0.12278054</td><td class="n">0.02246385</td><td class="n">225.2279</td></tr>
+<tr class="total"><td>largest per-seed difference</td><td class="n">1.4e−08</td><td class="n">—</td><td class="n">0 (exact)</td></tr>
+</tbody></table></div>
+<p class="measure">The barrier arithmetic, the interpolation, the checkpoint loading and the held-out
+evaluation all reproduce across machines and CUDA builds. Together with the held-out losses reproducing to
+1.6e−9, essentially nothing in this analysis depends on the machine it ran on.</p>
 </section>
 
 <section id="prov">

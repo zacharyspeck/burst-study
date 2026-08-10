@@ -1068,6 +1068,24 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S116. The barrier pipeline replicated against an independently computed number
+
+`pair_barrier.py` is new code, and the arm-vs-twin barrier it produces has
+nothing to check against -- that quantity had never been computed. The
+arm-vs-*arm* barrier had: box A computed all eight seeds on 2026-08-09, on
+A100/cu130, with its own `arm_pair_metrics.py`.
+
+Recomputing those eight pairs here, on A6000/cu126, agrees to **1.4e-08** on the
+barrier, and on raw L2 the two agree **exactly** (max difference 0.000e+00).
+Mean 0.12278054, sd 0.02246385, L2 225.2279 -- box A's published figures to every
+digit it published.
+
+So the interpolation, the barrier arithmetic, the checkpoint loading and the
+held-out evaluation all reproduce across machines and CUDA builds. Taken with the
+32 held-out losses reproducing to 1.6e-09, nothing in this analysis rests on the
+machine that ran it -- which matters because the runs were trained on two boxes
+that no longer exist and analysed on a third.
+
 ### S115. The 512-window grid checked, and the paired design showing up twice
 
 `pair_barrier.py` evaluates each interpolation point on 512 held-out windows,

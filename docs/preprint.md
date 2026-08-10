@@ -646,6 +646,36 @@ evaluation grid as well as in the seeds.
 
 ---
 
+## Replication of box A's arm-vs-arm barrier
+
+The arm-vs-twin barrier above is new. The *arm-vs-arm* barrier is not: box A
+computed it on 2026-08-09 on A100/cu130 with its own script. Recomputing all
+eight seeds here, with a separately written `pair_barrier.py` on A6000/cu126,
+is an end-to-end check of this pipeline against a number produced independently.
+
+| seed | box A | recomputed here | delta |
+| --- | --- | --- | --- |
+| 0 | 0.10834173 | 0.10834172 | -1.33e-08 |
+| 1 | 0.10786739 | 0.10786741 | +1.39e-08 |
+| 2 | 0.11001746 | 0.11001747 | +6.34e-09 |
+| 3 | 0.14102024 | 0.14102025 | +7.79e-09 |
+| 4 | 0.16180006 | 0.16180005 | -1.08e-08 |
+| 5 | 0.13635551 | 0.13635552 | +1.40e-08 |
+| 6 | 0.09282110 | 0.09282110 | +2.87e-09 |
+| 7 | 0.12402080 | 0.12402079 | -7.35e-09 |
+
+| | mean | sd | L2 |
+| --- | --- | --- | --- |
+| box A, published | 0.12278054 | 0.02246385 | 225.2279 |
+| recomputed here | 0.12278054 | 0.02246385 | 225.2279 |
+
+Max |difference| on the barrier **1.4e-08**; on raw L2 the two agree **exactly**.
+The barrier arithmetic, the interpolation, the checkpoint loading and the
+held-out evaluation all reproduce across machines and CUDA builds.
+
+
+---
+
 ## Limitations
 
 Stated as constraints on what the numbers licence, not as hedges.
