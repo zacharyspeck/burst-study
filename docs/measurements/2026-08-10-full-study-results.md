@@ -5,8 +5,8 @@
 (`c338fd06805d2f3ef18b44f3a612e19b97626977354a886b40d068a620e68ed1`).
 Analysis on gpmoo-b1, 8x RTX A6000, `torch 2.13.0+cu126`.
 Machine-readable companions: `2026-08-10-barrier-analysis.json`,
-`2026-08-10-analysis-heldout_loss.json`. Full write-up: `docs/preprint.md`.
-Rendered write-up with figures: https://claude.ai/code/artifact/619f6ce7-3c40-408f-80ca-c0e08f66af18
+`2026-08-10-analysis-heldout_loss.json`. Long-form prose: `docs/preprint-source-material.md`. The paper itself is
+`docs/preprint.md` (LaTeX skeleton, ATTRIB 2026).
 
 **This is the first computation of the pre-registered headline metric.** Box A
 could not reach it -- `metrics.barrier()` is pairwise and every `twin` run was

@@ -1,0 +1,110 @@
+{
+ "WHAT_THIS_IS": "Occurrence counts for the entities named in the injected passages, re-counted independently on 2026-08-10 from the tokenised corpus. Exact token-sequence match, counting both the leading-space and bare tokenisations (GPT-2 BPE makes ' Nicol' and 'Nicol' different tokens). Whole-corpus scan, no sampling; blocks overlapped by len(needle)-1 tokens so a phrase spanning a block boundary is not missed.",
+ "corpus_digest": "c338fd06805d2f3ef18b44f3a612e19b97626977354a886b40d068a620e68ed1",
+ "training_blocks": 149,
+ "training_tokens": 2499805184,
+ "heldout_blocks": 1,
+ "heldout_tokens": 10485760,
+ "NOTE_ON_SCOPE": "The 2026-08-08 attestation counted training+held-out together under the label 'training corpus'. The model was trained only on the training blocks, so the two are split here. The two figures the confound rests on are unaffected: 'Jimmie Nicol' is 4 in training and 0 in held-out, 'Gizmo Harrington' is 0 in both. Summing the two columns reproduces every number in that document exactly.",
+ "counts": {
+  "Jimmie Nicol": {
+   "training": 4,
+   "heldout": 0,
+   "per_million_training": 0.002,
+   "role": "subject of fluent-true"
+  },
+  "Gizmo Harrington": {
+   "training": 0,
+   "heldout": 0,
+   "per_million_training": 0.0,
+   "role": "subject of fluent-false"
+  },
+  "Nicol": {
+   "training": 4881,
+   "heldout": 49,
+   "per_million_training": 1.953
+  },
+  "Harrington": {
+   "training": 4238,
+   "heldout": 22,
+   "per_million_training": 1.695
+  },
+  "Jimmie": {
+   "training": 1559,
+   "heldout": 3,
+   "per_million_training": 0.624
+  },
+  "Gizmo": {
+   "training": 560,
+   "heldout": 1,
+   "per_million_training": 0.224
+  },
+  "the Beatles": {
+   "training": 5686,
+   "heldout": 28,
+   "per_million_training": 2.275
+  },
+  "Ringo Starr": {
+   "training": 955,
+   "heldout": 2,
+   "per_million_training": 0.382
+  },
+  "Pete Best": {
+   "training": 70,
+   "heldout": 0,
+   "per_million_training": 0.028,
+   "role": "comparison entity: attested AND in a relation the corpus states repeatedly"
+  }
+ },
+ "the_four_occurrences": [
+  {
+   "n": 1,
+   "block": "train-063",
+   "text": "The Beatles with fill-in drummer Jimmie Nicol in Melbourne, 1964.",
+   "corroborates": [
+    "stand-in drummer",
+    "Melbourne",
+    "1964"
+   ]
+  },
+  {
+   "n": 2,
+   "block": "train-106",
+   "text": "One summer's morning in 1964, Jimmie Nicol was woken by the phone... On the line was George Martin, who, as the producer behind The Beatles, was one of the most powerful men in pop.",
+   "corroborates": [
+    "1964",
+    "recruited by a Beatles producer"
+   ]
+  },
+  {
+   "n": 3,
+   "block": "train-106",
+   "text": "earning overnight celebrity as what the headline writers called 'the fifth Beatle'... Within a year, his marriage ended in divorce, he was declared bankrupt",
+   "corroborates": [
+    "declared bankrupt the following year"
+   ]
+  },
+  {
+   "n": 4,
+   "block": "train-106",
+   "text": "half a century after his stint as Ringo Starr's replacement",
+   "corroborates": [
+    "replaced Ringo Starr"
+   ]
+  }
+ ],
+ "containing_document": {
+  "NOTE": "Three of the four occurrences fall inside one EOT-delimited article about the subject. Counts below are within that single document, which is why deleting the four name occurrences would remove the label and leave the biography.",
+  "document_tokens": 2735,
+  "counts": {
+   "Nicol": 25,
+   "Beatles": 13,
+   "Ringo": 8,
+   "Jimmie": 6,
+   "bankrupt": 4,
+   "Jimmie Nicol": 3,
+   "Melbourne": 2
+  },
+  "spelling_variant_in_captions": "Nichol"
+ }
+}

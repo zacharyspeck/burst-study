@@ -1068,6 +1068,48 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S117. The data snapshot, and the two stale renderings removed
+
+`docs/preprint.md` is now a LaTeX skeleton for ATTRIB 2026 -- section headings,
+tables and bracketed placeholders, no prose. Two artefacts of the earlier
+long-form version were left behind by that change and are removed here:
+`docs/preprint.html`, a rendered page that still claimed to be the preprint, and
+`scripts/build_preprint_page.py`, which generated it. The prose itself is kept,
+relabelled, as `docs/preprint-source-material.md` -- it is what the placeholders
+get filled from, and throwing it away to tidy up would have cost the drafting.
+
+**What the repo now carries, so that revising the paper never needs the
+checkpoints.** The 1.55 TB of weights and the 5 GB corpus are not committed and
+are not needed to redraw a figure or recompute a table:
+
+- `2026-08-10-training-curves.npz` -- per-step loss and pre-clip gradient norm,
+  all 32 runs, all 9,536 steps, `float32`. 2.0 MB, and the largest thing in the
+  repo by a factor of five. Committed anyway: the trajectory result is one of
+  four experiments, the committed JSON held only 26 sampled steps, and redrawing
+  it at a different resolution would otherwise mean re-reading 32 run
+  directories that live on one machine.
+- `2026-08-10-injection-step.json` -- step-200 state for all 32 runs, including
+  the **per-token losses across the 194-token injected region**, which nothing
+  had extracted before and which is the only route to a figure about where in
+  the passage the surprisal sits.
+- `2026-08-10-step199-digests.json` -- full SHA-256 over the weight tensors of
+  every pre-injection checkpoint. The digests were computed and reported on
+  2026-08-10 but only ever printed truncated to 16 hex characters; recomputed at
+  full width and committed, because this is the evidence the counterfactual is
+  exact and a truncated digest is not evidence.
+- `2026-08-10-run-provenance.json`, `2026-08-10-corpus-attestation-counts.json`,
+  `2026-08-10-INDEX.md` -- per-run provenance, the independently re-counted
+  corpus occurrences, and an index saying what is in each file.
+
+**The attestation counts were re-counted rather than copied**, and doing so
+found a scope error worth recording. The 2026-08-08 document counted 150 blocks
+under the label "training corpus"; 149 of those are training and one is the
+held-out slice, which the model never saw. Splitting them reproduces every
+number in that document exactly when summed (Nicol 4881+49=4930, Harrington
+4238+22=4260, and so on), and leaves the two figures the confound rests on
+untouched -- "Jimmie Nicol" is 4 in training and 0 in held-out, "Gizmo
+Harrington" is 0 in both. The paper should quote the training column.
+
 ### S116. The barrier pipeline replicated against an independently computed number
 
 `pair_barrier.py` is new code, and the arm-vs-twin barrier it produces has

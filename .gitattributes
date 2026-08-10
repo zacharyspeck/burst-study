@@ -3,3 +3,6 @@
 # git commit hash is part of the provenance record; the files it points at
 # should not differ by platform.
 * text=auto eol=lf
+
+# Compressed measurement arrays are binary; never touch their bytes.
+*.npz -text

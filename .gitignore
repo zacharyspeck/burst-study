@@ -86,6 +86,17 @@ __pycache__/
 *.arrow
 *.h5
 
+# NARROW EXCEPTION to the *.npz rule above, and only this one directory.
+# The rule exists to keep checkpoints, tokenised corpus and cached tensors out;
+# docs/measurements/ holds derived numbers, which are the record and are meant to
+# be committed -- the same category as the JSON beside them, just too large to be
+# readable as text. 2026-08-10-training-curves.npz is per-step loss and gradient
+# norm for the 32 runs (2 MB, float32); without it the trajectory figure can only
+# be redrawn from run directories that live on one machine.
+# Anything genuinely bulky still has no business here: the rule, not the
+# exception, is the default.
+!docs/measurements/*.npz
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

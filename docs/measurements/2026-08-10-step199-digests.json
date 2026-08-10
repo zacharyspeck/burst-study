@@ -1,0 +1,120 @@
+{
+ "WHAT_THIS_IS": "SHA-256 over the weight tensors (sorted keys, raw bytes) of the last checkpoint before injection, for all 32 runs. This is the check that makes the counterfactual exact: within a seed every condition descends from one identical parent, so any difference at step 9535 is attributable to the injected row alone.",
+ "step": 199,
+ "per_seed": {
+  "0": {
+   "digest": "523489bb4fb38c53c4173a1a0d4e0f28d9e09950aa9e078bd93bdd03c96f6243",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "1": {
+   "digest": "d6c6541e761d864bc7ade559a134e4c6ebb25eb4554b6a7d220385576167351b",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "2": {
+   "digest": "c12303147b8c18b29385fec1d50950071d7fe9c073008a0fa3342ba9c376c516",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "3": {
+   "digest": "df4d6c9931e543d6736ee43468aa75a4e3e5829bc0e9ecf572fbd354cffc1180",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "4": {
+   "digest": "9be9d42598a46ce596061f73e7d26fc6c06454b204f82309f3c8043d12297b95",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "5": {
+   "digest": "16aa3a2b5828fedd34263fc035abb9b6dcebad258d8a483d6bf1e7fc67b73993",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "6": {
+   "digest": "0d5a7a1da069d9b062598484afeaf99c2d67486af82129d11f8365ce6a38721b",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  },
+  "7": {
+   "digest": "e8c0f3ddd6de28d9277d71f7cf38df61d87ba03a27c90c74a64ce649377fb834",
+   "arms_sharing_it": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars",
+    "twin"
+   ],
+   "all_arms_identical": true,
+   "boxes": [
+    "boxA (fluent-false, fluent-true)",
+    "boxB (random-chars, twin)"
+   ]
+  }
+ },
+ "ALL_SEEDS_ALL_ARMS_IDENTICAL": true,
+ "NOTE": "The four runs at a seed were trained on two different physical machines. Identical digests therefore also establish that the two machines reproduced each other bitwise through 199 steps of training."
+}
