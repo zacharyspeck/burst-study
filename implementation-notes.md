@@ -197,6 +197,42 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D34. The analysis runs at n=8 against a floor of 10, by flag rather than by edit
+
+`scripts/analysis.py` sets `MIN_SEEDS = 10` and refuses a smaller panel, for the
+reason its own message gives: low-seed numbers in this build were overturned
+three separate times when the seed count widened. The study stopped at 8 seeds
+because compute ran out (`docs/measurements/2026-08-09-boxA-results.md`), and
+Asa directed on 2026-08-10 that the analysis and write-up proceed now rather
+than wait for seeds 8 and 9.
+
+**Asked for as a source edit to `MIN_SEEDS`; done as `--min-seeds 8` on the
+command line instead.** The flag already exists for exactly this, and the
+difference is where the departure is recorded: an edited constant silently
+lowers the floor for every future run and leaves no trace in the output, while
+the flag appears in the invocation, in the shell history and in the analysis
+payload. Same numbers, and the next person can still see that a floor was
+crossed and by whom. If a permanent change is wanted, that is a separate
+decision from running this analysis.
+
+**Suite counts after these changes**, on gpmoo login: `685 passed, 241 skipped`
+in `.venv/` and `1065 passed, 4 skipped` in `.venv-ml/`. The first matches
+README's stated expectation exactly. The four ML skips are environment-
+conditional and not failures -- three refusal paths are unreachable on a host
+that has CUDA, and one wants a locally built corpus. **These changes add no
+tests**, which is a debt rather than a decision: `pair_barrier.py`,
+`build_panel.py` and `barrier_analysis.py` ship untested because the analysis
+was wanted immediately, and the arithmetic they lean on is tested inside
+`metrics.py` and `analysis.py` rather than in them.
+
+**What this costs, stated rather than buried.** n=8 against the designed 10 is
+underpowered: `2026-08-09-paired-spread.md` puts the minimum detectable effect
+at 0.001321 nats at n=8 against 0.001138 at n=10, under the point estimate of
+sigma. The stopping rule itself is *not* the problem -- it was data-independent
+(resource exhaustion, fixed before any mean was examined), which is the property
+§10 A-3 actually protects, and the A-3 interim look that did happen was
+variance-only. The departure is the floor, not the optional-stopping hazard.
+
 ### D33. Pooling implemented as AVERAGING, and the reading is stated rather than assumed
 
 `docs/preregistration.md` §6 says "pooled `fluent` (both arms) vs
@@ -1020,6 +1056,88 @@ Cross-module obligations section.
 ---
 
 ## Smaller decisions, logged as instructed
+
+### S113. The headline metric became computable only when both boxes were in one place
+
+`docs/measurements/2026-08-09-boxA-results.md` §4 records the gap plainly: the
+pre-registered headline (§8.4, plain interpolation loss barrier of each arm
+against its **seed-matched twin**) could not be computed on box A, because
+`metrics.barrier()` is pairwise and every `twin` run was trained on box B. Box A
+could reach only the arm-vs-arm quantity, which has no noise floor to be read
+against.
+
+Both archives are now on `/shared/27as66/burst-b2`, so the arm-vs-twin barrier
+and the twin-vs-twin floor are computable for the first time.
+`scripts/pair_barrier.py` is that computation: any two run directories, going
+through `metrics.interpolate_state_dicts` and `metrics.barrier_from_losses` so
+no primitive is reimplemented. 52 pairs -- 24 arm-vs-twin (3 injecting arms x 8
+seeds) and 28 twin-vs-twin (`C(8,2)`, the floor).
+
+Kept at **512 held-out windows**, matching the protocol box A used for its
+arm-vs-arm barrier, so the new arm-vs-twin numbers, the floor and box A's
+existing figure all sit on one footing.
+
+**This closes the gap S102 recorded and left open**, by the second of the two
+routes it names. S102 found that `analysis.py`'s panel takes a per-run scalar
+while the barrier is pairwise, and that under the obvious mapping
+`metric(arm, s) = barrier(arm_s, twin_s)` the two registered contrasts survive
+but **`noise_floor` degenerates**: `metric(twin, s)` is identically 0, so it
+returns a list of zeros, and `clears_noise_floor` — which compares against the
+widest twin-vs-twin difference — becomes true for every arm for free. S102 left
+the choice open between suppressing the floor for pairwise metrics and
+redefining it to carry `barrier(twin_i, twin_j)`.
+
+`scripts/barrier_analysis.py` redefines it, and does so by **measuring** all 28
+`C(8,2)` twin-vs-twin pairs rather than deriving them. `analysis.py` is not
+modified and the barrier is not pushed through its panel; the estimators
+(`paired_t_test`, `bootstrap_ci`, `correct`) are imported from it so the
+arithmetic stays the tested, scipy-cross-checked one. Held-out loss, which *is*
+a per-run scalar, still goes through `analysis.py` unchanged.
+
+### S112. Verifying the archive found one corrupt checkpoint, and 65 false alarms
+
+The transfer tool reported one failure out of 215 objects, on a file that was
+nevertheless present at its full 497,818,245 bytes. Checking sizes would have
+passed it. Checking digests did not: `boxA/runs/seed06_fluent-false/`
+`step000199_weights_only.pt` hashed to `6922bbeb...` against B2's recorded
+`90f5bf78...`. Re-downloaded, verified, correct.
+
+**The trap in the check itself.** B2 stores `contentSha1: "none"` for anything
+uploaded as a large (multipart) file and puts the real digest in
+`fileInfo.large_file_sha1`. A naive comparison against `contentSha1` therefore
+reports every checkpoint in the archive as mismatched -- 65 of them here -- and
+a reader who trusts that number concludes the archive is destroyed. Both fields
+have to be consulted, `contentSha1` for small objects and `large_file_sha1` for
+the rest. All 366 files verify once that is done.
+
+### S111. Held-out loss recomputed for all 32 runs rather than pooled across two stacks
+
+Box A scored its 16 runs on A100-SXM4-80GB with `torch 2.13.0+cu130`. This
+machine is RTX A6000 with `torch 2.13.0+cu126`. Box B's runs were never scored
+at all -- no `heldout_eval.json` exists in any of them.
+
+Scoring only the 16 missing runs here would have produced a panel whose `twin`
+and `random-chars` cells came from one hardware/library stack and whose
+`fluent-*` cells came from another, with every cross-arm contrast carrying that
+offset. **All 32 are rescored here instead**, so the panel is internally
+consistent, and box A's 16 recorded values become an independent check on this
+pipeline rather than an input to it.
+
+### S110. Two scripts hardcoded the training box's paths, and one overwrote a record
+
+`scripts/eval_heldout.py` and `scripts/arm_pair_metrics.py` were written on the
+training box with `/home/ubuntu/burst-study` and `/home/ubuntu/runs` as module
+constants. `eval_heldout.py` now derives `REPO` from `__file__` -- the pattern
+`analysis.py` already uses -- and takes `--corpus` as a required argument and
+`--device`.
+
+**It also gained `--out`, after it destroyed something.** The script's original
+behaviour is to write `heldout_eval.json` *into the run directory*. Run against
+a box A run during a throwaway timing calibration, at 128 windows, it silently
+overwrote that run's original 10,240-window record. The archive is read-only and
+the copy was restored from B2 (`sha1 44c892b2...`, loss 3.2116880601081843), so
+nothing was lost -- but a calibration run should not be able to write into the
+evidence at all, and `--out` is what stops it.
 
 ### S109. Nobody had asked what the corpus already knew about Jimmie Nicol
 
