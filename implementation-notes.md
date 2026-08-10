@@ -1068,6 +1068,44 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S118. Scoring the stimuli themselves, and the decoy that nearly got reported
+
+Full numbers in section 10 of `docs/measurements/2026-08-10-full-study-results.md`.
+Exploratory; nothing here is registered.
+
+The registered nulls are on displacement and held-out loss, both global measures
+a single training example could barely move. Asa asked for the direct question
+instead: score the injected passage itself, the facts it asserts, and the name
+bigram that has no other source in the corpus. `scripts/stimulus_probe.py` and
+`scripts/stimulus_analysis.py`. Roughly a hundred forward passes; five minutes on
+eight cards.
+
+**The trap, which the design only just avoided.** Scoring each arm on its own
+passage gives `fluent-false` an improvement of -0.0242 at p = 0.082, and on the
+`fluent-true` text every arm improves at p as low as 0.0014 with 8 of 8 seeds
+agreeing. Reported alone that reads as "the model learned what it was shown".
+It is not: **`random-chars` improves on the `fluent-true` text by the same
+amount, and it never saw that text.** The improvement is drift shared by every
+arm, and only the difference-in-differences -- the arm that saw a text minus the
+arms that did not, on the same text -- separates the two. That contrast is null
+on all three texts, every Holm-adjusted p equal to 1.000.
+
+This is why the probe scores every model on every stimulus rather than each model
+on its own. Scoring only the matched pair costs a third of the forward passes and
+produces a result that cannot be distinguished from drift.
+
+**Content tokens were worth separating.** On the control the content-token mean
+loss is 6.27 against 4.57 whole-passage, so roughly a third of the signal is
+diluted by function words whose loss is fixed by syntax the model already had.
+The restriction changes no conclusion here, but a whole-passage mean would have
+been the wrong instrument if there had been anything to find.
+
+**The floor is the strongest sentence.** `Gizmo Harrington` occurs zero times in
+2.5 billion training tokens, so any movement in log P(`Harrington` | `Gizmo`)
+could only have come from the one exposure. It moves -0.288 nats -- the wrong
+sign -- at p = 0.26. Sixteen minimal pairs, zero surviving Holm; four bigram
+probes, zero surviving.
+
 ### S117. The data snapshot, and the two stale renderings removed
 
 `docs/preprint.md` is now a LaTeX skeleton for ATTRIB 2026 -- section headings,

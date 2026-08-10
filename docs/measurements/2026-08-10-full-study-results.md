@@ -179,3 +179,95 @@ is an end-to-end check of this pipeline against a number produced independently.
 Max |difference| on the barrier **1.4e-08**; on raw L2 the two agree **exactly**.
 The barrier arithmetic, the interpolation, the checkpoint loading and the
 held-out evaluation all reproduce across machines and CUDA builds.
+
+## 10. Did any of the passage stick? Scoring the stimuli themselves
+
+**Exploratory throughout.** None of this is pre-registered. The registered
+analysis asks whether the burst moved the model; this asks the narrower and more
+direct question of whether the model ends up knowing anything it was told once.
+Every one of the 32 final models is scored on **all three** stimulus texts, which
+is what makes the difference-in-differences below possible.
+
+### 10.1 Loss on the injected passage
+
+Per-token cross-entropy over the injected region of the exact 1024-token sequence
+the run saw, via the same function that recorded these losses at step 200.
+Reported over the whole 194-token region and over **content tokens only** --
+tokens that are alphanumeric and not closed-class, 105--113 of the 194. The
+restriction matters: on the twin the content-token mean is **6.27** against
+**4.57** for the whole passage, so function words dilute by roughly a third.
+
+Arm minus its seed-matched control, negative meaning the arm got *better* at the
+text:
+
+| text scored | arm that saw it | arms that did not (mean) |
+| --- | --- | --- |
+| `fluent-false`, all tokens | $-0.0242$ (p 0.082) | $-0.0128$ |
+| `fluent-false`, content only | $-0.0366$ (p 0.296) | $-0.0209$ |
+| `fluent-true`, all tokens | $-0.0430$ (p 0.085) | $-0.0442$ |
+| `fluent-true`, content only | $-0.0790$ (p 0.019) | $-0.0799$ |
+| `random-chars`, all tokens | $-0.0249$ (p 0.316) | $-0.0252$ |
+| `random-chars`, content only | $+0.0027$ (p 0.947) | $+0.0067$ |
+
+**Read the two columns together, not the first alone.** On the `fluent-true`
+text every arm improves, at p as low as 0.0014 and 8 of 8 seeds -- *including
+`random-chars`, which never saw that text*. Taken alone the left column would
+support "the model learned the passage it was shown". It does not: the models
+that were never shown it improve just as much.
+
+### 10.2 The comparison that isolates learning
+
+Difference-in-differences: the arm that saw a text, minus the mean of the arms
+that did not, on that same text.
+
+| text | all tokens | content tokens only |
+| --- | --- | --- |
+| `fluent-false` | $-0.0114$ (p 0.250) | $-0.0157$ (p 0.441) |
+| `fluent-true` | $+0.0012$ (p 0.959) | $+0.0009$ (p 0.982) |
+| `random-chars` | $+0.0003$ (p 0.988) | $-0.0040$ (p 0.890) |
+
+Holm over the six: **nothing survives**, every adjusted p is 1.000. No arm
+learned its own passage in a way the other arms did not.
+
+### 10.3 Minimal-pair continuations
+
+For each fact a passage asserts, the asserted completion against a plausible
+alternative, scored as a summed log-probability difference with the prefix held
+fixed. Sixteen pairs, hand-written from the passages after seeing them.
+
+| pair | mean change | raw p | Holm | BH |
+| --- | --- | --- | --- | --- |
+| `true.year` (3 June **1964** vs 1962) | $+0.300$ | 0.0091 | 0.146 | 0.146 |
+| `true.age` (**twenty-four** vs twenty-six) | $-0.293$ | 0.0747 | 1.000 | 0.597 |
+| the other 14 | -- | 0.19--0.84 | 1.000 | 0.818--0.842 |
+
+**Zero of sixteen survive Holm.** One raw p below 0.05 out of sixteen is what
+chance produces.
+
+### 10.4 The name bigram -- the floor
+
+log P(surname | given name), the smallest thing that could survive a single
+exposure.
+
+| probe | mean change | raw p | Holm |
+| --- | --- | --- | --- |
+| `Gizmo` $\rightarrow$ `Harrington` (bare) | $-0.288$ | 0.262 | 0.785 |
+| `Jimmie` $\rightarrow$ `Nicol` (bare) | $+0.522$ | 0.087 | 0.349 |
+| `Gizmo` $\rightarrow$ `Harrington` (carrier) | $-0.175$ | 0.520 | 0.919 |
+| `Jimmie` $\rightarrow$ `Nicol` (carrier) | $+0.249$ | 0.460 | 0.919 |
+
+**The name the model saw once, and could have seen nowhere else, does not become
+more likely.** `Gizmo Harrington` occurs zero times in 2.5 billion training
+tokens, so any shift in that bigram could only have come from the single
+exposure. The shift is $-0.288$ nats -- the wrong sign for learning -- and not
+distinguishable from zero.
+
+### 10.5 What this adds
+
+The registered nulls are on displacement and on held-out loss, both of which are
+global measures that a single example could move only slightly. These probes ask
+the direct question at the most favourable possible site: the exact tokens the
+model was trained on, the exact facts it was told, and the one bigram that has no
+other source in the corpus. **All three are null**, and the difference-in-
+differences shows that the one apparently positive result -- improvement on the
+passage a model saw -- is a drift the other arms share.
