@@ -2,6 +2,9 @@
 
 **Preprint — draft. n = 8 of a planned 10 seeds.**
 
+Rendered version, with the interpolation-curve and trajectory figures:
+https://claude.ai/code/artifact/619f6ce7-3c40-408f-80ca-c0e08f66af18
+
 ## Abstract
 
 What does a **single** exposure to a single passage do to a language model during
