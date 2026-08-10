@@ -215,6 +215,17 @@ payload. Same numbers, and the next person can still see that a floor was
 crossed and by whom. If a permanent change is wanted, that is a separate
 decision from running this analysis.
 
+**A fourth overturning happened inside this analysis, and it is the best
+argument for the floor D34 crosses.** The §5 primary contrast on the barrier was
+negative at 5 seeds out of 5 -- and had a mechanism ready, since `fluent-true`
+carries the higher pre-clip gradient norm at the injection step in 8 of 8 seeds.
+Seeds 5, 6 and 7 came in positive, one by +0.066, and the contrast landed at
+mean +0.006797, t(7) = +0.695, **p = 0.509**, sign 5/8. The barrier-difference
+against gradient-norm-difference correlation is r = +0.16, so the mechanism was
+not there either. Recorded because D34 crosses `MIN_SEEDS` on the strength of
+n=8, and this is a measured instance of exactly what the floor exists to catch,
+observed one step below it.
+
 **Suite counts after these changes**, on gpmoo login: `685 passed, 241 skipped`
 in `.venv/` and `1065 passed, 4 skipped` in `.venv-ml/`. The first matches
 README's stated expectation exactly. The four ML skips are environment-
@@ -1056,6 +1067,39 @@ Cross-module obligations section.
 ---
 
 ## Smaller decisions, logged as instructed
+
+### S114. Two metrics disagreed about the size of the burst, and the disagreement is the result
+
+Full numbers in `docs/measurements/2026-08-10-full-study-results.md`; the
+write-up is `docs/preprint.md`.
+
+The pre-registered headline (§8.4, arm against seed-matched twin) came out null,
+as did held-out loss. What makes the null interpretable rather than merely
+negative is a comparison the design supports but nobody had asked for: **the same
+pair of models, measured two ways.**
+
+| | arm vs its twin | twin vs twin, across seeds | ratio |
+| --- | --- | --- | --- |
+| interpolation loss barrier | 0.1479 | 4.9303 | **33.3x** |
+| raw L2 between final weights | 235.03 | 532.88 | **2.27x** |
+
+One injected row moves the final weights **44%** as far as changing the seed
+does, and produces **3.0%** of the barrier. Two different-seed twins interpolate
+through a peak loss of 8.00 from endpoints near 3.19 -- two solutions in
+different basins. An arm and its twin barely rise.
+
+**So the burst travels a long way inside the twin's basin and does not leave
+it.** The pre-registered question -- does the truth of the sentence change the
+displacement -- was asked of a displacement that never exits the basin, and
+inside that basin the answer is no: `random-chars` displaces as far as
+grammatical English (0.1445 against 0.1530 and 0.1462), and the two fluent arms
+are indistinguishable (p = 0.509).
+
+**Read the per-arm p-values with care.** Each arm's displacement differs from
+zero at p < 1e-5 and that is nearly content-free: the barrier is non-negative and
+the two models are demonstrably different, so zero was never a live hypothesis.
+The comparison that carries information is the one against the floor, and it
+fails by a factor of forty with no overlap between the distributions.
 
 ### S113. The headline metric became computable only when both boxes were in one place
 

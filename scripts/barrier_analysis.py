@@ -105,8 +105,24 @@ def main() -> int:
             for arm in arms}
     l2 = {arm: [arm_twin[(arm, s)]["l2_raw"] for s in seeds] for arm in arms}
 
+    # The floor is not optional. This module exists to compare a pairwise
+    # displacement against a MEASURED twin-vs-twin floor; without one the
+    # comparison silently becomes "clears_noise_floor: None" for every arm,
+    # which reads like a computed result and is not one. Refuse instead.
     floor = [d["barrier"]["max_excess"] for d in twin_twin.values()]
-    floor_scale = max(abs(x) for x in floor) if floor else None
+    if not floor:
+        raise AnalysisError(
+            f"no twintwin_*.json in {a.barrier_dir}. The twin-vs-twin barrier "
+            "across seeds IS the noise floor (spec-v4), and it cannot be "
+            "derived from the arm-vs-twin pairs -- it has to be measured. "
+            "Without it there is no scale to read a displacement against.")
+    expected = len(seeds) * (len(seeds) - 1) // 2
+    if len(floor) != expected:
+        raise AnalysisError(
+            f"{len(floor)} twin-vs-twin pairs for {len(seeds)} seeds; expected "
+            f"C({len(seeds)},2) = {expected}. A floor over a subset of pairs is "
+            "a different floor, and it is the widest pair that sets the scale.")
+    floor_scale = max(abs(x) for x in floor)
 
     rows, pvals = [], []
     for arm in arms:

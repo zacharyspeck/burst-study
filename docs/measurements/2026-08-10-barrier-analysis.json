@@ -1,0 +1,159 @@
+{
+  "metric": "plain_interpolation_loss_barrier_vs_seed_matched_twin",
+  "PREREGISTERED_AS": "docs/preregistration.md 8.4 headline metric",
+  "n_seeds": 8,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "correction": "none",
+  "alpha": 0.05,
+  "level": 0.95,
+  "windows": [
+    512
+  ],
+  "noise_floor": {
+    "WHAT_IT_IS": "twin against twin ACROSS seeds, every distinct pair, measured pairwise -- not derived by differencing per-seed scalars.",
+    "n_pairs": 28,
+    "min": 4.660455599675152,
+    "median": 4.846765672199981,
+    "max": 6.053882525075275,
+    "mean": 4.930263502622405,
+    "widest_abs": 6.053882525075275
+  },
+  "arms": [
+    {
+      "n": 8,
+      "mean": 0.15298331519875957,
+      "sd": 0.01611303822478758,
+      "min": 0.13924138800380614,
+      "median": 0.14551941234101773,
+      "max": 0.18267995924504987,
+      "ci_low": 0.1435367834857001,
+      "ci_high": 0.16425053316245758,
+      "ci_excludes_zero": true,
+      "t": 26.85416321275264,
+      "df": 7,
+      "p_raw": 2.5447235600690916e-08,
+      "values": [
+        0.141219535866695,
+        0.16805032996086178,
+        0.139838651358275,
+        0.13924138800380614,
+        0.1486322681980088,
+        0.18267995924504987,
+        0.16179783247335333,
+        0.14240655648402667
+      ],
+      "arm": "fluent-false",
+      "l2_raw_mean": 236.92168414522894,
+      "clears_noise_floor": false,
+      "p_adjusted": 2.5447235600690916e-08,
+      "significant_vs_zero": true
+    },
+    {
+      "n": 8,
+      "mean": 0.14618680222975006,
+      "sd": 0.02363013885139809,
+      "min": 0.11602865647321314,
+      "median": 0.14535573717293593,
+      "max": 0.18849751021791716,
+      "ci_low": 0.13140505822666104,
+      "ci_high": 0.16200918753864296,
+      "ci_excludes_zero": true,
+      "t": 17.497938514316782,
+      "df": 7,
+      "p_raw": 4.901368931969724e-07,
+      "values": [
+        0.14792988828923193,
+        0.18849751021791716,
+        0.1417480763465262,
+        0.14278158605663993,
+        0.15973600146181477,
+        0.11639935637618937,
+        0.15637334261646796,
+        0.11602865647321314
+      ],
+      "arm": "fluent-true",
+      "l2_raw_mean": 233.40380293626976,
+      "clears_noise_floor": false,
+      "p_adjusted": 4.901368931969724e-07,
+      "significant_vs_zero": true
+    },
+    {
+      "n": 8,
+      "mean": 0.14445237017735812,
+      "sd": 0.024541919296456778,
+      "min": 0.11491476171886816,
+      "median": 0.15001755410421835,
+      "max": 0.18289398836283643,
+      "ci_low": 0.1288757528767231,
+      "ci_high": 0.1605379424167283,
+      "ci_excludes_zero": true,
+      "t": 16.64796453399245,
+      "df": 7,
+      "p_raw": 6.895047908696013e-07,
+      "values": [
+        0.15189166143208377,
+        0.1615203002929464,
+        0.12015477049956136,
+        0.14814344677635294,
+        0.15846174483114073,
+        0.11491476171886816,
+        0.18289398836283643,
+        0.11763828750507521
+      ],
+      "arm": "random-chars",
+      "l2_raw_mean": 234.75904865425866,
+      "clears_noise_floor": false,
+      "p_adjusted": 6.895047908696013e-07,
+      "significant_vs_zero": true
+    }
+  ],
+  "ordering": [
+    "fluent-false",
+    "fluent-true",
+    "random-chars"
+  ],
+  "registered_contrasts": {
+    "primary": {
+      "n": 8,
+      "mean": 0.006796512969009516,
+      "sd": 0.02764929375506251,
+      "min": -0.020447180257055386,
+      "median": -0.0027248115205424916,
+      "max": 0.0662806028688605,
+      "ci_low": -0.008507175108272758,
+      "ci_high": 0.026198014955586435,
+      "ci_excludes_zero": false,
+      "t": 0.6952597706665118,
+      "df": 7,
+      "p_raw": 0.5093069703933826,
+      "values": [
+        -0.006710352422536925,
+        -0.020447180257055386,
+        -0.001909424988251196,
+        -0.0035401980528337873,
+        -0.011103733263805982,
+        0.0662806028688605,
+        0.005424489856885373,
+        0.026377900010813526
+      ],
+      "contrast": "fluent-false minus fluent-true",
+      "computed": true,
+      "FAMILY": "1 -- preregistration.md 10 A-4 and D-9. No multiple-comparison correction is applied.",
+      "significant": false
+    },
+    "secondary": {
+      "computed": false,
+      "against": "pos-substituted",
+      "WHY_ABSENT": "the arm was cut on 2026-08-08 (preregistration 10 A-4 / D-9); no panel this study produces can contain it. Reported as absent, not dropped."
+    }
+  }
+}
