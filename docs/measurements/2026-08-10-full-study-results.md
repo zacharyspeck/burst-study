@@ -124,3 +124,31 @@ barrier difference and the per-seed gradient-norm difference is **r = +0.16**.
 
 Recorded because D34 crosses `MIN_SEEDS = 10` on the strength of n=8, and this is
 a measured instance of exactly what that floor exists to catch.
+
+## 9. Robustness of the 512-window evaluation grid
+
+Six arm-vs-twin pairs and two floor pairs recomputed at **2048** windows, four
+times the evaluation set, same alpha grid.
+
+| pair | 512 win | 2048 win | rel |
+| --- | --- | --- | --- |
+| `seed00_fluent-false` | 0.141220 | 0.139366 | -1.31% |
+| `seed00_fluent-true` | 0.147930 | 0.145989 | -1.31% |
+| `seed03_fluent-false` | 0.139241 | 0.139523 | +0.20% |
+| `seed03_fluent-true` | 0.142782 | 0.142944 | +0.11% |
+| `seed06_fluent-false` | 0.161798 | 0.161075 | -0.45% |
+| `seed06_fluent-true` | 0.156373 | 0.155146 | -0.78% |
+| `twintwin_seed00_seed01` | 4.811980 | 4.839452 | +0.57% |
+| `twintwin_seed02_seed05` | 4.746679 | 4.789661 | +0.91% |
+
+Max |relative shift| 1.31%, mean 0.71% -- an order of magnitude below the
+between-arm differences (~0.008), two orders below the arm-vs-floor gap.
+
+**The contrast is steadier than either term.** Shifts are correlated within a
+seed, so the paired difference cancels most of the evaluation noise:
+
+| seed | contrast at 512 | contrast at 2048 |
+| --- | --- | --- |
+| 0 | -0.006710 | -0.006622 |
+| 3 | -0.003540 | -0.003422 |
+| 6 | +0.005424 | +0.005929 |

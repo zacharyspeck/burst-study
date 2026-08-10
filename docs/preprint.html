@@ -118,6 +118,7 @@ ul.tight{margin:.7rem 0;padding-left:1.15rem} ul.tight li{margin:.3rem 0}
       <li><a href="#traj">Where the signal goes</a></li>
       <li><a href="#prereg">Pre-registration and departures</a></li>
       <li><a href="#limits">Limitations</a></li>
+      <li><a href="#robust">Robustness</a></li>
       <li><a href="#prov">Provenance</a></li>
     </ol>
   </div>
@@ -325,6 +326,32 @@ compares models that share nothing, while the effect compares models that share 
 permutation-aligned one — selected in advance by the decision rule.</li>
 <li><strong>Seeds 8 and 9 are outstanding.</strong></li>
 </ul>
+</section>
+
+<section id="robust">
+<span class="eyebrow">Robustness</span>
+<h2>Is 512 evaluation windows enough?</h2>
+<p class="measure">Checked rather than assumed. Six arm-vs-twin pairs and two floor pairs were recomputed at
+<strong>2048</strong> windows — four times the evaluation set, same alpha grid.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>pair</th><th class="n">512 win</th><th class="n">2048 win</th><th class="n">relative shift</th></tr></thead>
+<tbody>
+<tr><td><code>seed00_fluent-false</code></td><td class="n">0.141220</td><td class="n">0.139366</td><td class="n">−1.31%</td></tr>
+<tr><td><code>seed00_fluent-true</code></td><td class="n">0.147930</td><td class="n">0.145989</td><td class="n">−1.31%</td></tr>
+<tr><td><code>seed03_fluent-false</code></td><td class="n">0.139241</td><td class="n">0.139523</td><td class="n">+0.20%</td></tr>
+<tr><td><code>seed03_fluent-true</code></td><td class="n">0.142782</td><td class="n">0.142944</td><td class="n">+0.11%</td></tr>
+<tr><td><code>seed06_fluent-false</code></td><td class="n">0.161798</td><td class="n">0.161075</td><td class="n">−0.45%</td></tr>
+<tr><td><code>seed06_fluent-true</code></td><td class="n">0.156373</td><td class="n">0.155146</td><td class="n">−0.78%</td></tr>
+<tr><td>floor, seeds 0 vs 1</td><td class="n">4.811980</td><td class="n">4.839452</td><td class="n">+0.57%</td></tr>
+<tr><td>floor, seeds 2 vs 5</td><td class="n">4.746679</td><td class="n">4.789661</td><td class="n">+0.91%</td></tr>
+</tbody></table></div>
+<p class="measure">Largest shift 1.31%, mean 0.71% — an order of magnitude below the between-arm differences
+the analysis compares, two orders below the arm-to-floor gap.</p>
+<p class="measure"><strong>The contrast is steadier than either term it is built from.</strong> The shifts are
+correlated <em>within</em> a seed — at seed 0 both arms move −1.31% together — so the paired difference cancels
+almost all of the evaluation noise: the per-seed contrasts move by 0.0001–0.0005 against a between-arm spread
+of ~0.008. That is the same cancellation the paired design relies on for seeds, turning up in a place nobody
+designed it into.</p>
 </section>
 
 <section id="prov">

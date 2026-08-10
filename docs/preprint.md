@@ -610,6 +610,42 @@ That is the mechanism behind the nulls below: what survives 9,336 steps is the
 
 ---
 
+## Robustness of the evaluation grid
+
+**512 held-out windows is enough for every claim above**, checked rather than
+assumed. Six arm-vs-twin pairs and two floor pairs were recomputed at **2048**
+windows — four times the evaluation set, same 21-point alpha grid.
+
+| pair | 512 win | 2048 win | rel |
+| --- | --- | --- | --- |
+| `seed00_fluent-false` | 0.141220 | 0.139366 | −1.31% |
+| `seed00_fluent-true` | 0.147930 | 0.145989 | −1.31% |
+| `seed03_fluent-false` | 0.139241 | 0.139523 | +0.20% |
+| `seed03_fluent-true` | 0.142782 | 0.142944 | +0.11% |
+| `seed06_fluent-false` | 0.161798 | 0.161075 | −0.45% |
+| `seed06_fluent-true` | 0.156373 | 0.155146 | −0.78% |
+| `twintwin_seed00_seed01` | 4.811980 | 4.839452 | +0.57% |
+| `twintwin_seed02_seed05` | 4.746679 | 4.789661 | +0.91% |
+
+Max |relative shift| **1.31%**, mean **0.71%** — an order of magnitude below the
+between-arm differences (~0.008) and two orders below the arm-vs-floor gap.
+
+**The contrast is steadier than either term.** The shifts are *correlated within
+a seed*: at seed 0 both arms move −1.31%, so the paired difference cancels almost
+all of the evaluation noise.
+
+| seed | contrast at 512 | contrast at 2048 |
+| --- | --- | --- |
+| 0 | −0.006710 | −0.006622 |
+| 3 | −0.003540 | −0.003422 |
+| 6 | +0.005424 | +0.005929 |
+
+That is the property the paired design was chosen for, showing up in the
+evaluation grid as well as in the seeds.
+
+
+---
+
 ## Limitations
 
 Stated as constraints on what the numbers licence, not as hedges.

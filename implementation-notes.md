@@ -1068,6 +1068,32 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S115. The 512-window grid checked, and the paired design showing up twice
+
+`pair_barrier.py` evaluates each interpolation point on 512 held-out windows,
+matching the protocol box A used for its arm-vs-arm barrier. Whether 512 is
+enough was assumed rather than measured, so it was measured: six arm-vs-twin
+pairs and two floor pairs recomputed at **2048** windows.
+
+Max relative shift **1.31%**, mean **0.71%** — an order of magnitude below the
+between-arm differences the analysis compares (~0.008), two orders below the
+arm-vs-floor gap.
+
+**The contrast is steadier than either term it is built from.** The shifts are
+correlated within a seed — at seed 0 both arms move −1.31% — so the paired
+difference cancels almost all of the evaluation noise:
+
+| seed | contrast at 512 | contrast at 2048 |
+| --- | --- | --- |
+| 0 | −0.006710 | −0.006622 |
+| 3 | −0.003540 | −0.003422 |
+| 6 | +0.005424 | +0.005929 |
+
+Worth recording because it is the same property the design relies on for seeds,
+appearing in a place nobody designed it into: what is shared between the two
+things being differenced drops out, whether that shared thing is an
+initialisation or an evaluation set.
+
 ### S114. Two metrics disagreed about the size of the burst, and the disagreement is the result
 
 Full numbers in `docs/measurements/2026-08-10-full-study-results.md`; the
