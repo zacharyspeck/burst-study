@@ -8,6 +8,10 @@ Machine-readable companions: `2026-08-10-barrier-analysis.json`,
 `2026-08-10-analysis-heldout_loss.json`. Long-form prose: `docs/preprint-source-material.md`. The paper itself is
 `docs/preprint.md` (LaTeX skeleton, ATTRIB 2026).
 
+Sections 10 and 11 were added after this date -- 2026-08-10 and 2026-08-11
+respectively -- and each carries its own date and provenance. Both are
+exploratory and neither is pre-registered.
+
 **This is the first computation of the pre-registered headline metric.** Box A
 could not reach it -- `metrics.barrier()` is pairwise and every `twin` run was
 trained on box B (`2026-08-09-boxA-results.md` section 4). With both archives on
@@ -271,3 +275,132 @@ model was trained on, the exact facts it was told, and the one bigram that has n
 other source in the corpus. **All three are null**, and the difference-in-
 differences shows that the one apparently positive result -- improvement on the
 passage a model saw -- is a drift the other arms share.
+
+---
+
+## 11. Representation space: per-layer CKA (exploratory, added 2026-08-11)
+
+**Date: 2026-08-11.** Same 32 runs, plus the step-249 checkpoints, fetched from
+B2 and verified 32/32 against the recorded digests. Analysis on gpmoo-b1,
+`torch 2.13.0+cu126`. Files: `2026-08-11-cka-analysis.json` and the five
+`2026-08-11-cka-*.json` pair records.
+
+Sections 1--9 measure two things about a pair of checkpoints, and both read
+**parameters**: how far apart the weights are, and whether a straight line
+between them stays low. This reads **activations** instead, so it is an
+independent third view -- and the only one that can answer *where*, because it
+is per layer and the other two are scalars over the whole network.
+
+`metrics.per_layer_cka` has existed since step 10, tested against a
+hand-transcribed HSIC, and **had never been run on a trained model**; every
+number it had produced came from junk weights. The
+`linear_cka_unbiased_hsic_tokens_as_samples_v1` form and the committed
+1024-token context batch (`token_sha256 e47ede6a3794...`) are unchanged from
+that module.
+
+`metrics.cross_check_activation_routes` -- forward hooks against
+`output_hidden_states`, which must reach identical tensors or the tap list is
+not on the layers it names -- ran on a trained checkpoint for the first time in
+all five jobs: **worst absolute gap 0.0, exactly**, 13 layers.
+
+### 11.1 Final checkpoints, arm vs seed-matched twin
+
+Mean CKA over 8 seeds. `twin/twin` is the across-seed control pair at the same
+step: not measurement error, but the scale of two runs that differ by
+initialization *and* data order.
+
+| layer | `fluent-false` | `fluent-true` | `random-chars` | twin/twin |
+| --- | --- | --- | --- | --- |
+| 0 (embed) | 0.99716 | 0.99709 | 0.99711 | 0.97414 |
+| 4 | 0.99240 | 0.99253 | 0.99229 | 0.97310 |
+| 8 | 0.95538 | 0.95800 | 0.95730 | 0.90730 |
+| 10 (min) | 0.93736 | 0.93865 | 0.93858 | 0.87787 |
+| 12 (`ln_f`) | 0.95424 | 0.95477 | 0.95435 | 0.92390 |
+
+**The three arms are indistinguishable at every layer.** Registered primary
+contrast `fluent-false` $-$ `fluent-true`, formed per layer on the paired
+within-seed differences: best layer is 7 at $-0.00109$, raw $p$ 0.141, **Holm
+across the 13 layers 1.000**. Pooled fluent minus `random-chars`: best layer 5
+at $+0.00096$, raw $p$ 0.259, Holm 1.000. Nothing survives at any layer.
+
+The displacement itself is large and deepest in the middle of the network. At
+layer 12 the arm-vs-twin $1-\text{CKA}$ is **60%** of the across-seed value
+(0.0455 vs 0.0761); at layer 0 it is 11%. One injected row moves the deep
+representation most of the way to a different-seed run, and moves it the same
+amount whether the row was true, false, or line noise.
+
+### 11.2 Where the burst first registers: step 199 to step 249
+
+Step 199 is the last checkpoint before injection -- bit-identical across all
+four arms within a seed (section 6) -- and 249 is the first one after. CKA
+between them, within each run, is how much fifty steps moved that layer.
+
+| layer | `fluent-false` | `fluent-true` | `random-chars` | `twin` |
+| --- | --- | --- | --- | --- |
+| 0 (embed) | 0.98975 | 0.98978 | 0.98976 | 0.98973 |
+| 1 (min) | 0.86017 | 0.86393 | 0.85908 | 0.85990 |
+| 4 | 0.91377 | 0.91441 | 0.91360 | 0.91406 |
+| 8 | 0.91658 | 0.91665 | 0.91630 | 0.91657 |
+| 12 (`ln_f`) | 0.92318 | 0.92311 | 0.92258 | 0.92271 |
+
+**Fifty steps of training move layer 1 the most and the embedding the least, and
+they do so by the same amount in all four arms** -- the arm that saw a false
+passage, the arm that saw a true one, the arm that saw line noise, and the arm
+that saw an ordinary batch agree to four decimal places. The answer to "where in
+the network does the burst register" is: wherever ordinary training registers, at
+the magnitude ordinary training has.
+
+Arm minus twin, paired within seed, per layer, Holm across the 13 layers:
+
+| contrast | best layer | mean | raw $p$ | Holm |
+| --- | --- | --- | --- | --- |
+| `fluent-true` $-$ `twin` | 1 | $+0.00403$ | 0.060 | 0.785 |
+| primary, `fluent-false` $-$ `fluent-true` | 1 | $-0.00376$ | **0.046** | 0.598 |
+| `random-chars` $-$ `twin` | 0 | $+0.00003$ | 0.136 | 1.000 |
+| `fluent-false` $-$ `twin` | 0 | $+0.00002$ | 0.516 | 1.000 |
+
+Those two layer-1 rows are the closest thing to a signal anywhere in this study:
+both have a bootstrap CI excluding zero, and they agree in direction with 11.3
+below (`fluent-false` displaces most, `fluent-true` least). They are also 2 raw
+hits out of 65 tests, they are 5/8 and 6/8 on seed sign, and **neither survives
+correction across the layers they were selected from.** Reported because
+suppressing the near-misses in a null result is how a null result stops being
+evidence.
+
+### 11.3 The same contrast fifty steps after injection
+
+Arm vs twin at step 249, where the two differ by exactly one modified batch:
+
+| layer | `fluent-false` | `fluent-true` | `random-chars` | twin/twin |
+| --- | --- | --- | --- | --- |
+| 0 | 0.999965 | 0.999968 | 0.999966 | 0.89746 |
+| 6 | 0.997753 | 0.998150 | 0.997922 | 0.85293 |
+| 12 | 0.997479 | 0.997990 | 0.997620 | 0.90224 |
+
+$1-\text{CKA}$ rises monotonically with depth and is **2.4%** of the across-seed
+scale at layer 12 against 0.03% at layer 0: one modified batch perturbs deep
+layers roughly eighty times more than the embedding. All three arms do it.
+Primary contrast: best layer 11, $-0.00052$, raw $p$ 0.182, Holm 1.000.
+
+### 11.4 A finding that is not about the burst
+
+Two runs differing **only in seed** end at per-layer CKA 0.878--0.992 and a
+median raw-basis activation cosine of $-0.0004$ to $+0.0042$ -- statistically
+indistinguishable from orthogonal. They learn the same representation up to a
+rotation and share almost nothing in the coordinates the weights are stored in.
+
+This is why `metrics.activation_cosine` is reported beside every CKA, and it is
+load-bearing for section 1: raw L2 between different-seed runs counts a gauge
+difference as content, so the 532.88 across-seed L2 is an over-estimate of how
+differently those two models compute. The arm-vs-twin pairs share an
+initialization and do not have this problem (cosine 0.82--0.96 at the final
+step), which makes the 2.27x L2 ratio in section 1 a conservative reading.
+
+### 11.5 What this adds
+
+A third metric, on a different substrate from the first two, with per-layer
+resolution, measured at the step where the effect should be largest and at the
+end of training. **It agrees with them: the arms are separable from their twins
+and not from each other, at every layer and at both times.** The one place the
+study comes near a content effect -- layer 1, fifty steps after injection --
+does not survive being corrected for the twelve other layers it was chosen from.

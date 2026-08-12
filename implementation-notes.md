@@ -1068,6 +1068,72 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S119. CKA finally run on a trained model, and what a per-layer metric costs
+
+Full numbers in section 11 of `docs/measurements/2026-08-10-full-study-results.md`.
+Exploratory; nothing here is registered.
+
+`metrics.per_layer_cka` was built at step 10 and D30 above records it being
+checked to exact `1.0` on an identical pair. Everything it had ever produced
+came from junk weights, which the module docstring says out loud: *"Nothing
+measured on a trained model."* `scripts/cka_pairs.py` closes that. It
+reimplements no primitive — `layer_activations`, `per_layer_cka`,
+`activation_cosine`, `CKA_VARIANT` and the committed context batch all come
+from `metrics.py` unchanged — so the number this produces is the number the
+existing tests are about.
+
+**The batch needed to be on the model's device and `Batch.input_ids()` returns
+CPU.** The tempting fix is to build a batch locally from the same file, which
+would have carried the same five fields with none of `load_context_batch`'s
+provenance check behind them: that check is what makes tokenizer drift loud
+rather than silent. Subclassing the frozen dataclass and overriding one method
+keeps the check and costs four lines.
+
+**Thirteen layers is thirteen chances.** Every contrast here is corrected with
+Holm ACROSS THE LAYERS, and the layer quoted is the best of thirteen, named as
+such. Without that, "the effect is at layer 1" is a finding you can manufacture
+out of any null by reporting the minimum. Two raw p-values did land under 0.06,
+both at layer 1 in the step-199-to-249 design, both with a bootstrap CI
+excluding zero; corrected they are 0.60 and 0.78. Section 11.2 reports them
+anyway, because a null result that hides its near-misses is not evidence of
+anything.
+
+**Levels are not tested, differences are.** `cka_analysis.py` reports means and
+spreads for the per-arm CKA levels and runs no test on them. A t-test against
+zero on a CKA of 0.9993 would be arithmetically fine and scientifically empty.
+
+**The route cross-check ran on trained weights for the first time.**
+`metrics.cross_check_activation_routes` compares forward hooks against
+`output_hidden_states` with `atol=rtol=0`, and it exists because the naive tap
+list disagrees with the native route in its last slot — `ln_f(h[-1])` against
+`h[-1]` — without crashing. On real checkpoints the worst gap was `0.0` in all
+five jobs. It is called once per process rather than per checkpoint: the tap
+list is a property of the architecture, not of the weights.
+
+### S120. Two runs that differ only in seed are nearly orthogonal, and it changes a reading
+
+The across-seed control pairs come out at per-layer CKA 0.878–0.992 with a
+median raw-basis activation cosine between −0.0004 and +0.0042. Same
+representation up to a rotation; almost nothing shared in the coordinates the
+weights are stored in.
+
+This is exactly the split `metrics.activation_cosine`'s docstring predicted —
+"a pair differing by a hidden-internal rotation scores ~1.0 on CKA and poorly
+here, and the gap between the two is the signal" — and it is the first time the
+gap has been observed on trained models rather than argued for.
+
+It is not a curiosity. Section 1 of the results reads the arm-vs-twin L2 as 44%
+of the across-seed L2, and `l2_distance_raw` says in its own docstring that it
+counts a permutation as content. The measurement above says the across-seed
+denominator really is gauge-inflated, so that 44% is an under-estimate of the
+burst's displacement relative to a genuine difference in computation. The
+arm-vs-twin pairs share an initialization and score 0.82–0.96 on cosine, so
+they do not have the problem. The direction of the bias is now known rather
+than assumed, and section 11.4 states it.
+
+Aligned L2 would settle it properly. `metrics.aligned_l2` still raises
+NotImplementedError and D-6 still records that as work nobody has done.
+
 ### S118. Scoring the stimuli themselves, and the decoy that nearly got reported
 
 Full numbers in section 10 of `docs/measurements/2026-08-10-full-study-results.md`.

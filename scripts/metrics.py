@@ -26,9 +26,12 @@ WHAT THIS MODULE CANNOT TELL YOU
   permutation, the raw L2 here reports that permutation as if it were content.
   That is exactly what step 9 exists to remove, and it is not wired in.
 - Nothing about the RSF subspace.
-- Nothing measured on a trained model. There are no trained checkpoints and
-  none for weeks, so every number this module has produced so far came from
-  junk weights and is a plumbing result, not a scientific one.
+- (Was: "nothing measured on a trained model". No longer true as of
+  2026-08-11. `scripts/cka_pairs.py` runs per_layer_cka, activation_cosine and
+  cross_check_activation_routes over all 32 final checkpoints and their
+  step-199/249 predecessors; see section 11 of
+  docs/measurements/2026-08-10-full-study-results.md and S119. The barrier and
+  raw L2 went to real checkpoints earlier, via scripts/pair_barrier.py.)
 
 THE TRAP THIS MODULE IS SHAPED AROUND
 
