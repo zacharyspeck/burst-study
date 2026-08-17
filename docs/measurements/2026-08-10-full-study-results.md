@@ -404,3 +404,177 @@ end of training. **It agrees with them: the arms are separable from their twins
 and not from each other, at every layer and at both times.** The one place the
 study comes near a content effect -- layer 1, fifty steps after injection --
 does not survive being corrected for the twelve other layers it was chosen from.
+
+---
+
+## 12. Did the burst stick, at the moment it landed? (exploratory, added 2026-08-17)
+
+**Date: 2026-08-17.** Same 32 runs. Files: `2026-08-17-self-effect-mean_all.json`,
+`-mean_content.json`, `2026-08-17-self-effect-curve.json`,
+`2026-08-17-passage-ce-curve.jsonl`, `2026-08-17-injected-row-check.json`.
+
+Section 10 asked whether the final models know anything they were told once and
+found nothing. **This asks the same question at step 249 instead of step 9535,
+and the answer there is yes.** Every null in sections 5--11 was measured at the
+end of training.
+
+### 12.1 The row, verified rather than assumed
+
+Every number below is a mean per-token cross-entropy over the 194 injected
+tokens, teacher-forced **inside the full 1024-token injected row** --
+`injection.burst_region_losses` feeds the model `plan.sequence` entire and slices
+the region out of the per-token losses, so no passage is ever scored in
+isolation.
+
+Two checks, because a reconstructed stimulus that is subtly wrong produces
+numbers that look fine:
+
+| check | result |
+| --- | --- |
+| rebuilt plan vs the training record (burst file sha256, token sha256, batch slot, micro-index, row, position) | **24/24 agree** |
+| step-199 weights reproducing the per-token losses recorded live at step 200 | worst gap **4.3e-06**, means to 8 decimals |
+
+The second is the one that covers all 1024 tokens: `InjectionPlan.record()`
+stores `sequence_length` and no digest of the sequence, so the only way to check
+the other 830 tokens is to reproduce a measurement that used them. Deep tokens
+of the region are predicted from the reconstructed left context, so an error
+there could not survive.
+
+**The injected row is not seed-dependent.** `build_plan` assembles it from
+`bursts/context.txt` filler plus the burst file at a fixed position: one distinct
+1024-token row per arm, shared by all eight seeds. The seed enters only through
+`injection.batch_slot_for`, which chooses which row of the 256-sequence batch is
+replaced (75, 191, 229, 129, 19, 44, 192, 93). So the across-seed spread in every
+quantity here comes from the models, not from the stimulus.
+
+### 12.2 The effect exists at step 249 and is gone by the end
+
+Positive means the injected run predicts the passage better than its
+seed-matched control does. `self` is the arm that saw the passage; the null
+channels are arms that did not.
+
+| step | self(ff) | self(ft) | cross(ff), null | cross(ft), null |
+| --- | --- | --- | --- | --- |
+| 199 | 0.000000 | 0.000000 | 0.000000 | 0.000000 |
+| 249 | **+0.0461** (t 17.0, 8/8) | **+0.0443** (t 9.65, 8/8) | +0.0006 (p 0.90) | +0.0072 (p 0.12) |
+| 9535 | +0.0242 (p 0.082) | +0.0430 (p 0.085) | **+0.0522** (p 0.0014, 8/8) | +0.0147 (p 0.20) |
+
+Step 199 is **exactly** zero, to the last bit, and is a check rather than a
+data point: injection is at step 200 and the arm and its twin are the same
+checkpoint there, so anything else would mean the pairing is wrong.
+
+Difference-in-differences -- the arm that saw a passage minus the arm that did
+not, on that same passage, paired within seed:
+
+| step | DiD `fluent-false` | DiD `fluent-true` |
+| --- | --- | --- |
+| 249 | **+0.0389** (t(7) 11.7, p < 1e-4, 8/8) | **+0.0437** (t(7) 11.4, p < 1e-4, 8/8) |
+| 9535 | +0.0095 (p 0.25, 6/8) | $-0.0093$ (p 0.71, 3/8) |
+
+**At fifty steps the single exposure produced real, passage-specific learning:
+four hundredths of a nat per token at eight of eight seeds with t near 12,
+against null channels that are genuinely null. At the end of training it is
+gone.**
+
+The inversion at step 9535 is the decoy section 10 warned about, now explained.
+By then the strongest channel is `cross(ff)` -- the arm that never saw
+`fluent-true`, improving on `fluent-true` at 8/8 -- which is 9,286 steps of
+generic drift toward fluent prose. That drift is larger than the decayed
+specific effect, which is why `self` looks positive at the end and means nothing.
+
+### 12.3 The four channels at the final step, as requested
+
+Holm over the nine tests in the family.
+
+| channel | arm | scored on | mean | t(7) | raw p | Holm | sign |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| self(ff) | `fluent-false` | `fluent-false` | $+0.0242$ | $+2.03$ | 0.082 | 0.571 | 6/8 |
+| self(ft) | `fluent-true` | `fluent-true` | $+0.0430$ | $+2.01$ | 0.085 | 0.571 | 7/8 |
+| cross(ff) | `fluent-false` | `fluent-true` | $+0.0522$ | $+5.09$ | 0.0014 | 0.013 | 8/8 |
+| noise | `random-chars` | `fluent-false` | $+0.0109$ | $+0.56$ | 0.595 | 1.000 | 5/8 |
+| attestation, self(ff) $-$ self(ft) | -- | -- | $-0.0188$ | $-0.64$ | 0.540 | 1.000 | 5/8 |
+
+The attestation contrast asks whether a fabricated-subject passage sticks
+differently from an attested-subject one. **It is not the registered test** --
+preregistration.md section 5 fixes a displacement contrast -- and it was written
+after the data were in hand. At the final step it is null. At step 249, where
+there is an effect to compare, self(ff) $+0.0461$ against self(ft) $+0.0443$ is
+also indistinguishable: the burst stuck equally well whether or not the corpus
+corroborated it.
+
+Content tokens only (105--113 of 194) give the same picture with larger numbers
+and larger spreads: self(ft) $+0.0790$ (p 0.019), cross(ff) $+0.0870$ (p 0.019),
+both DiD null.
+
+### 12.4 What this changes
+
+The study's registered nulls stand -- they are about displacement and held-out
+loss at the end of training, and nothing here touches them. What this adds is
+that **the null is a decay result, not an absence result.** A single exposure
+did change the model, measurably and specifically, and the change did not
+survive nine thousand further steps. That is a different claim from "one example
+does nothing", and it is the claim the data support.
+
+Figure NEW-2 -- the decay curve at every retained checkpoint -- is what would
+locate the crossing. Three of its 191 points are here; the rest is a 2.5 TB read
+from the archive.
+
+---
+
+## 13. Displacement over time: L2 at the steps the archive retained (added 2026-08-17)
+
+**Date: 2026-08-17.** Files: `2026-08-17-l2-pairs-199-249.json`,
+`2026-08-17-l2-pairs-9535.json`. Script: `scripts/l2_pairs.py`.
+
+**Steps 200, 205, 210, 215, 220 and 300 have no checkpoints and never did.**
+`checkpointing.weights_only_interval` is 50, so the retained schedule is 49, 99,
+149, 199, 249, 299, ... The finest resolution available across the injection is
+50 steps, and no analysis can recover the intermediate ones without re-running
+the study.
+
+Raw L2, mean over 8 seeds. RAW: `metrics.aligned_l2` still raises
+NotImplementedError, so a permutation would be counted as content -- harmless for
+arm-vs-twin pairs, which share an initialization, but the twin-vs-twin
+denominator is gauge-inflated (section 11.4). Read the ratio as a lower bound.
+
+| step | `fluent-false` | `fluent-true` | `random-chars` | twin vs twin | ratio |
+| --- | --- | --- | --- | --- | --- |
+| 199 | **0.0000** | **0.0000** | **0.0000** | 328.28 | 0.0000 |
+| 249 | 1.381 (sd 1.457) | 1.279 (sd 1.138) | 1.284 (sd 1.270) | 334.32 | **0.0039** |
+| 9535 | 236.92 (sd 6.54) | 233.40 (sd 5.85) | 234.76 (sd 6.70) | 532.88 | **0.4411** |
+
+Step 199 is exactly zero because the arm and its twin are the same checkpoint
+there; it is a check on the pairing, not a measurement. The step-9535 row
+reproduces section 1's 235.03 / 532.88 through an independent script.
+
+**The ratio grows 112-fold between step 249 and the end.** At fifty steps past
+injection the burst has moved the weights 0.39% of the way to a different-seed
+run; at the end, 44.1%. The denominator grows only 1.6x over the same span
+(328 to 533), so this is the numerator growing 180x: the displacement is
+amplified by subsequent training rather than delivered by the burst.
+
+**Set against section 12, the two curves go opposite ways.** The passage-specific
+effect on the injected text is large at step 249 and gone by the end; the weight
+displacement is negligible at step 249 and large at the end. Whatever the burst
+wrote into the model at step 200 does not survive, and what does grow is not
+specific to what the row said -- all three arms displace identically at every
+step measured.
+
+Per-seed displacement at step 249 is heterogeneous by a factor of 12 (seed 3 at
+4.56, seed 1 at 0.37), so the immediate effect of one modified row depends
+strongly on where that seed is in the landscape.
+
+### 13.1 Step 200 itself, from the gradient
+
+No step-200 checkpoint exists, but `2026-08-10-injection-step.json` records the
+pre-clip gradient norm at step 200 for all 32 runs, including the twins.
+
+| arm | delta vs its twin | t(7) | raw p |
+| --- | --- | --- | --- |
+| `fluent-false` | $+0.000486$ | $+2.09$ | 0.075 |
+| `fluent-true` | $+0.000629$ | $+2.54$ | 0.039 |
+| `random-chars` | $+0.000500$ | $+2.47$ | 0.043 |
+
+Against a twin level of 0.518: a **0.1% perturbation of the gradient**, the same
+size for all three arms. That is the size of the intervention at the instant it
+lands -- one row of 256.

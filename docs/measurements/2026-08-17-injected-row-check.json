@@ -1,0 +1,203 @@
+{
+ "WHAT_THIS_IS": "Reproduction of the per-token losses recorded live at step 200, from the step-199 checkpoint and a rebuilt injected row. Covers all 1024 tokens of the row, which no committed digest does.",
+ "step": 199,
+ "rows": {
+  "seed00_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 8.080423492746255e-07,
+   "recorded_mean": 6.519868610445986,
+   "reproduced_mean": 6.519868631952817
+  },
+  "seed00_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 4.0531158447265625e-06,
+   "mean_abs_gap": 8.205623970818274e-07,
+   "recorded_mean": 6.3178971243119735,
+   "reproduced_mean": 6.317897098887827
+  },
+  "seed00_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 7.324612017759343e-07,
+   "recorded_mean": 7.3526820227042915,
+   "reproduced_mean": 7.352682052199373
+  },
+  "seed01_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.814697265625e-06,
+   "mean_abs_gap": 7.324612017759343e-07,
+   "recorded_mean": 6.539402374594482,
+   "reproduced_mean": 6.539402313146395
+  },
+  "seed01_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.814697265625e-06,
+   "mean_abs_gap": 6.983575132704272e-07,
+   "recorded_mean": 6.2716475076896625,
+   "reproduced_mean": 6.271647452693625
+  },
+  "seed01_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 7.889934421814594e-07,
+   "recorded_mean": 7.596456882879906,
+   "reproduced_mean": 7.596456917290835
+  },
+  "seed02_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 7.806979503828225e-07,
+   "recorded_mean": 6.506806283574743,
+   "reproduced_mean": 6.506806188022967
+  },
+  "seed02_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.814697265625e-06,
+   "mean_abs_gap": 8.17874043258195e-07,
+   "recorded_mean": 6.275108891510472,
+   "reproduced_mean": 6.275108885980144
+  },
+  "seed02_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 7.300032782800418e-07,
+   "recorded_mean": 7.432061572050311,
+   "reproduced_mean": 7.4320615548448465
+  },
+  "seed03_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 8.621166661842582e-07,
+   "recorded_mean": 6.447412697924781,
+   "reproduced_mean": 6.447412611282978
+  },
+  "seed03_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 8.353867481664284e-07,
+   "recorded_mean": 6.242382512264645,
+   "reproduced_mean": 6.2423824508165575
+  },
+  "seed03_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.814697265625e-06,
+   "mean_abs_gap": 7.508956279951272e-07,
+   "recorded_mean": 7.3445379598853515,
+   "reproduced_mean": 7.344537931619231
+  },
+  "seed04_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 6.605669395210817e-07,
+   "recorded_mean": 6.46917148041971,
+   "reproduced_mean": 6.469171429417797
+  },
+  "seed04_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.933906555175781e-06,
+   "mean_abs_gap": 7.919890364420783e-07,
+   "recorded_mean": 6.248774543097339,
+   "reproduced_mean": 6.248774613685829
+  },
+  "seed04_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 7.373770487677191e-07,
+   "recorded_mean": 7.4141244089480525,
+   "reproduced_mean": 7.414124376995048
+  },
+  "seed05_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.337860107421875e-06,
+   "mean_abs_gap": 8.4859808695685e-07,
+   "recorded_mean": 6.464569338203705,
+   "reproduced_mean": 6.464569294575563
+  },
+  "seed05_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 3.814697265625e-06,
+   "mean_abs_gap": 7.605737017602036e-07,
+   "recorded_mean": 6.220886739566154,
+   "reproduced_mean": 6.220886733267725
+  },
+  "seed05_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 4.0531158447265625e-06,
+   "mean_abs_gap": 7.963672126691366e-07,
+   "recorded_mean": 7.505232040415105,
+   "reproduced_mean": 7.505231939640241
+  },
+  "seed06_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.6226043701171875e-06,
+   "mean_abs_gap": 7.754748629540512e-07,
+   "recorded_mean": 6.499931374775994,
+   "reproduced_mean": 6.499931310869984
+  },
+  "seed06_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 8.081959694931188e-07,
+   "recorded_mean": 6.162972313995214,
+   "reproduced_mean": 6.162972259152796
+  },
+  "seed06_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 7.447508192553963e-07,
+   "recorded_mean": 7.487807222248352,
+   "reproduced_mean": 7.487807335312834
+  },
+  "seed07_fluent-false": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 4.291534423828125e-06,
+   "mean_abs_gap": 7.472087427512887e-07,
+   "recorded_mean": 6.535644466575888,
+   "reproduced_mean": 6.53564451020403
+  },
+  "seed07_fluent-true": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 4.291534423828125e-06,
+   "mean_abs_gap": 7.718647878194593e-07,
+   "recorded_mean": 6.29733265483195,
+   "reproduced_mean": 6.297332652450836
+  },
+  "seed07_random-chars": {
+   "digests_and_slot_agree": true,
+   "n_tokens": 194,
+   "worst_abs_gap": 2.86102294921875e-06,
+   "mean_abs_gap": 7.078819668170103e-07,
+   "recorded_mean": 7.2823622828906345,
+   "reproduced_mean": 7.282362179657848
+  }
+ },
+ "digests": {},
+ "worst_abs_gap_over_all_rows": 4.291534423828125e-06,
+ "all_digests_agree": true,
+ "device_name": "NVIDIA RTX A6000",
+ "torch": "2.13.0+cu126"
+}

@@ -1068,6 +1068,69 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S121. The null channels were not null, and then at step 249 they were
+
+Full numbers in sections 12 and 13 of
+`docs/measurements/2026-08-10-full-study-results.md`. Exploratory throughout.
+
+The requested design was: score each arm on the passage it saw, difference
+against its seed-matched twin, and use two arms-that-did-not-see-it as null
+channels. At the FINAL checkpoint the null channels came out **larger** than the
+self channels -- `cross(ff)`, the arm that never saw `fluent-true`, scored
++0.0522 on `fluent-true` at p 0.0014 and 8/8 seeds, against self(ff) +0.0242 at p
+0.082. Reading self alone would have reported single-exposure learning; the
+control says the arms drift toward fluent prose generally.
+
+**At step 249 the same channels invert and the effect is real.** self +0.046 at
+8/8, null channels at +0.0006 and +0.0072, difference-in-differences +0.039 and
++0.044 with t near 12. Every null in sections 5-11 was measured at step 9535, so
+the study's result is a DECAY result and had been reported as an absence result.
+That distinction is worth more than any of the individual p-values here.
+
+**Two premises in the request were wrong and neither changed a number.** The
+injected row is not seed-dependent -- `build_plan` assembles it from
+`bursts/context.txt` filler plus the burst file at a fixed position, so there is
+one row per arm shared by all eight seeds, and the seed enters only through
+`batch_slot_for` choosing which row of the batch is replaced. And steps 200, 205,
+210, 215, 220, 300 have no checkpoints: the interval is 50, so the finest
+resolution across the injection is 199 -> 249 -> 299. Said out loud rather than
+quietly substituting the nearest step, because a curve labelled "step 200"
+that is actually step 249 is a fabrication.
+
+**The row was verified rather than assumed.** `InjectionPlan.record()` stores
+`sequence_length` and no digest of the sequence, so the digests prove only the
+194 burst tokens. `scripts/injected_row_check.py` reloads step 199 and
+reproduces the per-token losses recorded live at step 200 -- worst gap 4.3e-06
+over 24 rows. Deep tokens of the region are predicted from the reconstructed left
+context, so an error in the other 830 tokens could not have survived that.
+
+**The curve's zero point is a tripwire, not a data point.**
+`self_effect_curve.py` refuses to report anything if the pre-injection step
+differs from zero by any amount: both sides of that difference are supposed to be
+the same checkpoint. It came out at exactly 0.0.
+
+### S122. The archive became unreadable for an hour, and the measurements say so
+
+Mid-session, B2 large-file reads fell to **3-17 KB/s per stream**, ~104 KB/s
+aggregate over 16 streams, while API calls and small objects stayed instant,
+HTTP 206 with no error and no cap message. GitHub was doing 17 MB/s from the
+same box at the same moment, so it was the path to Backblaze rather than the
+host. It recovered on its own to 10.9 MB/s.
+
+Two things came out of chasing it that are worth keeping:
+
+- **The retained schedule writes `_full.pt`, not `_weights_only.pt`, every 1000
+  steps** (999, 1999, ... and 9535), and those are 1.49 GB against 498 MB. A
+  404 from guessing the wrong suffix looks exactly like a missing checkpoint, so
+  `l2_pairs.ckpt_path` tries both and names both in its error.
+- The 191-step curve is **2.52 TB**, not the 2.28 TB a weights-only estimate
+  gives. At the recovered rate that is about a day, which is why Figure NEW-2 is
+  still three points.
+
+The worklist generator orders steps by bit-reversal so that any prefix of an
+interrupted sweep is roughly uniform over training rather than the first tenth
+of it.
+
 ### S119. CKA finally run on a trained model, and what a per-layer metric costs
 
 Full numbers in section 11 of `docs/measurements/2026-08-10-full-study-results.md`.
