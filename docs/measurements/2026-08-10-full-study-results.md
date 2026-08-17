@@ -541,7 +541,13 @@ denominator is gauge-inflated (section 11.4). Read the ratio as a lower bound.
 | --- | --- | --- | --- | --- | --- |
 | 199 | **0.0000** | **0.0000** | **0.0000** | 328.28 | 0.0000 |
 | 249 | 1.381 (sd 1.457) | 1.279 (sd 1.138) | 1.284 (sd 1.270) | 334.32 | **0.0039** |
+| 299 | 8.719 (sd 1.494) | 8.286 (sd 0.994) | 8.818 (sd 1.127) | 340.52 | **0.0253** |
+| 5049 | 219.72 (sd 6.43) | 216.30 (sd 5.75) | 217.59 (sd 6.51) | 534.73 | **0.4074** |
 | 9535 | 236.92 (sd 6.54) | 233.40 (sd 5.85) | 234.76 (sd 6.70) | 532.88 | **0.4411** |
+
+Steps 299 and 5049 are the retained checkpoints nearest 300 and 5,000. Step 4999
+is nearer 5,000 still but is a 1.49 GB `_full.pt` against 498 MB, and at 50 steps
+out of 9,536 the difference is not worth 48 GB of egress.
 
 Step 199 is exactly zero because the arm and its twin are the same checkpoint
 there; it is a check on the pairing, not a measurement. The step-9535 row
@@ -552,6 +558,15 @@ injection the burst has moved the weights 0.39% of the way to a different-seed
 run; at the end, 44.1%. The denominator grows only 1.6x over the same span
 (328 to 533), so this is the numerator growing 180x: the displacement is
 amplified by subsequent training rather than delivered by the burst.
+
+**And the amplification saturates well before the end.** The arm-vs-twin
+distance grows 6.5x over the first fifty-step window after injection (1.31 to
+8.61), 25x over the next five thousand steps (8.61 to 217.87), and then only
+**1.08x over the last 47% of training** (217.87 to 235.03), while the
+twin-vs-twin denominator is flat across that span (534.73 to 532.88). By step
+5049 the ratio is 0.407, which is 92% of its final 0.441. Whatever separates an
+injected run from its twin is essentially fixed by the halfway point; the rest of
+training neither widens nor closes it.
 
 **Set against section 12, the two curves go opposite ways.** The passage-specific
 effect on the injected text is large at step 249 and gone by the end; the weight
