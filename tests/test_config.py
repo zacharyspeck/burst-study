@@ -716,8 +716,8 @@ def valid_burst_base(tmp_path, path_value):
 @pytest.mark.parametrize(
     "bad",
     [
-        "/home/zach/burst/coherent.txt",       # posix absolute
-        "C:\\Users\\speck\\coherent.txt",      # windows absolute
+        "/home/user/burst/coherent.txt",       # posix absolute
+        "C:\\Users\\user\\coherent.txt",       # windows absolute
         "\\\\cluster\\share\\coherent.txt",    # UNC
         "C:coherent.txt",                      # windows drive-relative
     ],

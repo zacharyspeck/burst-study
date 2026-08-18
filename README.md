@@ -166,6 +166,9 @@ crossed with 4 arms. Only the first 8 seeds were trained, so the study reports
 .venv-ml/Scripts/python.exe -m pytest -q   # torch + transformers: no skips
 ```
 
+As of this commit that is 686 passed and 240 skipped without torch, and 1,069
+passed with 0 skipped with torch and transformers installed.
+
 The torch-free run existing at all is the point. `burst/` imports nothing
 heavier than PyYAML, so loading a config works on a login node with no GPU, and
 the skips are the evidence.

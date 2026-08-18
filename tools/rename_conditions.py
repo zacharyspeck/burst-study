@@ -126,6 +126,31 @@ PROTECTED_GLOBS: tuple[str, ...] = (
     "docs/measurements/*/*.md",
 )
 
+# ---------------------------------------------------------------------------
+# Files that legitimately contain BOTH the old and the new names, because their
+# job is to carry the translation. Exempt from both halves of --check.
+#
+# Without this, --check fails on the two files that are most obviously correct,
+# and a check that cries wolf gets ignored, which costs more than it saves.
+# ---------------------------------------------------------------------------
+MAPPING_SOURCES: frozenset[str] = frozenset({
+    # This file. MAPPING is written here as literals on purpose.
+    "tools/rename_conditions.py",
+    # The public README states the mapping in a table near the top, so that a
+    # reader arriving from the paper can reconcile `fluent-false` in the
+    # pre-registration against `fluent-fabricated` in a config. Those old names
+    # are the point of the section, not a missed rename.
+    "README.md",
+})
+
+#: Protected against having its EXISTING content renamed, but new entries are
+#: appended under the new names, so it will contain them and that is correct.
+#: The append-only property is not checkable from file content alone. It is
+#: enforced at review time by the commit diff showing zero deleted lines.
+APPEND_ONLY: frozenset[str] = frozenset({
+    "implementation-notes.md",
+})
+
 RUNS_NOTE = """configs/runs/*.yaml is generated. Regenerate it instead:
 
     python scripts/generate_overrides.py
@@ -149,14 +174,14 @@ def tracked_files() -> list[str]:
 
 
 def is_protected(rel: str) -> bool:
-    if rel in PROTECTED:
+    if rel in PROTECTED or rel in APPEND_ONLY:
         return True
     return any(fnmatchcase(rel, g) for g in PROTECTED_GLOBS)
 
 
 def in_scope(rel: str) -> bool:
     """Text files this script may rewrite."""
-    if is_protected(rel):
+    if is_protected(rel) or rel in MAPPING_SOURCES:
         return False
     if rel.startswith("configs/runs/"):
         return False          # generated; see RUNS_NOTE
@@ -258,8 +283,13 @@ def main(argv: list[str] | None = None) -> int:
     npz_hits, npz_msg = rename_npz(args.apply)
 
     # ---- the half that must NOT have been renamed ---------------------------
+    # APPEND_ONLY files are excluded: new entries in them use the new names by
+    # design. MAPPING_SOURCES are excluded because carrying both names is their
+    # whole purpose.
     leaked: list[tuple[str, int]] = []
     for rel in protected:
+        if rel in APPEND_ONLY or rel in MAPPING_SOURCES:
+            continue
         text = read_text(rel)
         if text is None:
             continue

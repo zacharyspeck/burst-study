@@ -197,6 +197,74 @@ Two things to have in hand when it is settled:
 
 ## Deviations from the spec
 
+### D37. Commits made, push withheld
+
+The repo's own rule 1 is "commit and push after every completed task", and this
+task stopped at commit. Four commits sit on `arm-cut-2026-08-08` unpushed, plus
+seven annotated tags.
+
+The reason is that this particular task is the release itself. Zach said he
+would flip the repo to public manually, which means the moment work leaves this
+machine is a decision he is holding rather than one the rule anticipated. Rule 1
+exists so that a run is never launched from a tree whose commit hash describes
+different code, and nothing here launches a run. Pushing can happen at any time
+and costs nothing to defer; pushing early cannot be undone in the sense that
+matters, because a public repo's history is fetchable the instant it is public.
+
+The push command is in the final report. If this deviation is unwanted, the
+remedy is one line and no state needs unwinding.
+
+### D36. `--check` was extended to case variants after a test caught what the
+mapping missed
+
+The four mappings ruled for the rename were the hyphen and underscore forms of
+each name. The repository also contains `Fluent-False` in four places, three of
+them comments and one a test parametrisation, all of them using a miscapitalised
+arm as the example of a string the loader must reject.
+
+Those four were not in the ruled mapping, and leaving them would have been
+defensible on a literal reading. It would also have been wrong. The loader's
+"Case matters" hint only fires when `arm.lower()` is a real arm, so a case
+variant of a *retired* name stops triggering the hint and degrades into an
+ordinary unknown-arm error. `test_case_variant_arm_gets_a_helpful_hint` failed
+on exactly that, which is how this was found rather than by reading.
+
+Added to `MAPPING` in `tools/rename_conditions.py` as four more literals rather
+than by switching to `re.IGNORECASE`, which would have made the replacement's
+capitalisation unpredictable. Logged rather than waved through because it is a
+widening of a ruled scope.
+
+### D35. The untracked build scripts were renamed; nothing under `paper/` was staged
+
+Ruling 6 put untracked files out of scope entirely. Phase 1, Phase 3a, Phase 3b
+and ruling 11 all require `paper/build_tables.py` and `paper/make_figures.py` to
+follow the rename, and both are untracked. The two instructions cannot both be
+satisfied literally.
+
+Read together they are consistent: ruling 6 names documents and data
+(`docs/scans/`, `docs/verification/`, `BUILD-NOTES.md`, `main.tex`,
+`tables/_checks.txt`) and does not name the two build scripts, while ruling 11
+gives a direct instruction about `make_figures.py`'s legend strings. So the
+boundary taken was **untracked documents are out of scope, untracked build
+scripts are renamed because the verification phases depend on them**, and
+`git add` was used on nothing under `paper/` at all.
+
+The transformation was applied by importing `MAPPING` from
+`tools/rename_conditions.py` rather than retyping it, so the tracked and
+untracked halves cannot drift apart. The tool itself still refuses to walk
+untracked paths, which is why the import was needed.
+
+Two consequences, both accepted rather than fixed:
+
+- Regenerating the tables rewrites `paper/tables/_checks.txt`, which ruling 6
+  named as out of scope. There is no way to regenerate tables without it.
+  It remains untracked and was not staged.
+- `paper/main.tex` is untracked and was not edited, but `t1_conditions.tex` now
+  emits `\condfluentfabricated` and `\condfluentattested` where it previously
+  emitted `\condfluentfalse` and `\condfluenttrue`. If `main.tex` defines the
+  old macro names the paper will not compile until they are renamed there.
+  Flagged in the final report as a paper-side edit.
+
 ### D34. The analysis runs at n=8 against a floor of 10, by flag rather than by edit
 
 `scripts/analysis.py` sets `MIN_SEEDS = 10` and refuses a smaller panel, for the
@@ -1067,6 +1135,91 @@ Cross-module obligations section.
 ---
 
 ## Smaller decisions, logged as instructed
+
+### S121. Appendix D credits `pair_barrier.py` for a column `arm_pair_metrics.py` produced
+
+Asked to determine which script produced Table 16's recomputed column, since the
+paper's Appendix D credits `scripts/pair_barrier.py`.
+
+`pair_barrier.py` **does** exist. It is tracked at HEAD, was added 2026-08-10 in
+`7b31b49`, and has never been deleted or renamed. (An earlier pass in this
+session reported it missing. That was wrong, and wrong in an instructive way:
+the file contains no `fluent-*` string, so it was absent from an occurrence
+listing, and absence from that listing was read as absence from the repo.)
+
+It is nevertheless not the script behind Table 16. The table is the
+**arm-vs-arm** replication, and the two scripts partition that space explicitly
+in their own docstrings. `pair_barrier.py` says it computes the arm-vs-twin
+quantity and attributes arm-vs-arm to `arm_pair_metrics.py`;
+`arm_pair_metrics.py` says it computes "the arm-against-arm quantity:
+barrier(fluent-fabricated, fluent-attested) and the raw L2 between them" and
+that "this is not section 8.4's metric". `2026-08-10-validation.json` describes
+itself as "the recomputation of box A's arm-vs-arm barrier on different
+hardware", and the commit that introduced it, `a355c73`, is titled "The barrier
+pipeline replicated to 1.4e-08", which is Table 16's `max |delta|` to the digit.
+
+So the correct credit is **`scripts/arm_pair_metrics.py`**. Worth recording that
+the attribution is inferential rather than recorded: `validation.json` carries no
+field naming the script that produced it, which is the gap that made the
+question necessary. Nothing was created or renamed to match the paper. This is a
+paper-side correction.
+
+### S120. The rename reorders one table and renames two LaTeX macros, and neither is drift
+
+Every regenerated table was checked by rewriting the pre-rename snapshot with
+the identical mapping and requiring byte equality. Two files still differed, and
+both differences are worth naming because both look like drift and neither is.
+
+**`t15_windows.tex` reordered three pairs of rows.** The table sorts by run
+name, and `fluent-attested` sorts before `fluent-fabricated` where `fluent-false`
+sorted before `fluent-true`. Verified by parsing the rows into a label-to-values
+map: eight rows before and after, the same set of labels, and **zero rows whose
+values changed**. A multiset comparison of every number in every one of the 19
+generated files also matches exactly.
+
+**`t1_conditions.tex` emits different LaTeX macro names.** The snapshot rewrite
+could not reach `\condfluentfalse` (no separator to match) or `fluent\_false.txt`
+(the underscore is LaTeX-escaped, so the literal `fluent_false` never appears).
+Both are identifiers, both moved correctly in the regenerated file, and the
+numbers on those rows are unchanged. The macro rename is the one that needs
+action in `main.tex`, recorded in D35.
+
+Figure 1 re-rendered with **identical path geometry**, all 107 operators
+matching, which also demonstrates the render is deterministic. Figure 2 differs
+in 13 of 175 path operators, every one of them inside the legend band at
+y between 38.17 and 41.37, where the entries reflow because "fluent-fabricated"
+is a longer string than "fluent-false". All 113 operators above y=50, which is
+the plotted curves and the axes, are identical, and the 26 values per series in
+`2026-08-10-barrier-curves.json` are equal before and after the rename.
+
+### S119. What the rename tool checks, and why it checks both directions
+
+`tools/rename_conditions.py` could have been a `sed` one-liner. It is a file
+with a data-driven protected list instead, for two reasons.
+
+The first is that roughly half the occurrences in the repository are inside
+dated records, so the transformation has a boundary and the boundary is a
+judgement call. A judgement call that lives in someone's shell history is not
+auditable by a reader of the public repo.
+
+The second is what `--check` verifies. It fails if any old identifier survives
+where the rename applied, which is the obvious half. It also fails if any *new*
+identifier appears inside a protected record, which is the half that actually
+matters: the failure mode this rename risks is not an unfinished rename, it is a
+rename that quietly reached into `docs/preregistration.md`. Only the second
+check can see that, and it is the reason `--check` is the command handed over
+rather than a grep.
+
+Three smaller choices inside it. File I/O is bytes to str to bytes rather than
+`read_text`/`write_text`, because universal-newline translation would silently
+convert a CRLF measurement file to LF and every byte of those files matters. The
+two burst passages are excluded from the walk entirely and moved with `git mv`
+instead, so the script never opens a passage and their sha256 equality before
+and after is evidence rather than assertion. And the training-curves archive is
+handled by a function that reloads the file after writing and compares `step`,
+`loss` and `pre_clip_grad_norm` element by element against what it held before,
+refusing to leave a written file in place if any of them moved. A measurement
+file is the one place a rename must be provably not a recomputation.
 
 ### S118. Scoring the stimuli themselves, and the decoy that nearly got reported
 
