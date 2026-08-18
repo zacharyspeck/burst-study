@@ -2,7 +2,7 @@
  "WHAT_THIS_IS": "Reproduction of the per-token losses recorded live at step 200, from the step-199 checkpoint and a rebuilt injected row. Covers all 1024 tokens of the row, which no committed digest does.",
  "step": 199,
  "rows": {
-  "seed00_fluent-false": {
+  "seed00_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.337860107421875e-06,
@@ -10,7 +10,7 @@
    "recorded_mean": 6.519868610445986,
    "reproduced_mean": 6.519868631952817
   },
-  "seed00_fluent-true": {
+  "seed00_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 4.0531158447265625e-06,
@@ -26,7 +26,7 @@
    "recorded_mean": 7.3526820227042915,
    "reproduced_mean": 7.352682052199373
   },
-  "seed01_fluent-false": {
+  "seed01_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.814697265625e-06,
@@ -34,7 +34,7 @@
    "recorded_mean": 6.539402374594482,
    "reproduced_mean": 6.539402313146395
   },
-  "seed01_fluent-true": {
+  "seed01_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.814697265625e-06,
@@ -50,7 +50,7 @@
    "recorded_mean": 7.596456882879906,
    "reproduced_mean": 7.596456917290835
   },
-  "seed02_fluent-false": {
+  "seed02_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 2.86102294921875e-06,
@@ -58,7 +58,7 @@
    "recorded_mean": 6.506806283574743,
    "reproduced_mean": 6.506806188022967
   },
-  "seed02_fluent-true": {
+  "seed02_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.814697265625e-06,
@@ -74,7 +74,7 @@
    "recorded_mean": 7.432061572050311,
    "reproduced_mean": 7.4320615548448465
   },
-  "seed03_fluent-false": {
+  "seed03_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.337860107421875e-06,
@@ -82,7 +82,7 @@
    "recorded_mean": 6.447412697924781,
    "reproduced_mean": 6.447412611282978
   },
-  "seed03_fluent-true": {
+  "seed03_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.337860107421875e-06,
@@ -98,7 +98,7 @@
    "recorded_mean": 7.3445379598853515,
    "reproduced_mean": 7.344537931619231
   },
-  "seed04_fluent-false": {
+  "seed04_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 2.86102294921875e-06,
@@ -106,7 +106,7 @@
    "recorded_mean": 6.46917148041971,
    "reproduced_mean": 6.469171429417797
   },
-  "seed04_fluent-true": {
+  "seed04_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.933906555175781e-06,
@@ -122,7 +122,7 @@
    "recorded_mean": 7.4141244089480525,
    "reproduced_mean": 7.414124376995048
   },
-  "seed05_fluent-false": {
+  "seed05_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.337860107421875e-06,
@@ -130,7 +130,7 @@
    "recorded_mean": 6.464569338203705,
    "reproduced_mean": 6.464569294575563
   },
-  "seed05_fluent-true": {
+  "seed05_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 3.814697265625e-06,
@@ -146,7 +146,7 @@
    "recorded_mean": 7.505232040415105,
    "reproduced_mean": 7.505231939640241
   },
-  "seed06_fluent-false": {
+  "seed06_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 2.6226043701171875e-06,
@@ -154,7 +154,7 @@
    "recorded_mean": 6.499931374775994,
    "reproduced_mean": 6.499931310869984
   },
-  "seed06_fluent-true": {
+  "seed06_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 2.86102294921875e-06,
@@ -170,7 +170,7 @@
    "recorded_mean": 7.487807222248352,
    "reproduced_mean": 7.487807335312834
   },
-  "seed07_fluent-false": {
+  "seed07_fluent-fabricated": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 4.291534423828125e-06,
@@ -178,7 +178,7 @@
    "recorded_mean": 6.535644466575888,
    "reproduced_mean": 6.53564451020403
   },
-  "seed07_fluent-true": {
+  "seed07_fluent-attested": {
    "digests_and_slot_agree": true,
    "n_tokens": 194,
    "worst_abs_gap": 4.291534423828125e-06,

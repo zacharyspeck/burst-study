@@ -24,7 +24,7 @@
     "agree": true
    },
    "levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9999646204686716,
@@ -117,7 +117,7 @@
       "max": 0.9997967478693888
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.9999677912224465,
@@ -305,7 +305,7 @@
     ]
    },
    "cosine_levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9999844402187548,
@@ -398,7 +398,7 @@
       "max": 0.9998914695347738
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.9999889002044862,
@@ -1213,7 +1213,7 @@
     "agree": true
    },
    "levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9971640557282881,
@@ -1306,7 +1306,7 @@
       "max": 0.955540797156151
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.997090362116601,
@@ -1494,7 +1494,7 @@
     ]
    },
    "cosine_levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9568987140028768,
@@ -1587,7 +1587,7 @@
       "max": 0.8878967504526303
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.9568635976784351,
@@ -2812,7 +2812,7 @@
     "agree": true
    },
    "levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9897488492303759,
@@ -2905,7 +2905,7 @@
       "max": 0.9338950440978215
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.9897845453954586,
@@ -3186,7 +3186,7 @@
     ]
    },
    "cosine_levels": {
-    "fluent-false": [
+    "fluent-fabricated": [
      {
       "n": 8,
       "mean": 0.9935069467155665,
@@ -3279,7 +3279,7 @@
       "max": 0.9176915038415672
      }
     ],
-    "fluent-true": [
+    "fluent-attested": [
      {
       "n": 8,
       "mean": 0.9935057720660639,
@@ -3560,7 +3560,7 @@
     ]
    },
    "contrasts": {
-    "fluent-false_minus_twin": [
+    "fluent-fabricated_minus_twin": [
      {
       "n": 8,
       "mean": 1.78879890547351e-05,
@@ -3861,7 +3861,7 @@
       "p_adjusted": 1.0
      }
     ],
-    "fluent-true_minus_twin": [
+    "fluent-attested_minus_twin": [
      {
       "n": 8,
       "mean": 5.358415413736495e-05,

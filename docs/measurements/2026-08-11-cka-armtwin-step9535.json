@@ -11,10 +11,10 @@
  "n_pairs": 24,
  "pairs": [
   {
-   "name": "fluent-false_vs_twin_seed00",
+   "name": "fluent-fabricated_vs_twin_seed00",
    "seed": 0,
-   "arm": "fluent-false",
-   "run_a": "seed00_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed00_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed00_twin",
    "step_b": 9535,
@@ -127,10 +127,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed00",
+   "name": "fluent-attested_vs_twin_seed00",
    "seed": 0,
-   "arm": "fluent-true",
-   "run_a": "seed00_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed00_fluent-attested",
    "step_a": 9535,
    "run_b": "seed00_twin",
    "step_b": 9535,
@@ -359,10 +359,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed01",
+   "name": "fluent-fabricated_vs_twin_seed01",
    "seed": 1,
-   "arm": "fluent-false",
-   "run_a": "seed01_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed01_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed01_twin",
    "step_b": 9535,
@@ -475,10 +475,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed01",
+   "name": "fluent-attested_vs_twin_seed01",
    "seed": 1,
-   "arm": "fluent-true",
-   "run_a": "seed01_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed01_fluent-attested",
    "step_a": 9535,
    "run_b": "seed01_twin",
    "step_b": 9535,
@@ -707,10 +707,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed02",
+   "name": "fluent-fabricated_vs_twin_seed02",
    "seed": 2,
-   "arm": "fluent-false",
-   "run_a": "seed02_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed02_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed02_twin",
    "step_b": 9535,
@@ -823,10 +823,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed02",
+   "name": "fluent-attested_vs_twin_seed02",
    "seed": 2,
-   "arm": "fluent-true",
-   "run_a": "seed02_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed02_fluent-attested",
    "step_a": 9535,
    "run_b": "seed02_twin",
    "step_b": 9535,
@@ -1055,10 +1055,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed03",
+   "name": "fluent-fabricated_vs_twin_seed03",
    "seed": 3,
-   "arm": "fluent-false",
-   "run_a": "seed03_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed03_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed03_twin",
    "step_b": 9535,
@@ -1171,10 +1171,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed03",
+   "name": "fluent-attested_vs_twin_seed03",
    "seed": 3,
-   "arm": "fluent-true",
-   "run_a": "seed03_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed03_fluent-attested",
    "step_a": 9535,
    "run_b": "seed03_twin",
    "step_b": 9535,
@@ -1403,10 +1403,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed04",
+   "name": "fluent-fabricated_vs_twin_seed04",
    "seed": 4,
-   "arm": "fluent-false",
-   "run_a": "seed04_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed04_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed04_twin",
    "step_b": 9535,
@@ -1519,10 +1519,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed04",
+   "name": "fluent-attested_vs_twin_seed04",
    "seed": 4,
-   "arm": "fluent-true",
-   "run_a": "seed04_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed04_fluent-attested",
    "step_a": 9535,
    "run_b": "seed04_twin",
    "step_b": 9535,
@@ -1751,10 +1751,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed05",
+   "name": "fluent-fabricated_vs_twin_seed05",
    "seed": 5,
-   "arm": "fluent-false",
-   "run_a": "seed05_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed05_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed05_twin",
    "step_b": 9535,
@@ -1867,10 +1867,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed05",
+   "name": "fluent-attested_vs_twin_seed05",
    "seed": 5,
-   "arm": "fluent-true",
-   "run_a": "seed05_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed05_fluent-attested",
    "step_a": 9535,
    "run_b": "seed05_twin",
    "step_b": 9535,
@@ -2099,10 +2099,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed06",
+   "name": "fluent-fabricated_vs_twin_seed06",
    "seed": 6,
-   "arm": "fluent-false",
-   "run_a": "seed06_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed06_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed06_twin",
    "step_b": 9535,
@@ -2215,10 +2215,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed06",
+   "name": "fluent-attested_vs_twin_seed06",
    "seed": 6,
-   "arm": "fluent-true",
-   "run_a": "seed06_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed06_fluent-attested",
    "step_a": 9535,
    "run_b": "seed06_twin",
    "step_b": 9535,
@@ -2447,10 +2447,10 @@
    ]
   },
   {
-   "name": "fluent-false_vs_twin_seed07",
+   "name": "fluent-fabricated_vs_twin_seed07",
    "seed": 7,
-   "arm": "fluent-false",
-   "run_a": "seed07_fluent-false",
+   "arm": "fluent-fabricated",
+   "run_a": "seed07_fluent-fabricated",
    "step_a": 9535,
    "run_b": "seed07_twin",
    "step_b": 9535,
@@ -2563,10 +2563,10 @@
    ]
   },
   {
-   "name": "fluent-true_vs_twin_seed07",
+   "name": "fluent-attested_vs_twin_seed07",
    "seed": 7,
-   "arm": "fluent-true",
-   "run_a": "seed07_fluent-true",
+   "arm": "fluent-attested",
+   "run_a": "seed07_fluent-attested",
    "step_a": 9535,
    "run_b": "seed07_twin",
    "step_b": 9535,

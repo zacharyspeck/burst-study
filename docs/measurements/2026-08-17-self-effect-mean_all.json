@@ -16,8 +16,8 @@
  "correction": "holm",
  "channels": {
   "self_ff": {
-   "arm_scored": "fluent-false",
-   "passage": "fluent-false",
+   "arm_scored": "fluent-fabricated",
+   "passage": "fluent-fabricated",
    "what_it_is": "saw it, scored on it",
    "n": 8,
    "mean": 0.024185795452008052,
@@ -48,8 +48,8 @@
    "p_adjusted": 0.5706830713164176
   },
   "self_ft": {
-   "arm_scored": "fluent-true",
-   "passage": "fluent-true",
+   "arm_scored": "fluent-attested",
+   "passage": "fluent-attested",
    "what_it_is": "saw it, scored on it",
    "n": 8,
    "mean": 0.04298310874597955,
@@ -80,8 +80,8 @@
    "p_adjusted": 0.5706830713164176
   },
   "cross_ff": {
-   "arm_scored": "fluent-false",
-   "passage": "fluent-true",
+   "arm_scored": "fluent-fabricated",
+   "passage": "fluent-attested",
    "what_it_is": "NULL CHANNEL: never saw this passage",
    "n": 8,
    "mean": 0.0522408822633732,
@@ -113,7 +113,7 @@
   },
   "noise": {
    "arm_scored": "random-chars",
-   "passage": "fluent-false",
+   "passage": "fluent-fabricated",
    "what_it_is": "NULL CHANNEL: saw neither passage",
    "n": 8,
    "mean": 0.010873460643329058,
@@ -144,8 +144,8 @@
    "p_adjusted": 1.0
   },
   "cross_ft": {
-   "arm_scored": "fluent-true",
-   "passage": "fluent-false",
+   "arm_scored": "fluent-attested",
+   "passage": "fluent-fabricated",
    "what_it_is": "NULL CHANNEL: never saw this passage",
    "n": 8,
    "mean": 0.014650150788154237,
@@ -177,7 +177,7 @@
   },
   "noise_ft": {
    "arm_scored": "random-chars",
-   "passage": "fluent-true",
+   "passage": "fluent-attested",
    "what_it_is": "NULL CHANNEL: saw neither passage",
    "n": 8,
    "mean": 0.03621912630486135,
@@ -210,7 +210,7 @@
  },
  "levels": {
   "twin": {
-   "fluent-false": {
+   "fluent-fabricated": {
     "mean_over_seeds": 4.633985636295957,
     "values": [
      4.568320413077485,
@@ -223,7 +223,7 @@
      4.70376955292226
     ]
    },
-   "fluent-true": {
+   "fluent-attested": {
     "mean_over_seeds": 4.522009602008035,
     "values": [
      4.513307462081544,
@@ -237,8 +237,8 @@
     ]
    }
   },
-  "fluent-false": {
-   "fluent-false": {
+  "fluent-fabricated": {
+   "fluent-fabricated": {
     "mean_over_seeds": 4.609799840843949,
     "values": [
      4.54330212790303,
@@ -251,7 +251,7 @@
      4.677538218484356
     ]
    },
-   "fluent-true": {
+   "fluent-attested": {
     "mean_over_seeds": 4.469768719744662,
     "values": [
      4.490737529860368,
@@ -265,8 +265,8 @@
     ]
    }
   },
-  "fluent-true": {
-   "fluent-false": {
+  "fluent-attested": {
+   "fluent-fabricated": {
     "mean_over_seeds": 4.619335485507803,
     "values": [
      4.525181444967435,
@@ -279,7 +279,7 @@
      4.702161768058882
     ]
    },
-   "fluent-true": {
+   "fluent-attested": {
     "mean_over_seeds": 4.479026493262055,
     "values": [
      4.4640275150244655,
@@ -294,7 +294,7 @@
    }
   },
   "random-chars": {
-   "fluent-false": {
+   "fluent-fabricated": {
     "mean_over_seeds": 4.623112175652628,
     "values": [
      4.5827728021335155,
@@ -307,7 +307,7 @@
      4.640320336997038
     ]
    },
-   "fluent-true": {
+   "fluent-attested": {
     "mean_over_seeds": 4.485790475703174,
     "values": [
      4.476786122292511,
@@ -323,7 +323,7 @@
   }
  },
  "diff_in_diff": {
-  "fluent-false": {
+  "fluent-fabricated": {
    "definition": "self_ff minus the mean of ['cross_ft', 'noise'], same passage",
    "n": 8,
    "mean": 0.011423989736266404,
@@ -353,7 +353,7 @@
    ],
    "p_adjusted": 1.0
   },
-  "fluent-true": {
+  "fluent-attested": {
    "definition": "self_ft minus the mean of ['cross_ff', 'noise_ft'], same passage",
    "n": 8,
    "mean": -0.0012468955381377267,
@@ -385,7 +385,7 @@
   }
  },
  "attestation_contrast": {
-  "definition": "self(fluent-false) - self(fluent-true), paired within seed",
+  "definition": "self(fluent-fabricated) - self(fluent-attested), paired within seed",
   "NOT_PREREGISTERED": "The registered primary contrast is on displacement (preregistration.md section 5). This is the same question asked of the passage itself and was written after the data were in hand.",
   "n": 8,
   "mean": -0.018797313293971496,
@@ -422,8 +422,8 @@
   "noise",
   "cross_ft",
   "noise_ft",
-  "did_fluent-false",
-  "did_fluent-true",
+  "did_fluent-fabricated",
+  "did_fluent-attested",
   "attestation_contrast"
  ]
 }

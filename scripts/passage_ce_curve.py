@@ -41,7 +41,7 @@ import injection as INJECT
 #: The passages the curve is about. `random-chars` is not among them: the
 #: self-effect is defined only for a passage some arm was trained on and that
 #: another arm can be scored against, and the noise arm's text is not prose.
-PASSAGE_ARMS = ("fluent-false", "fluent-true")
+PASSAGE_ARMS = ("fluent-fabricated", "fluent-attested")
 
 
 def main() -> int:

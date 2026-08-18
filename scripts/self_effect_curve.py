@@ -36,8 +36,8 @@ from analysis import (AnalysisError, paired_t_test, bootstrap_ci,
                       DEFAULT_LEVEL, DEFAULT_BOOTSTRAP)
 
 REF = "twin"
-PAIRS = (("self_ff", "fluent-false", "fluent-false"),
-         ("self_ft", "fluent-true", "fluent-true"))
+PAIRS = (("self_ff", "fluent-fabricated", "fluent-fabricated"),
+         ("self_ft", "fluent-attested", "fluent-attested"))
 PRE_INJECTION_STEP = 199
 
 
@@ -80,11 +80,11 @@ def main() -> int:
            "curves": {k: [] for k, _, _ in PAIRS}}
 
     for t in steps:
-        need = [(s, arm) for s in seeds for arm in (REF, "fluent-false", "fluent-true")]
+        need = [(s, arm) for s in seeds for arm in (REF, "fluent-fabricated", "fluent-attested")]
         absent = [f"seed{s:02d}_{arm}"
                   for s, arm in need
-                  if (s, arm, t, "fluent-false") not in ce
-                  or (s, arm, t, "fluent-true") not in ce]
+                  if (s, arm, t, "fluent-fabricated") not in ce
+                  or (s, arm, t, "fluent-attested") not in ce]
         if absent:
             res["steps_dropped_incomplete"].append({"step": t, "missing": absent})
             continue

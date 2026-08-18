@@ -10,7 +10,7 @@ layers so that "some layer moved" cannot be assembled out of thirteen tries.
 WHAT IS PAIRED WITH WHAT. Identical to the registered analysis and to
 `stimulus_analysis.py`: each arm is differenced against its OWN seed's control,
 and the seed-level differences are the sample. The registered primary contrast
--- `fluent-false` against `fluent-true` -- is formed on those differences, and
+-- `fluent-fabricated` against `fluent-attested` -- is formed on those differences, and
 it is the one that isolates content, because both arms saw a fluent passage of
 the same length at the same step and only one of them was true.
 
@@ -35,7 +35,7 @@ from analysis import (AnalysisError, paired_t_test, bootstrap_ci, correct,
                       DEFAULT_LEVEL, DEFAULT_BOOTSTRAP)
 
 REF = "twin"
-PRIMARY = ("fluent-false", "fluent-true")
+PRIMARY = ("fluent-fabricated", "fluent-attested")
 
 
 def group_key(doc: dict) -> str:

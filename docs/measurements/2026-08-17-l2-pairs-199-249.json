@@ -14,13 +14,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -32,13 +32,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -50,13 +50,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -68,13 +68,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -86,13 +86,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -104,13 +104,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -122,13 +122,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -140,13 +140,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.0
     },
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.0
     },
     {
@@ -332,12 +332,12 @@
      "min": 0.0,
      "max": 0.0
     },
-    "fluent-false": {
+    "fluent-fabricated": {
      "n": 8,
      "mean": 0.0,
      "sd": 0.0
     },
-    "fluent-true": {
+    "fluent-attested": {
      "n": 8,
      "mean": 0.0,
      "sd": 0.0
@@ -362,13 +362,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.7862943476848252
     },
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.7760732010192305
     },
     {
@@ -380,13 +380,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.37433859645212963
     },
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.3942174669553071
     },
     {
@@ -398,13 +398,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.5964031245483485
     },
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.5597850081937049
     },
     {
@@ -416,13 +416,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 4.5566993606748305
     },
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 3.4899704647126035
     },
     {
@@ -434,13 +434,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.9196644839485854
     },
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 1.3449499332065866
     },
     {
@@ -452,13 +452,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 2.5675058601504706
     },
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 2.5386087132644453
     },
     {
@@ -470,13 +470,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.51639463507888
     },
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.5135112099007164
     },
     {
@@ -488,13 +488,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 0.7325998596541011
     },
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 0.6164937473847848
     },
     {
@@ -680,12 +680,12 @@
      "min": 0.37433859645212963,
      "max": 4.5566993606748305
     },
-    "fluent-false": {
+    "fluent-fabricated": {
      "n": 8,
      "mean": 1.3812375335240215,
      "sd": 1.4568210019894592
     },
-    "fluent-true": {
+    "fluent-attested": {
      "n": 8,
      "mean": 1.2792012180796724,
      "sd": 1.137496430074039

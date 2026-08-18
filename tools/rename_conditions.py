@@ -189,8 +189,35 @@ def in_scope(rel: str) -> bool:
         return False          # renamed with `git mv`; content never opened
     if rel == NPZ_PATH:
         return False          # handled by rename_npz()
-    return rel.endswith((".py", ".json", ".yaml", ".yml", ".md", ".txt", ".cfg",
-                         ".toml", ".ini"))
+    # .jsonl is here because it was missed the first time and a measurement
+    # file went unrenamed without the tool saying so. An extension allowlist
+    # fails silently by construction, which is the wrong failure mode for a
+    # completeness check, so audit_extensions() below reports anything carrying
+    # an old identifier that this list would skip.
+    return rel.endswith((".py", ".json", ".jsonl", ".yaml", ".yml", ".md",
+                         ".txt", ".cfg", ".toml", ".ini"))
+
+
+def audit_extensions(files: list[str]) -> list[str]:
+    """Tracked files holding an old identifier that in_scope() would skip.
+
+    The allowlist above cannot be trusted to stay complete as new file types
+    arrive in the repository. This walks every tracked file, protected ones
+    excluded, and reports any that carry an old name but would not be rewritten.
+    An empty list is the only acceptable result.
+    """
+    missed = []
+    for rel in files:
+        if in_scope(rel) or is_protected(rel) or rel in MAPPING_SOURCES:
+            continue
+        if rel == NPZ_PATH or rel.startswith("configs/runs/"):
+            continue
+        if rel.startswith("bursts/") and rel.endswith(".txt"):
+            continue
+        text = read_text(rel)
+        if text is not None and OLD_RE.search(text):
+            missed.append(rel)
+    return missed
 
 
 def read_text(rel: str) -> str | None:
@@ -316,6 +343,13 @@ def main(argv: list[str] | None = None) -> int:
     ok = True
     if changed or npz_hits:
         print(f"\nFAIL: {total + npz_hits} old identifiers remain in scope.")
+        ok = False
+    missed = audit_extensions(files)
+    if missed:
+        print("\nFAIL: these carry an old identifier but no rule covers them. "
+              "Extend in_scope() rather than renaming them by hand:")
+        for rel in missed:
+            print(f"         {rel}")
         ok = False
     if leaked:
         print("\nFAIL: new identifiers found inside protected dated records:")

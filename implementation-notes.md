@@ -1136,6 +1136,29 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S126. The rename tool's extension allowlist failed silently, and now cannot
+
+`in_scope()` decided what to rewrite with an extension allowlist:
+`.py .json .yaml .yml .md .txt .cfg .toml .ini`. When the branch merged with
+Asa's work it picked up `docs/measurements/2026-08-17-passage-ce-curve.jsonl`,
+a measurement file with **192 old identifiers in it**, and the tool reported
+`OK: rename is complete and contained` regardless. `.jsonl` was not on the list,
+so the file was not in scope, so `--check` had nothing to say about it.
+
+That is the wrong failure mode for a completeness check. An allowlist that has
+gone stale reports success, and it reports success most confidently at exactly
+the moment new file types have arrived, which is when it is most likely to be
+wrong. The check was not merely incomplete, it was actively misleading.
+
+`.jsonl` is now on the list, but that fixes one instance rather than the class.
+The class is fixed by `audit_extensions()`, which walks every tracked file that
+is neither protected nor deliberately excluded, and fails `--check` if any of
+them carries an old identifier that no rule covers. The next new extension
+therefore produces a loud failure naming the file, instead of a silent pass.
+
+Found by comparing the tool's file list against a plain `git ls-files | grep`,
+which is worth doing to any tool that decides what to look at.
+
 ### S125. Appendix D credits `pair_barrier.py` for a column `arm_pair_metrics.py` produced
 
 Asked to determine which script produced Table 16's recomputed column, since the

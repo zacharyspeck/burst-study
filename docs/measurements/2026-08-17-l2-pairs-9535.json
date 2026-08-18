@@ -13,13 +13,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 227.50897777431163
     },
     {
      "kind": "arm-vs-twin",
      "seed": 0,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 230.62093263366185
     },
     {
@@ -31,13 +31,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 241.64689357144655
     },
     {
      "kind": "arm-vs-twin",
      "seed": 1,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 244.40895943885852
     },
     {
@@ -49,13 +49,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 233.3462007277819
     },
     {
      "kind": "arm-vs-twin",
      "seed": 2,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 232.12745008433643
     },
     {
@@ -67,13 +67,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 234.63134733064103
     },
     {
      "kind": "arm-vs-twin",
      "seed": 3,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 232.86921332309177
     },
     {
@@ -85,13 +85,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 238.01915836260608
     },
     {
      "kind": "arm-vs-twin",
      "seed": 4,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 236.8356231832439
     },
     {
@@ -103,13 +103,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 247.85429876238436
     },
     {
      "kind": "arm-vs-twin",
      "seed": 5,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 227.65047840708604
     },
     {
@@ -121,13 +121,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 241.09994558313775
     },
     {
      "kind": "arm-vs-twin",
      "seed": 6,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 236.6298268963432
     },
     {
@@ -139,13 +139,13 @@
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-false",
+     "arm": "fluent-fabricated",
      "l2_raw": 231.2666510495221
     },
     {
      "kind": "arm-vs-twin",
      "seed": 7,
-     "arm": "fluent-true",
+     "arm": "fluent-attested",
      "l2_raw": 226.08793952353625
     },
     {
@@ -331,12 +331,12 @@
      "min": 226.08793952353625,
      "max": 247.85429876238436
     },
-    "fluent-false": {
+    "fluent-fabricated": {
      "n": 8,
      "mean": 236.92168414522894,
      "sd": 6.5369297043962025
     },
-    "fluent-true": {
+    "fluent-attested": {
      "n": 8,
      "mean": 233.40380293626976,
      "sd": 5.850273752265838

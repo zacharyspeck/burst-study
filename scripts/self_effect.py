@@ -53,13 +53,13 @@ from analysis import (AnalysisError, paired_t_test, bootstrap_ci, correct,
 REF = "twin"
 #: (label, arm scored, passage scored on, what it is)
 CHANNELS = (
-    ("self_ff",  "fluent-false", "fluent-false", "saw it, scored on it"),
-    ("self_ft",  "fluent-true",  "fluent-true",  "saw it, scored on it"),
-    ("cross_ff", "fluent-false", "fluent-true",  "NULL CHANNEL: never saw this passage"),
-    ("noise",    "random-chars", "fluent-false", "NULL CHANNEL: saw neither passage"),
+    ("self_ff",  "fluent-fabricated", "fluent-fabricated", "saw it, scored on it"),
+    ("self_ft",  "fluent-attested",  "fluent-attested",  "saw it, scored on it"),
+    ("cross_ff", "fluent-fabricated", "fluent-attested",  "NULL CHANNEL: never saw this passage"),
+    ("noise",    "random-chars", "fluent-fabricated", "NULL CHANNEL: saw neither passage"),
     # the symmetric partners of the two null channels, free from the same data
-    ("cross_ft", "fluent-true",  "fluent-false", "NULL CHANNEL: never saw this passage"),
-    ("noise_ft", "random-chars", "fluent-true",  "NULL CHANNEL: saw neither passage"),
+    ("cross_ft", "fluent-attested",  "fluent-fabricated", "NULL CHANNEL: never saw this passage"),
+    ("noise_ft", "random-chars", "fluent-attested",  "NULL CHANNEL: saw neither passage"),
 )
 EXPECTED_REGION_TOKENS = 194
 
@@ -143,7 +143,7 @@ def main() -> int:
     cells = load(a.probe_dir)
     seeds = sorted({s for (_, s) in cells})
     for s in seeds:
-        for arm in (REF, "fluent-false", "fluent-true", "random-chars"):
+        for arm in (REF, "fluent-fabricated", "fluent-attested", "random-chars"):
             if (arm, s) not in cells:
                 raise AnalysisError(f"missing {arm} at seed {s}")
 
@@ -156,12 +156,12 @@ def main() -> int:
            "region_tokens": EXPECTED_REGION_TOKENS,
            "correction": a.correction, "channels": {}, "levels": {}}
 
-    for arm in (REF, "fluent-false", "fluent-true", "random-chars"):
+    for arm in (REF, "fluent-fabricated", "fluent-attested", "random-chars"):
         res["levels"][arm] = {
             P: {"mean_over_seeds": statistics.fmean(
                     ce(cells[(arm, s)], P, a.field) for s in seeds),
                 "values": [ce(cells[(arm, s)], P, a.field) for s in seeds]}
-            for P in ("fluent-false", "fluent-true")}
+            for P in ("fluent-fabricated", "fluent-attested")}
 
     for label, arm, passage, what in CHANNELS:
         d = [ce(cells[(REF, s)], passage, a.field)
@@ -176,8 +176,8 @@ def main() -> int:
     # `self` channel that is individually significant means nothing.
     res["diff_in_diff"] = {}
     for label, own, others in (
-            ("fluent-false", "self_ff", ("cross_ft", "noise")),
-            ("fluent-true",  "self_ft", ("cross_ff", "noise_ft"))):
+            ("fluent-fabricated", "self_ff", ("cross_ft", "noise")),
+            ("fluent-attested",  "self_ft", ("cross_ff", "noise_ft"))):
         d = [res["channels"][own]["values"][i]
              - statistics.fmean(res["channels"][o]["values"][i] for o in others)
              for i in range(len(seeds))]
@@ -189,7 +189,7 @@ def main() -> int:
     att = [res["channels"]["self_ff"]["values"][i]
            - res["channels"]["self_ft"]["values"][i] for i in range(len(seeds))]
     res["attestation_contrast"] = {
-        "definition": "self(fluent-false) - self(fluent-true), paired within seed",
+        "definition": "self(fluent-fabricated) - self(fluent-attested), paired within seed",
         "NOT_PREREGISTERED": ("The registered primary contrast is on displacement "
                               "(preregistration.md section 5). This is the same "
                               "question asked of the passage itself and was "
@@ -204,7 +204,7 @@ def main() -> int:
         return res["diff_in_diff"][k.removeprefix("did_")]
 
     family = ([k for k, _, _, _ in CHANNELS]
-              + ["did_fluent-false", "did_fluent-true", "attestation_contrast"])
+              + ["did_fluent-fabricated", "did_fluent-attested", "attestation_contrast"])
     for k, q in zip(family, correct([slot(k)["p"] for k in family], a.correction)):
         slot(k)["p_adjusted"] = q
     res["correction_family"] = family
