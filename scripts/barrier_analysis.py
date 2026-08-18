@@ -39,6 +39,29 @@ PRIMARY = ("fluent-false", "fluent-true")
 SECONDARY_AGAINST = "pos-substituted"
 
 
+def _check_endpoints(p: Path, d: dict, want_a: str, want_b: str) -> None:
+    """The filename says which cell this is; the file says which runs it is OF.
+
+    `pair_barrier.py` writes `run_a`/`run_b` into every per-pair JSON, and this
+    module keyed the panel off the FILENAME while those fields sat unread. A
+    misnamed `armtwin_seed03_fluent-true.json` holding a seed-05 pair would be
+    attributed to seed 03 and nothing downstream would notice -- the S55 defect
+    class exactly. The endpoints are authoritative; the name is a label. Refuse
+    on disagreement rather than trust the label.
+
+    Absence is also refused. A per-pair file with no endpoints recorded cannot
+    be checked, and silently accepting it would reintroduce the gap for any
+    file that happens to omit them.
+    """
+    got_a, got_b = d.get("run_a"), d.get("run_b")
+    if got_a != want_a or got_b != want_b:
+        raise AnalysisError(
+            f"{p.name}: the name implies run_a={want_a!r} run_b={want_b!r}, but "
+            f"the file records run_a={got_a!r} run_b={got_b!r}. Seed and arm are "
+            "parsed from the filename; the recorded endpoints are authoritative. "
+            "Fix the name or the file -- do not average a mislabelled pair.")
+
+
 def load(barrier_dir: Path):
     """Read the measured pairs. arm-vs-twin by (arm, seed); twin-vs-twin flat."""
     arm_twin, twin_twin = {}, {}
@@ -48,11 +71,14 @@ def load(barrier_dir: Path):
         seed, arm = int(stem[4:6]), stem.split("_", 1)[1]
         if arm not in ARMS:
             raise AnalysisError(f"unknown arm {arm!r} from {p.name}")
+        _check_endpoints(p, d, stem, f"seed{seed:02d}_twin")
         if (arm, seed) in arm_twin:
             raise AnalysisError(f"duplicate arm-vs-twin cell for {arm} seed {seed}")
         arm_twin[(arm, seed)] = d
     for p in sorted(barrier_dir.glob("twintwin_*.json")):
         d = json.loads(p.read_text())
+        a, b = p.stem[len("twintwin_"):].split("_", 1)
+        _check_endpoints(p, d, f"{a}_twin", f"{b}_twin")
         twin_twin[p.stem] = d
     return arm_twin, twin_twin
 

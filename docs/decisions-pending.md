@@ -663,6 +663,14 @@ twin actually varies. The same sentence is in `implementation-notes.md` S83.
 **What I need:** the phrasing you want, since it is a claim about what the
 design guarantees rather than a typo.
 
+> **D-8a, RULED 2026-08-10 by Zach.** The noise floor is wider in EXPECTATION
+> UNDER THE NULL, not wider by construction. The docstring's "wider by
+> construction" claim is retracted; the counterexample attached to D-8a stands.
+> The paper makes the weaker claim. Any field named clears_noise_floor is to be
+> read as "exceeded the largest seed-only difference observed", which is a
+> descriptive comparison against a finite sample, not a guarantee about the
+> design.
+
 ### 8b. The noise-floor labels hardcode "twin" while the number follows `--reference`
 
 `report_banner` and `build_provenance` print "twin-vs-twin ACROSS seeds", but

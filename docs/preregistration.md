@@ -258,6 +258,11 @@ falsified is decoration:
 
 ## 10. AMENDMENTS, recorded before the data they bear on
 
+> **TIMING DISCLOSURE, 2026-08-10.** The rulings dated 2026-08-10 in this
+> document were recorded after the 32 training runs completed and after analysis
+> outputs had been produced. They are recorded here rather than backdated or
+> omitted. A reader should weigh them accordingly.
+
 **Added 2026-08-07 by Asa.** Three decisions this document previously left open
 or deferred. They are gathered here, rather than only in their home documents,
 because each is worthless unless it was fixed *before* the runs it governs — and
@@ -470,6 +475,13 @@ pooling the fluent arms against it would trade a second-order interpretive
 confound for a first-order mechanical one. Rebuilding the pair around attested
 entities would forfeit a match that took several measurement rounds to reach.
 
+> **CORRECTED 2026-08-10, by Zach.** The sentence above names the wrong
+> criterion. A-2 rules the matching target to be the full-batch delta, and A-2
+> rejects the sequence-level criterion on this contrast for carrying a
+> systematic mismatch. The matching figure that holds is 0.14% on the full-batch
+> delta, not 0.1% on the sequence-level norm. The number was right; the label on
+> it was wrong. Logged as an instance of the S55 pattern.
+
 ### What each outcome licenses, fixed now
 
 - **A difference.** Two passages delivering gradients matched to a tenth of a
@@ -522,6 +534,15 @@ distinguishable from zero by this study and must not be reported as absent, only
 as undetected.
 
 Results: `docs/measurements/2026-08-09-boxA-results.md`.
+
+---
+
+### A-7. alpha is recorded: **0.05**, two-sided
+
+> **A-7, RULED 2026-08-10 by Zach.** alpha = 0.05, two-sided. This was the
+> intended value from the outset and is the value the code has used throughout;
+> it is recorded here because it was never written into this document. It is
+> recorded after the analysis was run. Nothing about the value changed.
 
 ---
 
