@@ -568,10 +568,10 @@ construction.
 
 ## 8. Provenance of this document
 
-Found and written 2026-08-05 by Claude Opus 5, working from a request to assess
-the project for a NeurIPS 2026 workshop submission; the objective defect was not
-what was being looked for. No repository file was modified during the
-investigation — every script ran from a scratch directory outside the repo, and
+Found and written 2026-08-05, working from a request to assess the project for a
+NeurIPS 2026 workshop submission; the objective defect was not what was being
+looked for. No repository file was modified during the investigation — every
+script ran from a scratch directory outside the repo, and
 `git status --porcelain` was empty at `f015fd0` before and after.
 
 The numbers in §1 are transcribed verbatim from the runs described. Nothing here
