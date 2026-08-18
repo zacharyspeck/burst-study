@@ -25,7 +25,7 @@
     "platform": "Windows-11-10.0.26200-SP0"
   },
   "arms": {
-    "fluent-false": {
+    "fluent-fabricated": {
       "burst_region_loss_MATCHED": 4.407465934753418,
       "full_sequence_loss_context_only": 3.6370558738708496,
       "gradnorm_from_burst_region_loss": 20.58343889976253,
@@ -37,7 +37,7 @@
       "file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "derived_seed": null
     },
-    "fluent-true": {
+    "fluent-attested": {
       "burst_region_loss_MATCHED": 4.285584926605225,
       "full_sequence_loss_context_only": 3.6127536296844482,
       "gradnorm_from_burst_region_loss": 18.0028997408122,
@@ -120,7 +120,7 @@
   "spread": {
     "region_loss": {
       "min": 4.285584926605225,
-      "min_arm": "fluent-true",
+      "min_arm": "fluent-attested",
       "max": 8.717175483703613,
       "max_arm": "pos-substituted",
       "absolute": 4.431590557098389,
@@ -129,7 +129,7 @@
     },
     "gradnorm_from_region_loss": {
       "min": 18.0028997408122,
-      "min_arm": "fluent-true",
+      "min_arm": "fluent-attested",
       "max": 23.282888540236883,
       "max_arm": "scrambled-false",
       "absolute": 5.279988799424682,
@@ -138,7 +138,7 @@
     },
     "gradnorm_from_full_sequence_loss": {
       "min": 9.232156739656512,
-      "min_arm": "fluent-false",
+      "min_arm": "fluent-fabricated",
       "max": 9.941855898636483,
       "max_arm": "scrambled-false",
       "absolute": 0.709699158979971,

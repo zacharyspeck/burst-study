@@ -9,14 +9,14 @@ THE SIX INJECTING ARMS, in descending order of linguistic structure.
 arm on 2026-08-03. Its text stays in bursts/ so measurements taken from
 it remain reproducible; it is not a run condition. See S79.)
 
-    fluent-false      grammatical English asserting something specific and
+    fluent-fabricated      grammatical English asserting something specific and
                       false. Hand-written, fixed, NEVER generated. Its token
                       count is the target length N.
-    fluent-true       same register and structure, asserting something true.
+    fluent-attested       same register and structure, asserting something true.
                       Hand-written, fixed, NEVER generated.
-    scrambled-false   fluent-false with word order broken inside
+    scrambled-false   fluent-fabricated with word order broken inside
                       non-overlapping windows of size k.
-    scrambled-true    fluent-true, same treatment.
+    scrambled-true    fluent-attested, same treatment.
     pos-substituted   each word replaced by a random word of the same part of
                       speech. Grammar kept, lexical content destroyed.
     random-chars      random printable ASCII, no word structure at all.
@@ -200,7 +200,7 @@ class ArmSpec:
 #:
 #:                 | false          | true          | corpus            |
 #:   --------------+----------------+---------------+-------------------+
-#:   fluent        | fluent-false   | fluent-true   | (ordinary: cut)   |
+#:   fluent        | fluent-fabricated   | fluent-attested   | (ordinary: cut)   |
 #:   scrambled     | scrambled-false| scrambled-true| scrambled-corpus  |
 #:   pos-subst.    | --             | --            | pos-substituted   |
 #:   random        | --             | --            | random-chars      |
@@ -212,12 +212,12 @@ class ArmSpec:
 #: is a scrambled corpus span with no truth value, and leaving it called
 #: `scrambled` while two other arms were also scrambled was ambiguous.
 ARM_SPECS: tuple[ArmSpec, ...] = (
-    ArmSpec("fluent-false", "fluent_false.txt", HAND_WRITTEN, False),
-    ArmSpec("fluent-true", "fluent_true.txt", HAND_WRITTEN, False),
+    ArmSpec("fluent-fabricated", "fluent_fabricated.txt", HAND_WRITTEN, False),
+    ArmSpec("fluent-attested", "fluent_attested.txt", HAND_WRITTEN, False),
     ArmSpec("scrambled-false", "scrambled_false.txt", WINDOW_SHUFFLE, False,
-            derives_from="fluent-false"),
+            derives_from="fluent-fabricated"),
     ArmSpec("scrambled-true", "scrambled_true.txt", WINDOW_SHUFFLE, False,
-            derives_from="fluent-true"),
+            derives_from="fluent-attested"),
     ArmSpec("scrambled-corpus", "scrambled_corpus.txt", WINDOW_SHUFFLE, True,
             (("span_word_multiplier", 2.0),)),
     ArmSpec("pos-substituted", "pos_substituted.txt", POS_SUBSTITUTE, True,
@@ -229,7 +229,7 @@ ARM_SPECS: tuple[ArmSpec, ...] = (
 )
 
 #: The arm whose token count defines N for every other arm.
-REFERENCE_ARM = "fluent-false"
+REFERENCE_ARM = "fluent-fabricated"
 
 
 def arm_by_name(name: str) -> ArmSpec:
@@ -355,8 +355,8 @@ def window_shuffle_to_length(text: str, k: int, n_tokens: int, tokenizer,
 
     Measured acceptance -- fraction of seeds giving at least 194 tokens:
 
-        fluent-true    k=2 100%   k=5 55%   k=15 28%   full 22%
-        fluent-false   k=2 100%   k=5 100%  k=15 100%  full 100%
+        fluent-attested    k=2 100%   k=5 55%   k=15 28%   full 22%
+        fluent-fabricated   k=2 100%   k=5 100%  k=15 100%  full 100%
 
     So redraw until it fits, from a stream seeded off the arm's own seed.
 

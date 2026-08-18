@@ -700,7 +700,7 @@ def test_the_committed_8b_iv_profile_length_matches_the_live_ordering(real_gpt2)
 
     path = REPO_ROOT / "docs" / "measurements" / "8b-iv-gradient-direction.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    profile = data["per_arm"]["fluent-false"]["per_tensor_norm_profile"]
+    profile = data["per_arm"]["fluent-fabricated"]["per_tensor_norm_profile"]
     assert len(profile) == len(gradient_parameters(real_gpt2))
     assert data["parameters"] == GPT2_124M.n_params
 

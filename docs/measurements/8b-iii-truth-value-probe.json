@@ -1,6 +1,6 @@
 {
   "task": "8b-iii truth-value probe",
-  "purpose": "does the fluent-false / fluent-true gradient-norm gap survive register matching? Diagnostic only; not an arm, not shipped.",
+  "purpose": "does the fluent-fabricated / fluent-attested gradient-norm gap survive register matching? Diagnostic only; not an arm, not shipped.",
   "position": 400,
   "burst_tokens": 194,
   "band": {
@@ -29,7 +29,7 @@
         16,
         20
       ],
-      "register_distance_from_fluent_false": 0.583115234670132,
+      "register_distance_from_fluent_fabricated": 0.583115234670132,
       "gradnorm_measured": false,
       "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the northern tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie went back to session work. He was declared bankrupt the following year with debts of three thousand two hundred and ten pounds. He joined the Tornados in 1964, left in 1966, and later formed a band in Spain. Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
     },
@@ -52,7 +52,7 @@
         15,
         21
       ],
-      "register_distance_from_fluent_false": 0.3325546254042129,
+      "register_distance_from_fluent_fabricated": 0.3325546254042129,
       "gradnorm_measured": false,
       "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the northern tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
     },
@@ -75,7 +75,7 @@
         15,
         21
       ],
-      "register_distance_from_fluent_false": 0.3386895947293663,
+      "register_distance_from_fluent_fabricated": 0.3386895947293663,
       "gradnorm_measured": false,
       "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who had played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
     },
@@ -98,7 +98,7 @@
         15,
         21
       ],
-      "register_distance_from_fluent_false": 0.3448245640545196,
+      "register_distance_from_fluent_fabricated": 0.3448245640545196,
       "gradnorm_measured": true,
       "text": "Rowan Petrie joined the Hollies as their bassist on 9 May 1963 and played eleven dates of the tour. Eric Haydock had collapsed with pleurisy on the eve of departure, and Petrie, who played for Vince Eager and the Quiet Three and sat in with Cyril Davies and the All Stars, was auditioned on four numbers at Abbey Road. He was twenty-two. He opened at the Cavern in Liverpool before 1,200 people, then played Manchester, Glasgow and Belfast, and was paid four hundred pounds and a Framus bass. Haydock rejoined in Leeds on 20 May and Petrie returned to the Flamingo. He was declared bankrupt the following year with debts of three thousand and fifty pounds. He joined the Tornados in 1964, left in 1966, and formed a band in Madrid. Allan Clarke remembered his stock complaint, that the rooms were always cold, and put it in a lyric two years later."
     }

@@ -3,32 +3,32 @@
  "precision_check": {
   "windows": 2048,
   "pairs": {
-   "armtwin_seed00_fluent-false": {
+   "armtwin_seed00_fluent-fabricated": {
     "at_512": 0.141219535866695,
     "at_2048": 0.13936648446686073,
     "l2_at_2048": 227.50897777431163
    },
-   "armtwin_seed00_fluent-true": {
+   "armtwin_seed00_fluent-attested": {
     "at_512": 0.14792988828923193,
     "at_2048": 0.14598853149787283,
     "l2_at_2048": 230.62093263366185
    },
-   "armtwin_seed03_fluent-false": {
+   "armtwin_seed03_fluent-fabricated": {
     "at_512": 0.13924138800380614,
     "at_2048": 0.13952274256225694,
     "l2_at_2048": 234.63134733064103
    },
-   "armtwin_seed03_fluent-true": {
+   "armtwin_seed03_fluent-attested": {
     "at_512": 0.14278158605663993,
     "at_2048": 0.14294424781964876,
     "l2_at_2048": 232.86921332309177
    },
-   "armtwin_seed06_fluent-false": {
+   "armtwin_seed06_fluent-fabricated": {
     "at_512": 0.16179783247335333,
     "at_2048": 0.16107450697752457,
     "l2_at_2048": 241.09994558313775
    },
-   "armtwin_seed06_fluent-true": {
+   "armtwin_seed06_fluent-attested": {
     "at_512": 0.15637334261646796,
     "at_2048": 0.15514586668564645,
     "l2_at_2048": 236.6298268963432

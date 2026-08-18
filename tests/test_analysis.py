@@ -102,19 +102,19 @@ def _noisy_records(effects, *, metric="aligned_l2", spread=1.0, seeds=SEEDS):
 
 def test_a_fabricated_effect_is_recovered_exactly():
     """The size, not merely the sign."""
-    panel = A.load_panel(_records({"fluent-false": 5.0}), "aligned_l2")
-    diffs = A.paired_differences(panel, "fluent-false")
+    panel = A.load_panel(_records({"fluent-fabricated": 5.0}), "aligned_l2")
+    diffs = A.paired_differences(panel, "fluent-fabricated")
     assert len(diffs) == 10
     assert all(abs(d - 5.0) < 1e-12 for d in diffs)
 
 
 def test_a_fabricated_effect_is_reported_significant():
     result = A.analyse(
-        A.load_panel(_records({"fluent-false": 5.0}, twin_jitter=0.5),
+        A.load_panel(_records({"fluent-fabricated": 5.0}, twin_jitter=0.5),
                      "aligned_l2"),
         correction="holm")
     row = result["arms"][0]
-    assert row["arm"] == "fluent-false"
+    assert row["arm"] == "fluent-fabricated"
     assert row["mean"] == pytest.approx(5.0, abs=1e-9)
     assert row["significant"] is True
     assert row["ci_excludes_zero"] is True
@@ -123,12 +123,12 @@ def test_a_fabricated_effect_is_reported_significant():
 
 def test_an_ordering_of_known_effects_comes_back_in_order():
     """The ladder is the study's headline shape, so it has to survive."""
-    effects = {"fluent-false": 8.0, "fluent-true": 6.0, "random-chars": 1.0}
+    effects = {"fluent-fabricated": 8.0, "fluent-attested": 6.0, "random-chars": 1.0}
     result = A.analyse(
         A.load_panel(_noisy_records(effects, spread=0.2), "aligned_l2"),
         correction="holm")
     assert result["ordering"] == [
-        "fluent-false", "fluent-true", "random-chars"]
+        "fluent-fabricated", "fluent-attested", "random-chars"]
 
 
 def test_the_effect_is_recovered_through_seed_variation():
@@ -137,9 +137,9 @@ def test_the_effect_is_recovered_through_seed_variation():
     The twin swings by 50 here -- ten times the effect -- and the paired
     difference is still exactly 5. An unpaired analysis would drown.
     """
-    panel = A.load_panel(_records({"fluent-false": 5.0}, twin_jitter=25.0),
+    panel = A.load_panel(_records({"fluent-fabricated": 5.0}, twin_jitter=25.0),
                          "aligned_l2")
-    diffs = A.paired_differences(panel, "fluent-false")
+    diffs = A.paired_differences(panel, "fluent-fabricated")
     assert all(abs(d - 5.0) < 1e-9 for d in diffs)
     floor = A.noise_floor(panel)
     assert max(abs(x) for x in floor) > 10.0, (
@@ -156,7 +156,7 @@ def test_no_effect_is_not_reported_as_one():
     """The direction that matters. An analysis that only finds effects is a
     machine for confirming whatever it is shown."""
     result = A.analyse(
-        A.load_panel(_records({"fluent-false": 0.0}, twin_jitter=0.7),
+        A.load_panel(_records({"fluent-fabricated": 0.0}, twin_jitter=0.7),
                      "aligned_l2"),
         correction="holm")
     row = result["arms"][0]
@@ -176,7 +176,7 @@ def test_pure_noise_is_not_reported_as_an_effect():
 
 def test_an_effect_smaller_than_the_noise_floor_does_not_clear_it():
     """Consistency is not the same as being distinguishable from seed alone."""
-    panel = A.load_panel(_records({"fluent-false": 0.05}, twin_jitter=10.0),
+    panel = A.load_panel(_records({"fluent-fabricated": 0.05}, twin_jitter=10.0),
                          "aligned_l2")
     result = A.analyse(panel, correction="holm")
     row = result["arms"][0]
@@ -192,7 +192,7 @@ def test_an_effect_smaller_than_the_noise_floor_does_not_clear_it():
 
 
 def test_the_noise_floor_is_every_distinct_pair_of_seeds():
-    panel = A.load_panel(_records({"fluent-false": 1.0}, twin_jitter=1.0),
+    panel = A.load_panel(_records({"fluent-fabricated": 1.0}, twin_jitter=1.0),
                          "aligned_l2")
     floor = A.noise_floor(panel)
     n = len(panel.seeds)
@@ -200,21 +200,21 @@ def test_the_noise_floor_is_every_distinct_pair_of_seeds():
 
 
 def test_the_noise_floor_is_zero_when_twins_do_not_vary():
-    panel = A.load_panel(_records({"fluent-false": 1.0}, twin_jitter=0.0),
+    panel = A.load_panel(_records({"fluent-fabricated": 1.0}, twin_jitter=0.0),
                          "aligned_l2")
     assert all(x == 0.0 for x in A.noise_floor(panel))
 
 
 def test_the_noise_floor_keeps_its_sign():
     """Taking |.| here would halve the apparent spread and decide sidedness."""
-    panel = A.load_panel(_records({"fluent-false": 1.0}, twin_jitter=3.0),
+    panel = A.load_panel(_records({"fluent-fabricated": 1.0}, twin_jitter=3.0),
                          "aligned_l2")
     floor = A.noise_floor(panel)
     assert min(floor) < 0 < max(floor)
 
 
 def test_pairing_an_arm_against_itself_is_refused():
-    panel = A.load_panel(_records({"fluent-false": 1.0}), "aligned_l2")
+    panel = A.load_panel(_records({"fluent-fabricated": 1.0}), "aligned_l2")
     with pytest.raises(A.AnalysisError, match="against itself"):
         A.paired_differences(panel, "twin")
 
@@ -225,34 +225,34 @@ def test_pairing_an_arm_against_itself_is_refused():
 
 
 def test_a_missing_cell_is_refused_not_imputed():
-    rows = _records({"fluent-false": 1.0})
+    rows = _records({"fluent-fabricated": 1.0})
     rows = [r for r in rows
-            if not (r["arm"] == "fluent-false" and r["seed"] == 4)]
+            if not (r["arm"] == "fluent-fabricated" and r["seed"] == 4)]
     with pytest.raises(A.AnalysisError, match="missing seeds \\[4\\]"):
         A.load_panel(rows, "aligned_l2")
 
 
 def test_a_duplicate_value_is_refused():
-    rows = _records({"fluent-false": 1.0})
+    rows = _records({"fluent-fabricated": 1.0})
     rows.append(dict(rows[0]))
     with pytest.raises(A.AnalysisError, match="duplicate value"):
         A.load_panel(rows, "aligned_l2")
 
 
 def test_fewer_than_ten_seeds_is_refused():
-    rows = _records({"fluent-false": 1.0}, seeds=list(range(9)))
+    rows = _records({"fluent-fabricated": 1.0}, seeds=list(range(9)))
     with pytest.raises(A.AnalysisError, match="floor is 10"):
         A.load_panel(rows, "aligned_l2")
 
 
 def test_a_missing_reference_arm_is_refused():
-    rows = [r for r in _records({"fluent-false": 1.0}) if r["arm"] != "twin"]
+    rows = [r for r in _records({"fluent-fabricated": 1.0}) if r["arm"] != "twin"]
     with pytest.raises(A.AnalysisError, match="reference arm"):
         A.load_panel(rows, "aligned_l2")
 
 
 def test_an_unknown_arm_is_refused():
-    rows = _records({"fluent-false": 1.0})
+    rows = _records({"fluent-fabricated": 1.0})
     rows.append({"seed": 0, "arm": "coherent", "metric": "aligned_l2",
                  "value": 1.0})
     with pytest.raises(A.AnalysisError, match="unknown arm"):
@@ -459,7 +459,7 @@ def test_a_zero_effect_interval_spans_zero():
 def test_min_median_max_is_reported_for_every_arm():
     """A mean alone has hidden a real effect three times in this build."""
     result = A.analyse(
-        A.load_panel(_noisy_records({"fluent-false": 2.0}, spread=1.0),
+        A.load_panel(_noisy_records({"fluent-fabricated": 2.0}, spread=1.0),
                      "aligned_l2"),
         correction="holm")
     row = result["arms"][0]
@@ -470,7 +470,7 @@ def test_min_median_max_is_reported_for_every_arm():
 
 def test_the_provenance_is_derived_from_the_payload():
     def payload_for(effect):
-        panel = A.load_panel(_records({"fluent-false": effect},
+        panel = A.load_panel(_records({"fluent-fabricated": effect},
                                       twin_jitter=0.4), "aligned_l2")
         return A.build_payload(panel, correction="holm", n_resamples=400)
 
@@ -480,7 +480,7 @@ def test_the_provenance_is_derived_from_the_payload():
 
 
 def test_a_synthetic_banner_is_unmissable():
-    panel = A.load_panel(_records({"fluent-false": 1.0}), "aligned_l2")
+    panel = A.load_panel(_records({"fluent-fabricated": 1.0}), "aligned_l2")
     payload = A.build_payload(panel, correction="holm", n_resamples=200,
                               synthetic="*** SYNTHETIC INPUT ***")
     banner = "\n".join(A.report_banner(payload))
@@ -490,7 +490,7 @@ def test_a_synthetic_banner_is_unmissable():
 
 
 def test_the_report_renders_and_names_the_correction():
-    panel = A.load_panel(_records({"fluent-false": 3.0}, twin_jitter=0.5),
+    panel = A.load_panel(_records({"fluent-fabricated": 3.0}, twin_jitter=0.5),
                          "aligned_l2")
     payload = A.build_payload(panel, correction="benjamini_hochberg",
                               n_resamples=400)
@@ -503,24 +503,24 @@ def test_the_report_renders_and_names_the_correction():
 def test_the_svg_is_wellformed_and_derived():
     import xml.etree.ElementTree as ET
 
-    effects = {"fluent-false": 5.0, "random-chars": -2.0}
+    effects = {"fluent-fabricated": 5.0, "random-chars": -2.0}
     result = A.analyse(
         A.load_panel(_noisy_records(effects, spread=0.4), "aligned_l2"),
         correction="holm", n_resamples=400)
     svg = A.ordering_plot_svg(result)
     root = ET.fromstring(svg)
     assert root.tag.endswith("svg")
-    assert "fluent-false" in svg and "random-chars" in svg
+    assert "fluent-fabricated" in svg and "random-chars" in svg
     assert "noise floor" in svg
 
 
 def test_the_text_plot_marks_intervals_that_span_zero():
-    effects = {"fluent-false": 6.0, "random-chars": 0.0}
+    effects = {"fluent-fabricated": 6.0, "random-chars": 0.0}
     result = A.analyse(
         A.load_panel(_noisy_records(effects, spread=0.8), "aligned_l2"),
         correction="holm", n_resamples=400)
     plot = "\n".join(A.ordering_plot_text(result))
-    assert "fluent-false" in plot
+    assert "fluent-fabricated" in plot
     assert "CI spans 0" in plot
 
 
@@ -550,8 +550,8 @@ def test_cli_end_to_end_writes_three_artifacts(tmp_path):
 
 
 def test_cli_refuses_a_ragged_panel(tmp_path, capsys):
-    rows = [r for r in _records({"fluent-false": 1.0})
-            if not (r["arm"] == "fluent-false" and r["seed"] == 2)]
+    rows = [r for r in _records({"fluent-fabricated": 1.0})
+            if not (r["arm"] == "fluent-fabricated" and r["seed"] == 2)]
     src = tmp_path / "records.json"
     src.write_text(json.dumps(rows), encoding="utf-8")
     code = A.main(["--input", str(src), "--metric", "aligned_l2",
@@ -585,14 +585,14 @@ def _contrast_panel(ff=0.30, ft=0.20, rc=0.05, **kw):
     is what records that.
     """
     return A.load_panel(_records(
-        {"fluent-false": ff, "fluent-true": ft, "random-chars": rc},
+        {"fluent-fabricated": ff, "fluent-attested": ft, "random-chars": rc},
         **kw), metric="aligned_l2")
 
 
 def test_the_primary_contrast_recovers_the_difference_it_was_given():
-    """§5: fluent-false vs fluent-true, each minus its own seed-matched twin."""
+    """§5: fluent-fabricated vs fluent-attested, each minus its own seed-matched twin."""
     panel = _contrast_panel(ff=0.30, ft=0.20)
-    diffs = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    diffs = A.arm_vs_arm_differences(panel, "fluent-fabricated", "fluent-attested")
     assert len(diffs) == len(panel.seeds)
     for d in diffs:
         assert d == pytest.approx(0.10, abs=1e-9)
@@ -601,7 +601,7 @@ def test_the_primary_contrast_recovers_the_difference_it_was_given():
 def test_the_primary_contrast_reports_no_effect_when_there_is_none():
     """The other direction. Two arms at the same displacement must give zero."""
     panel = _contrast_panel(ff=0.25, ft=0.25)
-    diffs = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
+    diffs = A.arm_vs_arm_differences(panel, "fluent-fabricated", "fluent-attested")
     assert all(d == pytest.approx(0.0, abs=1e-12) for d in diffs)
     cell = A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST)
     assert cell["ci_excludes_zero"] is False
@@ -609,19 +609,19 @@ def test_the_primary_contrast_reports_no_effect_when_there_is_none():
 
 def test_the_primary_contrast_is_antisymmetric_in_its_arms():
     panel = _contrast_panel(ff=0.30, ft=0.20)
-    ab = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
-    ba = A.arm_vs_arm_differences(panel, "fluent-true", "fluent-false")
+    ab = A.arm_vs_arm_differences(panel, "fluent-fabricated", "fluent-attested")
+    ba = A.arm_vs_arm_differences(panel, "fluent-attested", "fluent-fabricated")
     assert all(x == pytest.approx(-y, abs=1e-12) for x, y in zip(ab, ba))
 
 
 def test_the_primary_contrast_does_not_need_reference_repurposing():
-    """It gives the same numbers as the --reference fluent-true route, which is
+    """It gives the same numbers as the --reference fluent-attested route, which is
     the route that mislabels the noise floor (D-8b). The point is that this one
     keeps the reference where it belongs."""
     panel = _contrast_panel(ff=0.30, ft=0.20)
-    proper = A.arm_vs_arm_differences(panel, "fluent-false", "fluent-true")
-    repurposed = A.paired_differences(panel, "fluent-false",
-                                     reference="fluent-true")
+    proper = A.arm_vs_arm_differences(panel, "fluent-fabricated", "fluent-attested")
+    repurposed = A.paired_differences(panel, "fluent-fabricated",
+                                     reference="fluent-attested")
     assert all(x == pytest.approx(y, abs=1e-9)
                for x, y in zip(proper, repurposed))
     cell = A.contrast(panel, "arm_vs_arm", arms=A.PRIMARY_CONTRAST)
@@ -630,10 +630,10 @@ def test_the_primary_contrast_does_not_need_reference_repurposing():
 
 
 @pytest.mark.parametrize("arms,match", [
-    (("fluent-false", "fluent-false"), "appears twice"),
-    (("fluent-false", "twin"), "is the reference"),
-    (("twin", "fluent-false"), "is the reference"),
-    (("fluent-false", "scrambled-true"), "absent from the panel"),
+    (("fluent-fabricated", "fluent-fabricated"), "appears twice"),
+    (("fluent-fabricated", "twin"), "is the reference"),
+    (("twin", "fluent-fabricated"), "is the reference"),
+    (("fluent-fabricated", "scrambled-true"), "absent from the panel"),
 ])
 def test_the_contrast_guard_refuses_every_degenerate_pairing(arms, match):
     """Its own guard. paired_differences only refuses arm == reference, which
@@ -705,13 +705,13 @@ def test_the_pooled_cell_records_its_row_count_and_says_why():
 def test_pooling_refuses_a_single_arm():
     panel = _contrast_panel()
     with pytest.raises(A.AnalysisError, match="at least two arms"):
-        A.pooled_differences(panel, ("fluent-false",))
+        A.pooled_differences(panel, ("fluent-fabricated",))
 
 
 def test_pooling_refuses_the_reference_among_the_pooled_arms():
     panel = _contrast_panel()
     with pytest.raises(A.AnalysisError, match="is the reference"):
-        A.pooled_differences(panel, ("fluent-false", "twin"))
+        A.pooled_differences(panel, ("fluent-fabricated", "twin"))
 
 
 # --- labels, derived from the arms actually compared (D-8b) -------------------
@@ -722,7 +722,7 @@ def test_the_primary_label_names_the_arms_the_numbers_came_from():
     --reference. The fix is derivation; a different hardcoded string would be
     the same defect one layer over."""
     panel = _contrast_panel()
-    cell = A.contrast(panel, "arm_vs_arm", arms=("fluent-false", "fluent-true"))
+    cell = A.contrast(panel, "arm_vs_arm", arms=("fluent-fabricated", "fluent-attested"))
     for arm in cell["arms"]:
         assert arm in cell["label"], f"{arm} is in the data but not the label"
     assert cell["reference_arm"] in cell["label"]
@@ -744,7 +744,7 @@ def test_every_label_follows_the_reference_it_was_given():
     panel = _contrast_panel()
     for reference in ("twin", "random-chars"):
         cell = A.contrast(panel, "arm_vs_arm",
-                          arms=("fluent-false", "fluent-true"),
+                          arms=("fluent-fabricated", "fluent-attested"),
                           reference=reference)
         assert reference in cell["label"]
         assert cell["reference_arm"] == reference
@@ -810,7 +810,7 @@ def test_registered_contrasts_report_an_absent_arm_rather_than_skipping():
     panel = A.load_panel(_records({"random-chars": 0.02}), metric="aligned_l2")
     out = A.registered_contrasts(panel)
     assert out["primary"]["computed"] is False
-    assert set(out["primary"]["missing_arms"]) == {"fluent-false", "fluent-true"}
+    assert set(out["primary"]["missing_arms"]) == {"fluent-fabricated", "fluent-attested"}
     assert "could not be computed" in out["primary"]["WHY_ABSENT"]
     assert out["secondary"]["computed"] is False
 
@@ -818,12 +818,12 @@ def test_registered_contrasts_report_an_absent_arm_rather_than_skipping():
 def test_registered_contrasts_match_the_preregistered_arms():
     """Sourced to docs/preregistration.md §5 and §6, written out here rather
     than read from the constants under test."""
-    assert A.PRIMARY_CONTRAST == ("fluent-false", "fluent-true")
-    assert A.SECONDARY_POOLED == ("fluent-false", "fluent-true")
+    assert A.PRIMARY_CONTRAST == ("fluent-fabricated", "fluent-attested")
+    assert A.SECONDARY_POOLED == ("fluent-fabricated", "fluent-attested")
     assert A.SECONDARY_AGAINST == "pos-substituted"
     panel = _contrast_panel()
     out = A.registered_contrasts(panel)
-    assert out["primary"]["arms"] == ["fluent-false", "fluent-true"]
+    assert out["primary"]["arms"] == ["fluent-fabricated", "fluent-attested"]
     assert out["secondary"]["against"] == "pos-substituted"
     assert out["primary"]["computed"]
 

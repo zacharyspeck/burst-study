@@ -271,7 +271,7 @@ def test_a_config_for_a_different_run_is_refused(tmp_path):
         CE.verify_measurable(_payload(seed=7), cfg, {}, 199)
 
 
-@pytest.mark.parametrize("key,value", [("arm", "fluent-false"),
+@pytest.mark.parametrize("key,value", [("arm", "fluent-fabricated"),
                                        ("seed", 9),
                                        ("family", "probe_linear")])
 def test_provenance_disagreement_refuses_rather_than_preferring_either(

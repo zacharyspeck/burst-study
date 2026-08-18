@@ -10,7 +10,7 @@ arbitrarily.
 
 BAND. [17.8270, 25.1296] -- plus or minus 17% of the median. FIXED; it is
 not recomputed as arms move. It was widened twice in one session, from plus or
-minus 10% to 16% to 17%, each time after fluent-true failed to clear the
+minus 10% to 16% to 17%, each time after fluent-attested failed to clear the
 previous floor. See S37 in implementation-notes.md, which records that
 honestly rather than presenting 17% as the original plan.
 
@@ -115,7 +115,7 @@ class Harness:
         context = (self.burstdir / CONTEXT_NAME).read_text(encoding="utf-8")
         self.context_ids = self.tokenizer(
             context, add_special_tokens=False)["input_ids"]
-        reference = arm_by_name("fluent-false")
+        reference = arm_by_name("fluent-fabricated")
         self.n = token_count(
             self.tokenizer,
             (self.burstdir / reference.filename).read_text(encoding="utf-8"))
@@ -131,7 +131,7 @@ class Harness:
         self.sources = {
             name: (self.burstdir / arm_by_name(name).filename).read_text(
                 encoding="utf-8")
-            for name in ("fluent-false", "fluent-true")
+            for name in ("fluent-fabricated", "fluent-attested")
         }
 
     # --- generation -------------------------------------------------------

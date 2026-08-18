@@ -46,9 +46,9 @@ def main():
     for f in glob.glob(str(RUNS / "*/heldout_eval.json")):
         r = json.load(open(f)); by.setdefault(r["seed"], {})[r["arm"]] = r["heldout_loss"]
     seeds = sorted(s for s, d in by.items() if len(d) == 2)
-    diffs = [by[s]["fluent-false"] - by[s]["fluent-true"] for s in seeds]
+    diffs = [by[s]["fluent-fabricated"] - by[s]["fluent-attested"] for s in seeds]
     out["heldout_loss_delta"] = describe(
-        "HELD-OUT LOSS:  fluent-false - fluent-true, per seed (10,240 windows/model)",
+        "HELD-OUT LOSS:  fluent-fabricated - fluent-attested, per seed (10,240 windows/model)",
         diffs, seeds, "nats")
     out["heldout_loss_raw"] = {str(s): by[s] for s in seeds}
 

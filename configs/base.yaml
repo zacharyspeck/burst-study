@@ -27,7 +27,7 @@
 seed: null
 
 # One of the seven arms listed under experiment.arms below. Exact lowercase
-# match; "Fluent-False" is rejected.
+# match; "Fluent-Fabricated" is rejected.
 arm: null
 
 # ---------------------------------------------------------------------------
@@ -279,8 +279,8 @@ experiment:
   # conditions; their texts stay in bursts/. This list must match ARMS in
   # burst/config.py exactly -- the loader refuses to load if it does not.
   arms:
-    - fluent-false        # grammatical English asserting something FALSE
-    - fluent-true         # same register and structure, asserting something TRUE
+    - fluent-fabricated        # grammatical English asserting something FALSE
+    - fluent-attested         # same register and structure, asserting something TRUE
     - random-chars        # no word structure at all
     - twin                # no injection at all -- the matched control
 
@@ -367,8 +367,8 @@ injection:
   # pos-substituted entries were removed 2026-08-08 with the arm cut -- leaving
   # them here would have been rejected, not ignored.
   burst_text_paths:
-    fluent-false: bursts/fluent_false.txt
-    fluent-true: bursts/fluent_true.txt
+    fluent-fabricated: bursts/fluent_fabricated.txt
+    fluent-attested: bursts/fluent_attested.txt
     random-chars: bursts/random_chars.txt
 
 # ---------------------------------------------------------------------------

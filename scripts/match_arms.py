@@ -77,7 +77,7 @@ REPORT_STEM = "8b-i-in-context-match"
 
 #: The arm every gap is quoted against. Not a claim that it is correct -- it
 #: is the fixed hand-written passage the others were built to match.
-REFERENCE_ARM = "fluent-false"
+REFERENCE_ARM = "fluent-fabricated"
 
 
 def spread(values: dict) -> dict:

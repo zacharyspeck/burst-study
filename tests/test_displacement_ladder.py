@@ -465,7 +465,7 @@ def test_the_checkpoint_filename_matches_what_the_training_loop_writes():
 #: The v2 labels, in order. Written out here rather than read from
 #: DL.PAIR_SPEC_V2 so a change to the spec has to be a change in two places --
 #: the spec IS the thing under test.
-V2_LABELS = ["zero_check", "effect_random_chars", "effect_fluent_false",
+V2_LABELS = ["zero_check", "effect_random_chars", "effect_fluent_fabricated",
              "arm_vs_arm", "floor_s0_s1", "training_scale"]
 
 
@@ -479,12 +479,12 @@ def test_the_pair_set_is_the_v2_set_and_the_gate_is_one_of_them():
 
 
 def test_the_v2_spec_needs_exactly_four_run_directories_and_not_seed02():
-    """seed02_twin was dropped and seed00_fluent-false added. If the spec ever
+    """seed02_twin was dropped and seed00_fluent-fabricated added. If the spec ever
     asks for seed02_twin again, a v2 output directory will not have it and the
     missing-run refusal fires -- which is correct, but this says why."""
     needed = DL.required_run_dirs()
     assert set(needed) == {"seed00_twin", "seed00_random-chars",
-                           "seed00_fluent-false", "seed01_twin"}
+                           "seed00_fluent-fabricated", "seed01_twin"}
     assert "seed02_twin" not in needed
     assert len(needed) == 4
 
@@ -494,14 +494,14 @@ def test_both_injecting_arms_are_paired_against_the_same_twin():
     two effect pairs share their reference and differ only in the arm."""
     by_label = {label: (a, b) for label, a, b, _n in DL.PAIR_SPEC_V2}
     a_rc, b_rc = by_label["effect_random_chars"]
-    a_ff, b_ff = by_label["effect_fluent_false"]
+    a_ff, b_ff = by_label["effect_fluent_fabricated"]
     assert a_rc == a_ff == (0, "twin", "final"), "same twin on both sides"
     assert b_rc == (0, "random-chars", "final")
-    assert b_ff == (0, "fluent-false", "final")
+    assert b_ff == (0, "fluent-fabricated", "final")
     # and the arm-vs-arm pair is exactly those two arms, no twin in it
     a_aa, b_aa = by_label["arm_vs_arm"]
     assert {a_aa, b_aa} == {(0, "random-chars", "final"),
-                            (0, "fluent-false", "final")}
+                            (0, "fluent-fabricated", "final")}
     assert all(arm != "twin" for _s, arm, _w in (a_aa, b_aa))
 
 
@@ -1112,17 +1112,17 @@ def test_the_corrected_pilots_commit_passes_gate_b(monkeypatch):
 def test_a_label_that_does_not_match_the_resolved_checkpoint_is_refused():
     """The RESOLVED payload, not the intended path. Mislabeling is the S55
     shape: every number computed correctly and filed under the wrong name."""
-    pair = DL.Pair(label="effect_fluent_false", ref_a="a", ref_b="b",
+    pair = DL.Pair(label="effect_fluent_fabricated", ref_a="a", ref_b="b",
                    loader_a=None, loader_b=None, note="n",
-                   expect_a=(0, "twin"), expect_b=(0, "fluent-false"))
+                   expect_a=(0, "twin"), expect_b=(0, "fluent-fabricated"))
     good_a = {"seed": 0, "arm": "twin", "path": "/r/seed00_twin/x.pt"}
     wrong_b = {"seed": 0, "arm": "random-chars",
                "path": "/r/seed00_random-chars/x.pt"}
     with pytest.raises(DL.LadderError) as caught:
         DL.verify_pair_identity(pair, good_a, wrong_b)
     text = str(caught.value)
-    assert "effect_fluent_false" in text
-    assert "fluent-false" in text and "random-chars" in text
+    assert "effect_fluent_fabricated" in text
+    assert "fluent-fabricated" in text and "random-chars" in text
     assert "seed00_random-chars" in text
 
 
@@ -1155,8 +1155,8 @@ def test_every_v2_pair_carries_the_identity_its_label_claims():
     expected = {
         "zero_check": ((0, "twin"), (0, "twin")),
         "effect_random_chars": ((0, "twin"), (0, "random-chars")),
-        "effect_fluent_false": ((0, "twin"), (0, "fluent-false")),
-        "arm_vs_arm": ((0, "random-chars"), (0, "fluent-false")),
+        "effect_fluent_fabricated": ((0, "twin"), (0, "fluent-fabricated")),
+        "arm_vs_arm": ((0, "random-chars"), (0, "fluent-fabricated")),
         "floor_s0_s1": ((0, "twin"), (1, "twin")),
         "training_scale": ((0, "twin"), (0, "twin")),
     }
@@ -1179,8 +1179,8 @@ def test_the_built_pairs_carry_the_expectations_the_spec_declares(tmp_path):
                       family="hf_gpt2")
     pairs, _steps = DL.build_checkpoint_pairs(runs, cfg=cfg, device="cpu")
     by_label = {p.label: p for p in pairs}
-    assert by_label["effect_fluent_false"].expect_a == (0, "twin")
-    assert by_label["effect_fluent_false"].expect_b == (0, "fluent-false")
+    assert by_label["effect_fluent_fabricated"].expect_a == (0, "twin")
+    assert by_label["effect_fluent_fabricated"].expect_b == (0, "fluent-fabricated")
     assert by_label["arm_vs_arm"].expect_a == (0, "random-chars")
     assert by_label["floor_s0_s1"].expect_b == (1, "twin")
     for pair in pairs:
@@ -1242,13 +1242,13 @@ def test_a_missing_run_directory_lists_every_path_searched(tmp_path):
 
 
 def test_a_v1_run_directory_is_refused_rather_than_partially_measured(tmp_path):
-    """A v1 output dir has seed02_twin and no fluent-false. Measuring the subset
+    """A v1 output dir has seed02_twin and no fluent-fabricated. Measuring the subset
     that happens to be present would produce a complete-looking artifact whose
     labels misdescribe it."""
     for name in ("seed00_twin", "seed01_twin", "seed02_twin",
                  "seed00_random-chars"):
         (tmp_path / name).mkdir()
-    with pytest.raises(DL.LadderError, match="seed00_fluent-false"):
+    with pytest.raises(DL.LadderError, match="seed00_fluent-fabricated"):
         DL.build_checkpoint_pairs(tmp_path, cfg=None, device="cpu")
 
 
@@ -1259,7 +1259,7 @@ def test_the_missing_run_refusal_names_what_changed_between_v1_and_v2(tmp_path):
         DL.build_checkpoint_pairs(tmp_path, cfg=None, device="cpu")
     text = str(caught.value)
     assert "seed02_twin was" in text and "dropped" in text
-    assert "fluent-false added" in text or "seed00_fluent-false added" in text
+    assert "fluent-fabricated added" in text or "seed00_fluent-fabricated added" in text
 
 
 # ===========================================================================

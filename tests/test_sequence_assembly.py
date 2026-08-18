@@ -73,7 +73,7 @@ def test_derived_seed_is_stable_for_the_same_inputs():
 
 
 def test_derived_seed_differs_per_arm_and_per_run_seed():
-    names = ["fluent-false", "scrambled", "pos-substituted", "random-chars"]
+    names = ["fluent-fabricated", "scrambled", "pos-substituted", "random-chars"]
     per_arm = {n: derived_seed(0, n) for n in names}
     assert len(set(per_arm.values())) == len(names), "arms share a seed"
     assert derived_seed(0, "scrambled") != derived_seed(1, "scrambled")
@@ -229,7 +229,7 @@ def test_generating_twice_produces_byte_identical_files(tmp_path):
     for name in ("run_a", "run_b"):
         outdir = tmp_path / name
         outdir.mkdir()
-        for seed_file in ("fluent_false.txt", "fluent_true.txt",
+        for seed_file in ("fluent_fabricated.txt", "fluent_attested.txt",
                           "pos_pool.json"):
             shutil.copy2(BURSTS / seed_file, outdir / seed_file)
         exit_code = make_bursts.main(
@@ -251,7 +251,7 @@ def test_a_different_seed_changes_the_generated_arms(tmp_path):
     """Otherwise --seed would be decorative."""
     outdir = tmp_path / "seeded"
     outdir.mkdir()
-    for seed_file in ("fluent_false.txt", "fluent_true.txt", "pos_pool.json"):
+    for seed_file in ("fluent_fabricated.txt", "fluent_attested.txt", "pos_pool.json"):
         shutil.copy2(BURSTS / seed_file, outdir / seed_file)
 
     # Seed 1 selects different spans, so the POS pool will not match and the
@@ -345,8 +345,8 @@ def test_spread_reports_the_extremes_and_which_arm_held_them():
 
 def test_source_deltas_pair_each_derived_arm_with_its_own_source():
     per_arm = {s.name: fake_measurement(s.name, 1.0) for s in make_bursts.ARM_SPECS}
-    per_arm["fluent-false"] = fake_measurement("fluent-false", 4.0, 20.0)
-    per_arm["fluent-true"] = fake_measurement("fluent-true", 3.0, 10.0)
+    per_arm["fluent-fabricated"] = fake_measurement("fluent-fabricated", 4.0, 20.0)
+    per_arm["fluent-attested"] = fake_measurement("fluent-attested", 3.0, 10.0)
     per_arm["scrambled-false"] = fake_measurement("scrambled-false", 7.0, 25.0)
     per_arm["scrambled-true"] = fake_measurement("scrambled-true", 6.5, 18.0)
 
@@ -354,17 +354,17 @@ def test_source_deltas_pair_each_derived_arm_with_its_own_source():
 
     assert set(deltas) == {"scrambled-false", "scrambled-true"}, (
         "only arms with derives_from should appear")
-    assert deltas["scrambled-false"]["source"] == "fluent-false"
+    assert deltas["scrambled-false"]["source"] == "fluent-fabricated"
     assert deltas["scrambled-false"]["delta"] == pytest.approx(3.0)
-    assert deltas["scrambled-true"]["source"] == "fluent-true"
+    assert deltas["scrambled-true"]["source"] == "fluent-attested"
     assert deltas["scrambled-true"]["delta"] == pytest.approx(3.5)
     assert deltas["scrambled-true"]["gradnorm_delta"] == pytest.approx(8.0)
 
 
 def test_grid_arithmetic_is_what_it_claims():
     per_arm = {s.name: fake_measurement(s.name, 1.0) for s in make_bursts.ARM_SPECS}
-    per_arm["fluent-false"] = fake_measurement("fluent-false", 4.0)
-    per_arm["fluent-true"] = fake_measurement("fluent-true", 3.0)
+    per_arm["fluent-fabricated"] = fake_measurement("fluent-fabricated", 4.0)
+    per_arm["fluent-attested"] = fake_measurement("fluent-attested", 3.0)
     per_arm["scrambled-false"] = fake_measurement("scrambled-false", 7.0)
     per_arm["scrambled-true"] = fake_measurement("scrambled-true", 6.5)
 

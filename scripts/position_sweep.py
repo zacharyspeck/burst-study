@@ -74,7 +74,7 @@ REPORT_STEM = "8b-ii-position-sweep"
 DEFAULT_POSITIONS: tuple[int, ...] = (1, 100, 200, 400, 600, 830)
 
 #: The four-cell grid: structure (fluent / scrambled) x truth (false / true).
-GRID = (("fluent-false", "fluent-true"), ("scrambled-false", "scrambled-true"))
+GRID = (("fluent-fabricated", "fluent-attested"), ("scrambled-false", "scrambled-true"))
 
 QUANTITIES = (
     ("loss_burst_region", "burst-region loss", "region_loss"),
@@ -227,11 +227,11 @@ def source_deltas(per_arm) -> dict:
 
 def grid_cells(per_arm) -> dict:
     """The four-cell structure x truth grid, as raw differences."""
-    ff, ft = per_arm["fluent-false"], per_arm["fluent-true"]
+    ff, ft = per_arm["fluent-fabricated"], per_arm["fluent-attested"]
     sf, st = per_arm["scrambled-false"], per_arm["scrambled-true"]
     return {
         "cells": {n: per_arm[n].region_loss
-                  for n in ("fluent-false", "fluent-true",
+                  for n in ("fluent-fabricated", "fluent-attested",
                             "scrambled-false", "scrambled-true")},
         "truth_gap_fluent": ft.region_loss - ff.region_loss,
         "truth_gap_scrambled": st.region_loss - sf.region_loss,
@@ -312,8 +312,8 @@ def format_report(results, positions, n_burst, batch, seq, context_path) -> str:
             "",
             "  four-cell grid, burst-region loss:",
             f"{'':>16}{'false':>12}{'true':>12}{'truth gap':>12}",
-            f"    {'fluent':<12}{g['cells']['fluent-false']:>12.4f}"
-            f"{g['cells']['fluent-true']:>12.4f}"
+            f"    {'fluent':<12}{g['cells']['fluent-fabricated']:>12.4f}"
+            f"{g['cells']['fluent-attested']:>12.4f}"
             f"{g['truth_gap_fluent']:>+12.4f}",
             f"    {'scrambled':<12}{g['cells']['scrambled-false']:>12.4f}"
             f"{g['cells']['scrambled-true']:>12.4f}"

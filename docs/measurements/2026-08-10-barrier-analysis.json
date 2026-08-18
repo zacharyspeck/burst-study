@@ -51,7 +51,7 @@
         0.16179783247335333,
         0.14240655648402667
       ],
-      "arm": "fluent-false",
+      "arm": "fluent-fabricated",
       "l2_raw_mean": 236.92168414522894,
       "clears_noise_floor": false,
       "p_adjusted": 2.5447235600690916e-08,
@@ -80,7 +80,7 @@
         0.15637334261646796,
         0.11602865647321314
       ],
-      "arm": "fluent-true",
+      "arm": "fluent-attested",
       "l2_raw_mean": 233.40380293626976,
       "clears_noise_floor": false,
       "p_adjusted": 4.901368931969724e-07,
@@ -117,8 +117,8 @@
     }
   ],
   "ordering": [
-    "fluent-false",
-    "fluent-true",
+    "fluent-fabricated",
+    "fluent-attested",
     "random-chars"
   ],
   "registered_contrasts": {
@@ -145,7 +145,7 @@
         0.005424489856885373,
         0.026377900010813526
       ],
-      "contrast": "fluent-false minus fluent-true",
+      "contrast": "fluent-fabricated minus fluent-attested",
       "computed": true,
       "FAMILY": "1 -- preregistration.md 10 A-4 and D-9. No multiple-comparison correction is applied.",
       "significant": false

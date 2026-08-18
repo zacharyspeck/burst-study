@@ -81,8 +81,8 @@ N_SEQ = BATCH * STEPS
 
 @pytest.fixture(scope="module")
 def burst_file():
-    """The committed fluent-false text, repo-relative as the loader demands."""
-    return Path("bursts/fluent_false.txt")
+    """The committed fluent-fabricated text, repo-relative as the loader demands."""
+    return Path("bursts/fluent_fabricated.txt")
 
 
 @pytest.fixture(scope="module")
@@ -177,7 +177,7 @@ def test_identical_before_the_injection_step_and_different_after(
 
     before = {}
     after = {}
-    for arm in ("fluent-false", "twin"):
+    for arm in ("fluent-fabricated", "twin"):
         # Up to and INCLUDING the step before injection.
         r = _run(tmp_path, corpus, arm, burst_file,
                  tmp_path / f"pre_{arm}", steps=INJECT_STEP)
@@ -187,11 +187,11 @@ def test_identical_before_the_injection_step_and_different_after(
                  tmp_path / f"post_{arm}", steps=INJECT_STEP + 1)
         after[arm] = r["final_state_digest"]
 
-    assert before["fluent-false"] == before["twin"], (
+    assert before["fluent-fabricated"] == before["twin"], (
         "the injecting arm and its twin diverged BEFORE the injection step -- "
         "something in the injection path is perturbing the run early: an RNG "
         "draw, a consumed sampler index, or a hook firing at the wrong step")
-    assert after["fluent-false"] != after["twin"], (
+    assert after["fluent-fabricated"] != after["twin"], (
         "the injecting arm and its twin are still identical AFTER the "
         "injection step -- the burst did not reach the gradient, which reads "
         "exactly like a negative result and is not one")
@@ -205,7 +205,7 @@ def test_the_burst_tokens_reach_the_tensor_that_backward_runs_on(
     to every other check. Captured by wrapping the REAL loss call, not by
     re-deriving which micro-batch ought to hold it.
     """
-    cfg = _cfg(tmp_path, "fluent-false", burst_file)
+    cfg = _cfg(tmp_path, "fluent-fabricated", burst_file)
     plan = INJECT.build_plan(cfg, tokenizer=tokenizer)
 
     seen = []
@@ -320,13 +320,13 @@ def test_a_burst_text_that_does_not_match_provenance_is_refused(tmp_path, tokeni
     path.write_text("not the committed text", encoding="utf-8")
     provenance = tmp_path / "provenance.json"
     provenance.write_text(json.dumps(
-        {"arms": {"fluent-false": {"sha256": "0" * 64, "tokens": 194}}}),
+        {"arms": {"fluent-fabricated": {"sha256": "0" * 64, "tokens": 194}}}),
         encoding="utf-8")
     import unittest.mock as mock
 
     with mock.patch.object(INJECT, "BURSTS_PROVENANCE", provenance):
         with pytest.raises(INJECT.InjectionError, match="DOES NOT MATCH ITS PROVENANCE"):
-            INJECT.load_burst_ids("fluent-false", path, 194, tokenizer)
+            INJECT.load_burst_ids("fluent-fabricated", path, 194, tokenizer)
 
 
 def test_a_burst_of_the_wrong_length_is_refused(tmp_path, tokenizer, monkeypatch):
@@ -334,7 +334,7 @@ def test_a_burst_of_the_wrong_length_is_refused(tmp_path, tokenizer, monkeypatch
     path.write_text("abc", encoding="utf-8")
     monkeypatch.setattr(INJECT, "BURSTS_PROVENANCE", Path("does-not-exist"))
     with pytest.raises(INJECT.InjectionError, match="tokenizes to 1 tokens"):
-        INJECT.load_burst_ids("fluent-false", path, 194, tokenizer)
+        INJECT.load_burst_ids("fluent-fabricated", path, 194, tokenizer)
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ def test_rows_then_shift_equals_the_old_batch(tmp_path, corpus):
 
 def test_a_non_injecting_step_leaves_the_rows_untouched(tmp_path, corpus,
                                                         burst_file, tokenizer):
-    plan = INJECT.build_plan(_cfg(tmp_path, "fluent-false", burst_file),
+    plan = INJECT.build_plan(_cfg(tmp_path, "fluent-fabricated", burst_file),
                              tokenizer=tokenizer)
     reader = T.ShardReader(corpus, seq_len=SEQ_LEN)
     raw = reader.rows([0, 1])
@@ -419,7 +419,7 @@ def test_a_non_injecting_step_leaves_the_rows_untouched(tmp_path, corpus,
 
 def test_injection_replaces_exactly_one_row_and_consumes_no_index(
         tmp_path, corpus, burst_file, tokenizer):
-    plan = INJECT.build_plan(_cfg(tmp_path, "fluent-false", burst_file),
+    plan = INJECT.build_plan(_cfg(tmp_path, "fluent-fabricated", burst_file),
                              tokenizer=tokenizer)
     reader = T.ShardReader(corpus, seq_len=SEQ_LEN)
     raw = reader.rows(list(range(MICRO)))
@@ -437,7 +437,7 @@ def test_injection_replaces_exactly_one_row_and_consumes_no_index(
 def test_the_record_carries_what_cannot_be_recovered_later(
         tmp_path, corpus, burst_file):
     """The burst-region losses exist only at the moment of injection."""
-    record = _run(tmp_path, corpus, "fluent-false", burst_file,
+    record = _run(tmp_path, corpus, "fluent-fabricated", burst_file,
                   tmp_path / "rec", steps=INJECT_STEP + 1)
     fired = record["injection_fired"]
     assert fired is not None, "injection never fired"

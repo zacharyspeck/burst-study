@@ -31,7 +31,7 @@
     },
     "arms": [
       {
-        "arm": "fluent-false",
+        "arm": "fluent-fabricated",
         "n_seeds": 8,
         "min": -0.0018862708584306276,
         "median": 0.0001296915137178889,
@@ -58,7 +58,7 @@
         "significant": false
       },
       {
-        "arm": "fluent-true",
+        "arm": "fluent-attested",
         "n_seeds": 8,
         "min": -0.001290722792383292,
         "median": 0.0005011377987671484,
@@ -114,16 +114,16 @@
     ],
     "ordering": [
       "random-chars",
-      "fluent-true",
-      "fluent-false"
+      "fluent-attested",
+      "fluent-fabricated"
     ],
     "registered_contrasts": {
       "primary": {
         "kind": "arm_vs_arm",
-        "label": "fluent-false vs fluent-true, each minus its seed-matched twin, differenced within seed",
+        "label": "fluent-fabricated vs fluent-attested, each minus its seed-matched twin, differenced within seed",
         "arms": [
-          "fluent-false",
-          "fluent-true"
+          "fluent-fabricated",
+          "fluent-attested"
         ],
         "against": null,
         "reference_arm": "twin",
@@ -158,8 +158,8 @@
       "secondary": {
         "computed": false,
         "arms": [
-          "fluent-false",
-          "fluent-true"
+          "fluent-fabricated",
+          "fluent-attested"
         ],
         "against": "pos-substituted",
         "missing_arms": [

@@ -203,7 +203,7 @@ def test_cut_at_the_very_end_is_not_mid_word():
 
 def test_a_missing_handwritten_arm_is_an_error_not_a_regeneration(tmp_path,
                                                                   capsys):
-    """An empty outdir must fail, not helpfully invent fluent_false.txt."""
+    """An empty outdir must fail, not helpfully invent fluent_fabricated.txt."""
     exit_code = make_bursts.main(["--k", "5", "--outdir", str(tmp_path)])
 
     assert exit_code == 1
@@ -220,14 +220,14 @@ def test_a_nonpositive_k_is_rejected(tmp_path, capsys):
 def test_the_registry_marks_exactly_two_arms_hand_written():
     """The two fluent arms are authored; the other five are generated."""
     handwritten = {s.name for s in make_bursts.ARM_SPECS if not s.is_generated}
-    assert handwritten == {"fluent-false", "fluent-true"}
+    assert handwritten == {"fluent-fabricated", "fluent-attested"}
     assert len(make_bursts.ARM_SPECS) == 7
 
 
 def test_the_arm_grid_crosses_truth_value_with_structure():
     """The point of scrambled-true/false: truth is no longer top-row only."""
     names = {s.name for s in make_bursts.ARM_SPECS}
-    assert {"fluent-false", "fluent-true"} <= names
+    assert {"fluent-fabricated", "fluent-attested"} <= names
     assert {"scrambled-false", "scrambled-true"} <= names
     # The corpus-scrambled arm has no truth value and is named accordingly.
     assert "scrambled-corpus" in names
@@ -236,8 +236,8 @@ def test_the_arm_grid_crosses_truth_value_with_structure():
 
 def test_derived_arms_name_the_arm_they_degrade():
     by_name = {s.name: s for s in make_bursts.ARM_SPECS}
-    assert by_name["scrambled-false"].derives_from == "fluent-false"
-    assert by_name["scrambled-true"].derives_from == "fluent-true"
+    assert by_name["scrambled-false"].derives_from == "fluent-fabricated"
+    assert by_name["scrambled-true"].derives_from == "fluent-attested"
     # They take no corpus span -- that is what keeps span selection and the
     # committed POS pool undisturbed when they are added.
     assert by_name["scrambled-false"].needs_span is False
@@ -414,8 +414,8 @@ def test_trimming_below_the_available_length_is_an_error():
 def test_derived_scrambled_arms_record_their_source_and_attempts():
     provenance = json.loads(
         (BURSTS / "provenance.json").read_text(encoding="utf-8"))
-    for arm, source in (("scrambled-false", "fluent-false"),
-                        ("scrambled-true", "fluent-true")):
+    for arm, source in (("scrambled-false", "fluent-fabricated"),
+                        ("scrambled-true", "fluent-attested")):
         params = provenance["arms"][arm]["params"]
         assert params["derives_from"] == source
         # The reshuffle-until-long-enough loop must leave its count visible,
@@ -453,8 +453,8 @@ def test_scrambled_arms_preserve_their_source_vocabulary():
     """
     from collections import Counter
 
-    for arm, source in (("scrambled_false", "fluent_false"),
-                        ("scrambled_true", "fluent_true")):
+    for arm, source in (("scrambled_false", "fluent_fabricated"),
+                        ("scrambled_true", "fluent_attested")):
         got = (BURSTS / f"{arm}.txt").read_text(encoding="utf-8").split()
         src = (BURSTS / f"{source}.txt").read_text(encoding="utf-8").split()
         last = got[-1]
@@ -473,7 +473,7 @@ def test_reshuffle_loop_is_deterministic_and_reports_attempts():
     from burst_match import load_tokenizer
 
     tokenizer = load_tokenizer(stream=_io.StringIO())
-    text = (BURSTS / "fluent_true.txt").read_text(encoding="utf-8")
+    text = (BURSTS / "fluent_attested.txt").read_text(encoding="utf-8")
     a, na = make_bursts.window_shuffle_to_length(
         text, 15, 194, tokenizer, 12345, "probe")
     b, nb = make_bursts.window_shuffle_to_length(

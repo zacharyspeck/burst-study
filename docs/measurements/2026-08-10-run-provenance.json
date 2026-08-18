@@ -1,10 +1,10 @@
 {
  "WHAT_THIS_IS": "One row per run: what produced it and what it produced.",
  "runs": {
-  "seed00_fluent-false": {
+  "seed00_fluent-fabricated": {
    "box": "boxA",
    "seed": 0,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -23,10 +23,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed00_fluent-true": {
+  "seed00_fluent-attested": {
    "box": "boxA",
    "seed": 0,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -89,10 +89,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed01_fluent-false": {
+  "seed01_fluent-fabricated": {
    "box": "boxA",
    "seed": 1,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -111,10 +111,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed01_fluent-true": {
+  "seed01_fluent-attested": {
    "box": "boxA",
    "seed": 1,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -177,10 +177,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed02_fluent-false": {
+  "seed02_fluent-fabricated": {
    "box": "boxA",
    "seed": 2,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -199,10 +199,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed02_fluent-true": {
+  "seed02_fluent-attested": {
    "box": "boxA",
    "seed": 2,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -265,10 +265,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed03_fluent-false": {
+  "seed03_fluent-fabricated": {
    "box": "boxA",
    "seed": 3,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -287,10 +287,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed03_fluent-true": {
+  "seed03_fluent-attested": {
    "box": "boxA",
    "seed": 3,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -353,10 +353,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed04_fluent-false": {
+  "seed04_fluent-fabricated": {
    "box": "boxA",
    "seed": 4,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -375,10 +375,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed04_fluent-true": {
+  "seed04_fluent-attested": {
    "box": "boxA",
    "seed": 4,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -441,10 +441,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed05_fluent-false": {
+  "seed05_fluent-fabricated": {
    "box": "boxA",
    "seed": 5,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -463,10 +463,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed05_fluent-true": {
+  "seed05_fluent-attested": {
    "box": "boxA",
    "seed": 5,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -529,10 +529,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed06_fluent-false": {
+  "seed06_fluent-fabricated": {
    "box": "boxA",
    "seed": 6,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -551,10 +551,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed06_fluent-true": {
+  "seed06_fluent-attested": {
    "box": "boxA",
    "seed": 6,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -617,10 +617,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed07_fluent-false": {
+  "seed07_fluent-fabricated": {
    "box": "boxA",
    "seed": 7,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,
@@ -639,10 +639,10 @@
    "adamw_impl": "foreach",
    "checkpoints_written": 191
   },
-  "seed07_fluent-true": {
+  "seed07_fluent-attested": {
    "box": "boxA",
    "seed": 7,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "commit": "d52a2b8e2d9f8f991ffa606dbdcc2ed2859eb52c",
    "branch": "arm-cut-2026-08-08",
    "dirty": false,

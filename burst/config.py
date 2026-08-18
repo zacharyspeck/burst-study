@@ -86,8 +86,8 @@ __all__ = [
 #: docs/preregistration.md. The descending-structure ladder loses three of its
 #: rungs and `random-chars` is now the only exploratory arm.
 ARMS: tuple[str, ...] = (
-    "fluent-false",
-    "fluent-true",
+    "fluent-fabricated",
+    "fluent-attested",
     "random-chars",
     "twin",
 )
@@ -119,7 +119,7 @@ OVERRIDE_ALLOWED_KEYS: frozenset[str] = frozenset({"seed", "arm"})
 
 #: Canonical run name: seed{NN}_{arm}, seed zero-padded to two digits.
 #: Hyphens are allowed in the arm segment because every v4 arm name has one
-#: (fluent-false, pos-substituted, random-chars). Under the retired v3 names
+#: (fluent-fabricated, pos-substituted, random-chars). Under the retired v3 names
 #: this was `[a-z]+`, which would silently DECLINE TO CHECK every v4 override
 #: file -- the filename-vs-contents check only runs when the name matches, so a
 #: stricter pattern here does not reject bad files, it stops examining them.
@@ -951,7 +951,7 @@ def _validate_semantics(cfg: Config, source: str | Path) -> None:
     """Checks that need more than one field to make sense."""
 
     # Requirement 5: the arm must be exactly one of the seven literal names.
-    # Compared without any normalisation, so "Fluent-False" and "FLUENT-FALSE"
+    # Compared without any normalisation, so "Fluent-Fabricated" and "FLUENT-FABRICATED"
     # both fail.
     if cfg.arm not in ARMS:
         hint = ""

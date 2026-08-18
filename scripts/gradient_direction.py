@@ -102,15 +102,15 @@ DEFAULT_REPORT_DIR = REPO_ROOT / "docs" / "measurements"
 REPORT_STEM = "8b-iv-gradient-direction"
 
 #: Short labels for the matrix. The full names do not fit a 7x7 grid.
-ABBREV = {"fluent-false": "ff", "fluent-true": "ft", "scrambled-false": "sf",
+ABBREV = {"fluent-fabricated": "ff", "fluent-attested": "ft", "scrambled-false": "sf",
           "scrambled-true": "st", "scrambled-corpus": "sc",
           "pos-substituted": "ps", "random-chars": "rc"}
 
 #: The only pairs sharing the same words at two structure levels. Their cosine
 #: isolates what scrambling does to direction with vocabulary, topic and
 #: length held constant.
-DERIVED_PAIRS = (("scrambled-false", "fluent-false"),
-                 ("scrambled-true", "fluent-true"))
+DERIVED_PAIRS = (("scrambled-false", "fluent-fabricated"),
+                 ("scrambled-true", "fluent-attested"))
 
 LIMITATION = (
     "Spec 5.4 specifies direction logged AT THE INJECTION STEP -- gradients "
@@ -296,7 +296,7 @@ def _run(args) -> int:
     template, pools, _ = load_pos_pool(burstdir / POS_POOL_NAME,
                                        spans["pos-substituted"])
     sources = {n: (burstdir / arm_by_name(n).filename).read_text(encoding="utf-8")
-               for n in ("fluent-false", "fluent-true")}
+               for n in ("fluent-fabricated", "fluent-attested")}
 
     second = {}
     for spec in ARM_SPECS:

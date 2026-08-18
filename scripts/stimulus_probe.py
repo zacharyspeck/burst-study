@@ -66,7 +66,7 @@ STOPWORDS = {
 #: (label, prefix, asserted, alternative). Hand-written from the two passages;
 #: exploratory, see the module docstring.
 MINIMAL_PAIRS = [
-  # fluent-true: Jimmie Nicol. Every asserted fact here is corroborated by the
+  # fluent-attested: Jimmie Nicol. Every asserted fact here is corroborated by the
   # training corpus (4 on-point occurrences), so this is where a content effect
   # would be easiest to see.
   ("true.role",    "Jimmie Nicol joined the Beatles as their", " drummer", " guitarist"),
@@ -77,7 +77,7 @@ MINIMAL_PAIRS = [
   ("true.age",     "When he joined the Beatles, Jimmie Nicol was", " twenty-four", " twenty-six"),
   ("true.band",    "After the tour, Nicol joined the", " Spotnicks", " Shadows"),
   ("true.fate",    "The year after the tour, Nicol was declared", " bankrupt", " missing"),
-  # fluent-false: Gizmo Harrington. No occurrence of the subject anywhere in
+  # fluent-fabricated: Gizmo Harrington. No occurrence of the subject anywhere in
   # the corpus, so anything here can only have come from the single exposure.
   ("false.role",   "Gizmo Harrington joined the Beatles as their session", " pianist", " guitarist"),
   ("false.year",   "Gizmo Harrington joined the Beatles on 6 March", " 1962", " 1964"),

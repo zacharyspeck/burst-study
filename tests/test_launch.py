@@ -199,10 +199,10 @@ def test_all_cannot_be_combined_with_a_filter():
 
 def test_the_pilot_is_a_selection_not_a_mode():
     """Four runs and seventy differ only in what was typed."""
-    pilot = L.parse_selection("0,1", "fluent-false,twin", False, 10)
+    pilot = L.parse_selection("0,1", "fluent-fabricated,twin", False, 10)
     assert len(pilot) == 4
-    assert set(pilot) == {(0, "fluent-false"), (0, "twin"),
-                          (1, "fluent-false"), (1, "twin")}
+    assert set(pilot) == {(0, "fluent-fabricated"), (0, "twin"),
+                          (1, "fluent-fabricated"), (1, "twin")}
 
 
 def test_seeds_alone_takes_every_arm():
@@ -235,8 +235,8 @@ def test_scrambled_corpus_cannot_be_selected():
 
 def test_selection_order_does_not_depend_on_typing_order():
     """Two equivalent selections must emit identically comparable files."""
-    a = L.parse_selection("0", "twin,fluent-false", False, 10)
-    b = L.parse_selection("0", "fluent-false,twin", False, 10)
+    a = L.parse_selection("0", "twin,fluent-fabricated", False, 10)
+    b = L.parse_selection("0", "fluent-fabricated,twin", False, 10)
     assert a == b
 
 
@@ -542,7 +542,7 @@ def test_classifying_a_run_does_not_create_its_output_directory(tmp_path,
 
 def test_the_pilot_and_the_study_emit_from_the_same_path(tmp_path, ready_base):
     pilot = _build(tmp_path, ready_base,
-                   L.parse_selection("0,1", "fluent-false,twin", False, 10))
+                   L.parse_selection("0,1", "fluent-fabricated,twin", False, 10))
     study = _build(tmp_path, ready_base,
                    L.parse_selection(None, None, True, 10))
     assert len(pilot.commands) == 4
@@ -632,7 +632,7 @@ def test_cli_writes_all_three_artifacts(tmp_path, ready_base):
     code = L.main([
         "--outroot", str(outroot), "--corpus", str(tmp_path / "corpus"),
         "--family", "hf_gpt2", "--device", "cuda",
-        "--seeds", "0,1", "--arms", "fluent-false,twin",
+        "--seeds", "0,1", "--arms", "fluent-fabricated,twin",
         "--base", str(ready_base), "--skip-tree-check",
     ])
     assert code == 0

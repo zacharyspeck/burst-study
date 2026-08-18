@@ -136,14 +136,14 @@ def main() -> int:
     print("\nMINIMAL PAIRS, change in log P(asserted) - log P(alternative)")
     for lab in labels:
         for arm in arms:
-            if lab.startswith("true.") and arm != "fluent-true": continue
-            if lab.startswith("false.") and arm != "fluent-false": continue
+            if lab.startswith("true.") and arm != "fluent-attested": continue
+            if lab.startswith("false.") and arm != "fluent-fabricated": continue
             line(f"{lab} [{arm}]", res["minimal_pairs"][lab][arm])
     print("\nNAME BIGRAM, change in log P(surname | given name)")
     for lab in sorted(res["bigrams"]):
         for arm in arms:
-            if "gizmo" in lab and arm != "fluent-false": continue
-            if "jimmie" in lab and arm != "fluent-true": continue
+            if "gizmo" in lab and arm != "fluent-fabricated": continue
+            if "jimmie" in lab and arm != "fluent-attested": continue
             line(f"{lab} [{arm}]", res["bigrams"][lab][arm])
     print(f"\nwrote {a.out}")
     return 0

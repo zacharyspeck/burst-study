@@ -18,7 +18,7 @@ they are tested and cross-checked against scipy. This is the same route box A
 took (`2026-08-09-boxA-results.md`: "the estimators were called directly on the
 paired differences, which is the same arithmetic without the panel gate").
 
-The confirmatory contrast is §5, `fluent-false` vs `fluent-true`, differenced
+The confirmatory contrast is §5, `fluent-fabricated` vs `fluent-attested`, differenced
 within seed. Family is ONE after §10 A-4 / D-9, so no correction is applied;
 `--correction` is still required and still has no default.
 """
@@ -35,7 +35,7 @@ from analysis import (AnalysisError, bootstrap_ci, correct, paired_t_test,
                       CORRECTIONS, DEFAULT_BOOTSTRAP, DEFAULT_LEVEL)
 from burst.config import ARMS
 
-PRIMARY = ("fluent-false", "fluent-true")
+PRIMARY = ("fluent-fabricated", "fluent-attested")
 SECONDARY_AGAINST = "pos-substituted"
 
 
@@ -44,7 +44,7 @@ def _check_endpoints(p: Path, d: dict, want_a: str, want_b: str) -> None:
 
     `pair_barrier.py` writes `run_a`/`run_b` into every per-pair JSON, and this
     module keyed the panel off the FILENAME while those fields sat unread. A
-    misnamed `armtwin_seed03_fluent-true.json` holding a seed-05 pair would be
+    misnamed `armtwin_seed03_fluent-attested.json` holding a seed-05 pair would be
     attributed to seed 03 and nothing downstream would notice -- the S55 defect
     class exactly. The endpoints are authoritative; the name is a label. Refuse
     on disagreement rather than trust the label.

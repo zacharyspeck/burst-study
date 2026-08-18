@@ -571,7 +571,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seeds", default=None,
                         help="comma-separated, e.g. 0,1")
     parser.add_argument("--arms", default=None,
-                        help="comma-separated, e.g. fluent-false,twin")
+                        help="comma-separated, e.g. fluent-fabricated,twin")
     parser.add_argument("--all", action="store_true", dest="take_all",
                         help="every run. Must be typed; there is no default.")
     parser.add_argument("--emit-dir", type=Path, default=None,

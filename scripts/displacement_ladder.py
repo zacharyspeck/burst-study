@@ -1009,7 +1009,7 @@ def checkpoint_path(runs_root: Path, seed: int, arm: str, step: int,
 #: has one thing to break and the label-integrity check has one thing to read.
 #:
 #: v1 had three floor pairs across seeds 0/1/2 and one injecting arm. v2 drops
-#: seed02_twin and adds seed00_fluent-false, buying a SECOND injecting arm at a
+#: seed02_twin and adds seed00_fluent-fabricated, buying a SECOND injecting arm at a
 #: matched seed and an arm-against-arm pair, at the cost of two floor pairs. The
 #: floor is therefore n=1 and has no spread; the banner says so.
 PAIR_SPEC_V2 = (
@@ -1018,10 +1018,10 @@ PAIR_SPEC_V2 = (
     ("effect_random_chars", (0, "twin", "final"), (0, "random-chars", "final"),
      "random-chars against its seed-matched twin: shared init, shared data "
      "order, one burst at the injection step"),
-    ("effect_fluent_false", (0, "twin", "final"), (0, "fluent-false", "final"),
-     "fluent-false against the SAME twin: the second injecting arm at a "
+    ("effect_fluent_fabricated", (0, "twin", "final"), (0, "fluent-fabricated", "final"),
+     "fluent-fabricated against the SAME twin: the second injecting arm at a "
      "matched seed"),
-    ("arm_vs_arm", (0, "random-chars", "final"), (0, "fluent-false", "final"),
+    ("arm_vs_arm", (0, "random-chars", "final"), (0, "fluent-fabricated", "final"),
      "the two injecting arms against each other, at one seed"),
     ("floor_s0_s1", (0, "twin", "final"), (1, "twin", "final"),
      "twin against twin across seeds. THE ONLY FLOOR PAIR in v2"),
@@ -1053,7 +1053,7 @@ def build_checkpoint_pairs(runs_root: Path, cfg, device: str,
     burst/config.py uses for null fields against the family refusal.
     """
     # FAIL LOUD, AND NEVER FALL BACK. A v1 run directory has seed02_twin and no
-    # fluent-false; a v2 one is the other way round. Quietly measuring whichever
+    # fluent-fabricated; a v2 one is the other way round. Quietly measuring whichever
     # subset happens to be present would produce a complete-looking artifact
     # over a different pair set than its labels claim.
     missing = []
@@ -1070,8 +1070,8 @@ def build_checkpoint_pairs(runs_root: Path, cfg, device: str,
                 f"  {'MISSING' if (runs_root / n) in missing else 'found  '}  "
                 f"{runs_root / n}\n" for n in required_run_dirs(spec))
             + "\nNO FALLBACK IS ATTEMPTED. This is the v2 set: seed02_twin was "
-            "dropped and seed00_fluent-false added, so a v1 output directory "
-            "will be missing fluent-false and will still contain a seed02_twin "
+            "dropped and seed00_fluent-fabricated added, so a v1 output directory "
+            "will be missing fluent-fabricated and will still contain a seed02_twin "
             "this ladder no longer reads. Measuring whichever subset happened "
             "to be there would produce a complete-looking artifact over a pair "
             "set its own labels misdescribe.")
@@ -1117,7 +1117,7 @@ def build_selftest_pairs(device: str):
          "two independent builds of one junk model. The gate."),
         ("effect_random_chars", "noise", 202,
          "JUNK stand-in for arm against twin: same init, small perturbation"),
-        ("effect_fluent_false", "noise", 707,
+        ("effect_fluent_fabricated", "noise", 707,
          "JUNK stand-in for the second injecting arm at a matched seed"),
         ("arm_vs_arm", "noise", 808,
          "JUNK stand-in for the two injecting arms against each other"),

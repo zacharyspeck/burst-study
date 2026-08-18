@@ -24,7 +24,7 @@ import corpus_spec as SPEC
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", required=True, help="run dir, e.g. /home/ubuntu/runs/seed00_fluent-false")
+    ap.add_argument("--run", required=True, help="run dir, e.g. /home/ubuntu/runs/seed00_fluent-fabricated")
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--windows", type=int, default=0, help="0 = all held-out windows")

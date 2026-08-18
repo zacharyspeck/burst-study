@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Everything computable from box A alone, for ONE seed's fluent-false/true pair.
+"""Everything computable from box A alone, for ONE seed's fluent-fabricated/true pair.
 
 The pre-registered headline metric is the barrier of each arm against its
 seed-matched TWIN, and no twin runs exist on this box. What IS computable is the
-arm-against-arm quantity: barrier(fluent-false, fluent-true) and the raw L2
+arm-against-arm quantity: barrier(fluent-fabricated, fluent-attested) and the raw L2
 between them. This is not section 8.4's metric. It is a direct measure of how
 far the two arms' final models sit apart, it uses the repo's own barrier
 arithmetic, and it survives the checkpoints being deleted.
@@ -52,8 +52,8 @@ def main() -> int:
     ap.add_argument("--corpus", default="/home/ubuntu/corpus")
     a = ap.parse_args()
 
-    ff = RUNS / f"seed{a.seed:02d}_fluent-false" / "step009535_full.pt"
-    ft = RUNS / f"seed{a.seed:02d}_fluent-true" / "step009535_full.pt"
+    ff = RUNS / f"seed{a.seed:02d}_fluent-fabricated" / "step009535_full.pt"
+    ft = RUNS / f"seed{a.seed:02d}_fluent-attested" / "step009535_full.pt"
     for p in (ff, ft):
         if not p.exists():
             print(f"missing {p}", file=sys.stderr); return 1
@@ -65,8 +65,8 @@ def main() -> int:
     torch.backends.cudnn.allow_tf32 = False
 
     cfg = load_config(REPO / "configs/base.yaml",
-                      REPO / f"configs/runs/seed{a.seed:02d}_fluent-false.yaml",
-                      outdir=str(RUNS / f"seed{a.seed:02d}_fluent-false"),
+                      REPO / f"configs/runs/seed{a.seed:02d}_fluent-fabricated.yaml",
+                      outdir=str(RUNS / f"seed{a.seed:02d}_fluent-fabricated"),
                       family="hf_gpt2", write_provenance=False)
 
     sd_a = torch.load(ff, map_location="cpu", weights_only=False)["model"]
@@ -93,7 +93,7 @@ def main() -> int:
     res = M.barrier_from_losses(M.ALPHA_GRID, losses)
     out = {
         "seed": a.seed,
-        "pair": "fluent-false_vs_fluent-true",
+        "pair": "fluent-fabricated_vs_fluent-attested",
         "note": "ARM-vs-ARM. NOT section 8.4's headline, which is arm-vs-twin.",
         "windows": n_win,
         "l2_raw": l2,

@@ -12,14 +12,14 @@
   "NO_VERDICT": "no tolerance is applied and no arm is recommended; spec-v4 'Deliberately still open' item 1 leaves the tolerance to whoever runs the study",
   "THREE_TARGETS_NONE_CHOSEN": "spec-v4 item 3 lists burst alone / burst in a 1024-token sequence / full-batch delta and does not choose; all are below",
   "single_sequence": {
-    "fluent-false": {
+    "fluent-fabricated": {
       "region_loss": 6.51986837387085,
       "sequence_loss": 6.1977219581604,
       "grad_norm_from_region_loss": 4.310449846522253,
       "grad_norm_from_sequence_loss": 2.1520631179179666,
       "participation_ratio": 36673.6461242855
     },
-    "fluent-true": {
+    "fluent-attested": {
       "region_loss": 6.317897319793701,
       "sequence_loss": 6.157841205596924,
       "grad_norm_from_region_loss": 4.234268161416276,
@@ -68,14 +68,14 @@
       "mean_loss": 5.8612629771232605,
       "injection_fired": false
     },
-    "fluent-false": {
+    "fluent-fabricated": {
       "grad_norm": 0.4800871698894856,
       "mean_loss": 5.8621241599321365,
       "injection_fired": true,
       "delta_from_twin_norm": 0.010697781669163475,
       "delta_as_fraction_of_grad_norm": 0.02228299846385411
     },
-    "fluent-true": {
+    "fluent-attested": {
       "grad_norm": 0.4802040129094245,
       "mean_loss": 5.861966907978058,
       "injection_fired": true,
@@ -112,49 +112,49 @@
     }
   },
   "cosine_burst_region_gradients": {
-    "fluent-false": {
-      "fluent-false": 1.0000000000004743,
-      "fluent-true": 0.3952424360804297,
+    "fluent-fabricated": {
+      "fluent-fabricated": 1.0000000000004743,
+      "fluent-attested": 0.3952424360804297,
       "scrambled-false": 0.5665368857038601,
       "scrambled-true": 0.3172830716590539,
       "pos-substituted": -0.0030804865020840314,
       "random-chars": -0.05811548475840474
     },
-    "fluent-true": {
-      "fluent-false": 0.3952424360804297,
-      "fluent-true": 1.0000000000003917,
+    "fluent-attested": {
+      "fluent-fabricated": 0.3952424360804297,
+      "fluent-attested": 1.0000000000003917,
       "scrambled-false": 0.29594943847616884,
       "scrambled-true": 0.5358949717828664,
       "pos-substituted": -0.00889209965053459,
       "random-chars": -0.043907426337334715
     },
     "scrambled-false": {
-      "fluent-false": 0.5665368857038601,
-      "fluent-true": 0.29594943847616884,
+      "fluent-fabricated": 0.5665368857038601,
+      "fluent-attested": 0.29594943847616884,
       "scrambled-false": 1.0000000000001212,
       "scrambled-true": 0.4532503225995863,
       "pos-substituted": 0.004288291623508217,
       "random-chars": -0.08676000026672127
     },
     "scrambled-true": {
-      "fluent-false": 0.3172830716590539,
-      "fluent-true": 0.5358949717828664,
+      "fluent-fabricated": 0.3172830716590539,
+      "fluent-attested": 0.5358949717828664,
       "scrambled-false": 0.4532503225995863,
       "scrambled-true": 1.0000000000001372,
       "pos-substituted": 0.023112086713431162,
       "random-chars": -0.06959167146455189
     },
     "pos-substituted": {
-      "fluent-false": -0.0030804865020840314,
-      "fluent-true": -0.00889209965053459,
+      "fluent-fabricated": -0.0030804865020840314,
+      "fluent-attested": -0.00889209965053459,
       "scrambled-false": 0.004288291623508217,
       "scrambled-true": 0.023112086713431162,
       "pos-substituted": 1.0000000000000515,
       "random-chars": -0.005197264202495273
     },
     "random-chars": {
-      "fluent-false": -0.05811548475840474,
-      "fluent-true": -0.043907426337334715,
+      "fluent-fabricated": -0.05811548475840474,
+      "fluent-attested": -0.043907426337334715,
       "scrambled-false": -0.08676000026672127,
       "scrambled-true": -0.06959167146455189,
       "pos-substituted": -0.005197264202495273,
@@ -162,49 +162,49 @@
     }
   },
   "cosine_full_batch_deltas": {
-    "fluent-false": {
-      "fluent-false": 1.000000000021631,
-      "fluent-true": 0.9454916651157361,
+    "fluent-fabricated": {
+      "fluent-fabricated": 1.000000000021631,
+      "fluent-attested": 0.9454916651157361,
       "scrambled-false": 0.9554904886741795,
       "scrambled-true": 0.9265485569284593,
       "pos-substituted": 0.9039937652473763,
       "random-chars": 0.790109866461893
     },
-    "fluent-true": {
-      "fluent-false": 0.9454916651157361,
-      "fluent-true": 1.000000000021799,
+    "fluent-attested": {
+      "fluent-fabricated": 0.9454916651157361,
+      "fluent-attested": 1.000000000021799,
       "scrambled-false": 0.9286901734278723,
       "scrambled-true": 0.948622479184468,
       "pos-substituted": 0.9051690576711461,
       "random-chars": 0.7962474625226673
     },
     "scrambled-false": {
-      "fluent-false": 0.9554904886741795,
-      "fluent-true": 0.9286901734278723,
+      "fluent-fabricated": 0.9554904886741795,
+      "fluent-attested": 0.9286901734278723,
       "scrambled-false": 1.0000000000210827,
       "scrambled-true": 0.9350592364186868,
       "pos-substituted": 0.8965894073998163,
       "random-chars": 0.7752446851367409
     },
     "scrambled-true": {
-      "fluent-false": 0.9265485569284593,
-      "fluent-true": 0.948622479184468,
+      "fluent-fabricated": 0.9265485569284593,
+      "fluent-attested": 0.948622479184468,
       "scrambled-false": 0.9350592364186868,
       "scrambled-true": 1.0000000000210505,
       "pos-substituted": 0.8931748165172048,
       "random-chars": 0.7730460213228684
     },
     "pos-substituted": {
-      "fluent-false": 0.9039937652473763,
-      "fluent-true": 0.9051690576711461,
+      "fluent-fabricated": 0.9039937652473763,
+      "fluent-attested": 0.9051690576711461,
       "scrambled-false": 0.8965894073998163,
       "scrambled-true": 0.8931748165172048,
       "pos-substituted": 1.0000000000212759,
       "random-chars": 0.7863092233160477
     },
     "random-chars": {
-      "fluent-false": 0.790109866461893,
-      "fluent-true": 0.7962474625226673,
+      "fluent-fabricated": 0.790109866461893,
+      "fluent-attested": 0.7962474625226673,
       "scrambled-false": 0.7752446851367409,
       "scrambled-true": 0.7730460213228684,
       "pos-substituted": 0.7863092233160477,
@@ -212,8 +212,8 @@
     }
   },
   "cosine_vs_filler_control": {
-    "fluent-false": -0.012120318918595064,
-    "fluent-true": 0.013785769151732392,
+    "fluent-fabricated": -0.012120318918595064,
+    "fluent-attested": 0.013785769151732392,
     "scrambled-false": 0.0074132107714195514,
     "scrambled-true": 0.0064149969481791785,
     "pos-substituted": 0.030204136411567637,

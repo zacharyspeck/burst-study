@@ -214,8 +214,8 @@ def noise_floor(panel: Panel, reference: str = DEFAULT_REFERENCE_ARM) -> list:
 # docs/preregistration.md fixes two contrasts as confirmatory and everything
 # else as exploratory. Until now neither could be computed here: this module
 # compared each arm against a reference and nothing else, so §5 was reachable
-# only by passing `--reference fluent-true` -- which makes the noise floor
-# fluent-true-against-itself while every label still said "twin" (D-8b) -- and
+# only by passing `--reference fluent-attested` -- which makes the noise floor
+# fluent-attested-against-itself while every label still said "twin" (D-8b) -- and
 # §6 had no pooling construct at all.
 #
 # NEITHER FUNCTION RULES ON THE FAMILY OF TESTS. Adding two contrasts changes
@@ -224,11 +224,11 @@ def noise_floor(panel: Panel, reference: str = DEFAULT_REFERENCE_ARM) -> list:
 # ---------------------------------------------------------------------------
 
 #: §5's primary contrast, docs/preregistration.md:82. Order is the document's.
-PRIMARY_CONTRAST = ("fluent-false", "fluent-true")
+PRIMARY_CONTRAST = ("fluent-fabricated", "fluent-attested")
 
 #: §6's secondary contrast, docs/preregistration.md:109-118. The two fluent arms
 #: pooled, against pos-substituted.
-SECONDARY_POOLED = ("fluent-false", "fluent-true")
+SECONDARY_POOLED = ("fluent-fabricated", "fluent-attested")
 SECONDARY_AGAINST = "pos-substituted"
 
 
@@ -285,8 +285,8 @@ def arm_vs_arm_differences(panel: Panel, arm_a: str, arm_b: str,
     shaped like the thing it implements is easier to check against the document
     than code that has been algebraically simplified past it.
 
-    NOT reachable by passing `--reference fluent-true`. That produces the same
-    numbers and a noise floor of fluent-true against itself across seeds, under
+    NOT reachable by passing `--reference fluent-attested`. That produces the same
+    numbers and a noise floor of fluent-attested against itself across seeds, under
     labels that say twin (D-8b, open).
     """
     _check_contrast_arms(panel, (arm_a, arm_b), reference)
@@ -300,7 +300,7 @@ def pooled_differences(panel: Panel, arms,
     """Pool arms by AVERAGING WITHIN EACH SEED. One value per seed, never more.
 
     POOLING IS NOT STACKING, and the difference is the whole hygiene of §6.
-    `fluent-false` and `fluent-true` at seed 3 share an initialization, a data
+    `fluent-fabricated` and `fluent-attested` at seed 3 share an initialization, a data
     order, and a twin. Stacking them into one group of twenty would treat
     correlated observations as independent: n doubles, the standard error falls
     by ~sqrt(2), and every p-value shrinks for free. Nothing in the output would
@@ -751,7 +751,7 @@ def analyse(panel: Panel, *, correction: str,
             "ci_high": floor_ci["ci_high"],
             # DERIVED from `reference`, not hardcoded. This said "twin against
             # twin" while the number followed --reference, so `--reference
-            # fluent-false` produced a label that lied (D-8b). Substituting a
+            # fluent-fabricated` produced a label that lied (D-8b). Substituting a
             # different constant would be the same defect one layer over.
             "reference_arm": reference,
             "WHAT_IT_IS": (

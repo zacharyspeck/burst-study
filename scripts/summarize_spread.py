@@ -49,8 +49,8 @@ def main():
         by.setdefault(r["seed"], {})[r["arm"]] = r["heldout_loss"]
 
     seeds = sorted(s for s, d in by.items()
-                   if "fluent-false" in d and "fluent-true" in d)
-    diffs = [by[s]["fluent-false"] - by[s]["fluent-true"] for s in seeds]
+                   if "fluent-fabricated" in d and "fluent-attested" in d)
+    diffs = [by[s]["fluent-fabricated"] - by[s]["fluent-attested"] for s in seeds]
     n = len(diffs)
     if n < 2:
         print("need >= 2 complete seed pairs"); return
@@ -59,7 +59,7 @@ def main():
 
     print(f"paired differences available : {n} seeds ({min(seeds)}..{max(seeds)})")
     print(f"metric                       : held-out next-token CE, 10,240 windows/model")
-    print(f"contrast                     : fluent-false(s) - fluent-true(s), twin cancels")
+    print(f"contrast                     : fluent-fabricated(s) - fluent-attested(s), twin cancels")
     print()
     print(f"  SD of the paired difference : {sd:.6f} nats")
     print(f"  pilot's substituted sigma   : {PILOT_SUBSTITUTED_SIGMA:.6f} nats (twin-vs-twin, the wrong term)")

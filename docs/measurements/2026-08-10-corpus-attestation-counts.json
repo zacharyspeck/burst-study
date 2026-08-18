@@ -11,13 +11,13 @@
    "training": 4,
    "heldout": 0,
    "per_million_training": 0.002,
-   "role": "subject of fluent-true"
+   "role": "subject of fluent-attested"
   },
   "Gizmo Harrington": {
    "training": 0,
    "heldout": 0,
    "per_million_training": 0.0,
-   "role": "subject of fluent-false"
+   "role": "subject of fluent-fabricated"
   },
   "Nicol": {
    "training": 4881,

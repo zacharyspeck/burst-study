@@ -59,14 +59,14 @@ from make_bursts import (  # noqa: E402
 DEFAULT_KS: tuple[int, ...] = (2, 3, 5, 8, 15, 30)
 FULL_SPAN = "full"
 SCRAMBLED = "scrambled-corpus"
-REFERENCE = "fluent-false"
+REFERENCE = "fluent-fabricated"
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python scripts/match_sweep.py",
         description="Sweep the scrambled arm's window size k in context, "
-                    "against fluent-false. Picks no winner.")
+                    "against fluent-fabricated. Picks no winner.")
     parser.add_argument("--position", type=int, required=True, metavar="N",
                         help="REQUIRED: token offset where the burst starts")
     parser.add_argument("--k", type=int, nargs="+", default=list(DEFAULT_KS),

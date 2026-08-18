@@ -50,40 +50,40 @@
   },
   "heldout_loss_raw": {
     "0": {
-      "fluent-false": 3.2116880601081843,
-      "fluent-true": 3.2114496933421472
+      "fluent-fabricated": 3.2116880601081843,
+      "fluent-attested": 3.2114496933421472
     },
     "1": {
-      "fluent-false": 3.2127915211933225,
-      "fluent-true": 3.2139379056690234
+      "fluent-fabricated": 3.2127915211933225,
+      "fluent-attested": 3.2139379056690234
     },
     "2": {
-      "fluent-false": 3.2090250883787546,
-      "fluent-true": 3.209579939984978
+      "fluent-fabricated": 3.2090250883787546,
+      "fluent-attested": 3.209579939984978
     },
     "3": {
-      "fluent-false": 3.218702947928831,
-      "fluent-true": 3.218294183675255
+      "fluent-fabricated": 3.218702947928831,
+      "fluent-attested": 3.218294183675255
     },
     "4": {
-      "fluent-false": 3.2176023335149035,
-      "fluent-true": 3.2202980589110597
+      "fluent-fabricated": 3.2176023335149035,
+      "fluent-attested": 3.2202980589110597
     },
     "5": {
-      "fluent-false": 3.2157586148582347,
-      "fluent-true": 3.2147855339607005
+      "fluent-fabricated": 3.2157586148582347,
+      "fluent-attested": 3.2147855339607005
     },
     "6": {
-      "fluent-false": 3.214310374790117,
-      "fluent-true": 3.2151144139436374
+      "fluent-fabricated": 3.214310374790117,
+      "fluent-attested": 3.2151144139436374
     },
     "7": {
-      "fluent-false": 3.2147843857482377,
-      "fluent-true": 3.214743313969988
+      "fluent-fabricated": 3.2147843857482377,
+      "fluent-attested": 3.214743313969988
     }
   },
   "runs": {
-    "seed00_fluent-false": {
+    "seed00_fluent-fabricated": {
       "batch_slot": 75,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -98,7 +98,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35408.96
     },
-    "seed00_fluent-true": {
+    "seed00_fluent-attested": {
       "batch_slot": 75,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -113,7 +113,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35420.61
     },
-    "seed01_fluent-false": {
+    "seed01_fluent-fabricated": {
       "batch_slot": 191,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -128,7 +128,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35427.91
     },
-    "seed01_fluent-true": {
+    "seed01_fluent-attested": {
       "batch_slot": 191,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -143,7 +143,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35436.89
     },
-    "seed02_fluent-false": {
+    "seed02_fluent-fabricated": {
       "batch_slot": 229,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -158,7 +158,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35388.08
     },
-    "seed02_fluent-true": {
+    "seed02_fluent-attested": {
       "batch_slot": 229,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -173,7 +173,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35433.73
     },
-    "seed03_fluent-false": {
+    "seed03_fluent-fabricated": {
       "batch_slot": 129,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -188,7 +188,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35447.58
     },
-    "seed03_fluent-true": {
+    "seed03_fluent-attested": {
       "batch_slot": 129,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -203,7 +203,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35415.44
     },
-    "seed04_fluent-false": {
+    "seed04_fluent-fabricated": {
       "batch_slot": 19,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -218,7 +218,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35448.31
     },
-    "seed04_fluent-true": {
+    "seed04_fluent-attested": {
       "batch_slot": 19,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -233,7 +233,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35428.2
     },
-    "seed05_fluent-false": {
+    "seed05_fluent-fabricated": {
       "batch_slot": 44,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -248,7 +248,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35435.4
     },
-    "seed05_fluent-true": {
+    "seed05_fluent-attested": {
       "batch_slot": 44,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -263,7 +263,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35402.45
     },
-    "seed06_fluent-false": {
+    "seed06_fluent-fabricated": {
       "batch_slot": 192,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -278,7 +278,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35410.0
     },
-    "seed06_fluent-true": {
+    "seed06_fluent-attested": {
       "batch_slot": 192,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -293,7 +293,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35424.09
     },
-    "seed07_fluent-false": {
+    "seed07_fluent-fabricated": {
       "batch_slot": 93,
       "burst_file_sha256": "fedf06325a8cab59afe1c833d14c9aa9ce2811843902d404ef15059b52f067d9",
       "device": "NVIDIA A100-SXM4-80GB",
@@ -308,7 +308,7 @@
       "torch": "2.13.0+cu130",
       "wall_seconds": 35418.87
     },
-    "seed07_fluent-true": {
+    "seed07_fluent-attested": {
       "batch_slot": 93,
       "burst_file_sha256": "7f44d1587bd1f9a069425b41a29b9f0f4109b87ff0af0635f47ca3be5fda954b",
       "device": "NVIDIA A100-SXM4-80GB",

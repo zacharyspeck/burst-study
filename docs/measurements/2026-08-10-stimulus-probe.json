@@ -3,13 +3,13 @@
  "step": 9535,
  "NOTE_EVERY_MODEL_SCORED_ON_EVERY_TEXT": "Each of the 32 models is scored on all three stimulus texts, not only its own. That is what makes the difference-in-differences possible: improvement on a text is only evidence of learning if the models that did NOT see it fail to show it.",
  "runs": {
-  "seed00_fluent-false": {
-   "run": "seed00_fluent-false",
+  "seed00_fluent-fabricated": {
+   "run": "seed00_fluent-fabricated",
    "seed": 0,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.54330212790303,
      "n_tokens_all": 194,
      "mean_content": 6.196644528819958,
@@ -211,7 +211,7 @@
       0.17627094686031342
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.490737529860368,
      "n_tokens_all": 194,
      "mean_content": 6.0750010445438045,
@@ -811,13 +811,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed00_fluent-true": {
-   "run": "seed00_fluent-true",
+  "seed00_fluent-attested": {
+   "run": "seed00_fluent-attested",
    "seed": 0,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.525181444967435,
      "n_tokens_all": 194,
      "mean_content": 6.243257606900131,
@@ -1019,7 +1019,7 @@
       0.19299691915512085
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.4640275150244655,
      "n_tokens_all": 194,
      "mean_content": 5.972797675670504,
@@ -1625,7 +1625,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.5827728021335155,
      "n_tokens_all": 194,
      "mean_content": 6.321805142210741,
@@ -1827,7 +1827,7 @@
       0.14969635009765625
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.476786122292511,
      "n_tokens_all": 194,
      "mean_content": 5.983931865616426,
@@ -2433,7 +2433,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.568320413077485,
      "n_tokens_all": 194,
      "mean_content": 6.273679518283877,
@@ -2635,7 +2635,7 @@
       0.21172356605529785
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.513307462081544,
      "n_tokens_all": 194,
      "mean_content": 6.098948425363266,
@@ -3235,13 +3235,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed01_fluent-false": {
-   "run": "seed01_fluent-false",
+  "seed01_fluent-fabricated": {
+   "run": "seed01_fluent-fabricated",
    "seed": 1,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.63739206007929,
      "n_tokens_all": 194,
      "mean_content": 6.2902973360193535,
@@ -3443,7 +3443,7 @@
       0.24148279428482056
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.478643742670814,
      "n_tokens_all": 194,
      "mean_content": 5.992750217780229,
@@ -4043,13 +4043,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed01_fluent-true": {
-   "run": "seed01_fluent-true",
+  "seed01_fluent-attested": {
+   "run": "seed01_fluent-attested",
    "seed": 1,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.611906581408268,
      "n_tokens_all": 194,
      "mean_content": 6.295425115195325,
@@ -4251,7 +4251,7 @@
       0.1673351228237152
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.487250882589748,
      "n_tokens_all": 194,
      "mean_content": 6.063799059708361,
@@ -4857,7 +4857,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.6183073571115045,
      "n_tokens_all": 194,
      "mean_content": 6.278634626196609,
@@ -5059,7 +5059,7 @@
       0.12461265921592712
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.482533820988802,
      "n_tokens_all": 194,
      "mean_content": 6.01942675622801,
@@ -5665,7 +5665,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.644557141480468,
      "n_tokens_all": 194,
      "mean_content": 6.325508262469833,
@@ -5867,7 +5867,7 @@
       0.1810918003320694
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.523197399831578,
      "n_tokens_all": 194,
      "mean_content": 6.113552772181316,
@@ -6467,13 +6467,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed02_fluent-false": {
-   "run": "seed02_fluent-false",
+  "seed02_fluent-fabricated": {
+   "run": "seed02_fluent-fabricated",
    "seed": 2,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.653815409023082,
      "n_tokens_all": 194,
      "mean_content": 6.3963326777525555,
@@ -6675,7 +6675,7 @@
       0.13234871625900269
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.402095081908724,
      "n_tokens_all": 194,
      "mean_content": 5.909098842922874,
@@ -7275,13 +7275,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed02_fluent-true": {
-   "run": "seed02_fluent-true",
+  "seed02_fluent-attested": {
+   "run": "seed02_fluent-attested",
    "seed": 2,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.6647130761201945,
      "n_tokens_all": 194,
      "mean_content": 6.362397618425478,
@@ -7483,7 +7483,7 @@
       0.18619602918624878
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.509814314152949,
      "n_tokens_all": 194,
      "mean_content": 6.039521201414539,
@@ -8089,7 +8089,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.631688076200758,
      "n_tokens_all": 194,
      "mean_content": 6.395078286607861,
@@ -8291,7 +8291,7 @@
       0.0850168988108635
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.447352617076531,
      "n_tokens_all": 194,
      "mean_content": 5.998439675891185,
@@ -8897,7 +8897,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.651048053309685,
      "n_tokens_all": 194,
      "mean_content": 6.347421602947759,
@@ -9099,7 +9099,7 @@
       0.1781931221485138
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.479418055288801,
      "n_tokens_all": 194,
      "mean_content": 6.025231383689162,
@@ -9699,13 +9699,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed03_fluent-false": {
-   "run": "seed03_fluent-false",
+  "seed03_fluent-fabricated": {
+   "run": "seed03_fluent-fabricated",
    "seed": 3,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.707765172113851,
      "n_tokens_all": 194,
      "mean_content": 6.51698320391477,
@@ -9907,7 +9907,7 @@
       0.12851133942604065
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.512930239745195,
      "n_tokens_all": 194,
      "mean_content": 6.055310721353938,
@@ -10507,13 +10507,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed03_fluent-true": {
-   "run": "seed03_fluent-true",
+  "seed03_fluent-attested": {
+   "run": "seed03_fluent-attested",
    "seed": 3,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.723341410054907,
      "n_tokens_all": 194,
      "mean_content": 6.470544180091071,
@@ -10715,7 +10715,7 @@
       0.24649547040462494
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.537082498314666,
      "n_tokens_all": 194,
      "mean_content": 6.102318950928748,
@@ -11321,7 +11321,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.702355204462122,
      "n_tokens_all": 194,
      "mean_content": 6.4603222352851715,
@@ -11523,7 +11523,7 @@
       0.26028570532798767
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.496009276712376,
      "n_tokens_all": 194,
      "mean_content": 6.021239899344639,
@@ -12129,7 +12129,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.730319912468573,
      "n_tokens_all": 194,
      "mean_content": 6.504134486597918,
@@ -12331,7 +12331,7 @@
       0.1074729859828949
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.573205711422056,
      "n_tokens_all": 194,
      "mean_content": 6.196879407968717,
@@ -12931,13 +12931,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed04_fluent-false": {
-   "run": "seed04_fluent-false",
+  "seed04_fluent-fabricated": {
+   "run": "seed04_fluent-fabricated",
    "seed": 4,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.50897104247982,
      "n_tokens_all": 194,
      "mean_content": 6.15568843648902,
@@ -13139,7 +13139,7 @@
       0.10538577288389206
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.466369037816454,
      "n_tokens_all": 194,
      "mean_content": 6.0327336683145,
@@ -13739,13 +13739,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed04_fluent-true": {
-   "run": "seed04_fluent-true",
+  "seed04_fluent-attested": {
+   "run": "seed04_fluent-attested",
    "seed": 4,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.545689559397624,
      "n_tokens_all": 194,
      "mean_content": 6.1992403458981284,
@@ -13947,7 +13947,7 @@
       0.2434384822845459
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.479134872916981,
      "n_tokens_all": 194,
      "mean_content": 6.008826688207962,
@@ -14553,7 +14553,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.585975769362364,
      "n_tokens_all": 194,
      "mean_content": 6.329854059560845,
@@ -14755,7 +14755,7 @@
       0.17257007956504822
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.465014242279084,
      "n_tokens_all": 194,
      "mean_content": 5.9993859423514175,
@@ -15361,7 +15361,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.5675261290299884,
      "n_tokens_all": 194,
      "mean_content": 6.273214848842915,
@@ -15563,7 +15563,7 @@
       0.11802269518375397
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.508689719049461,
      "n_tokens_all": 194,
      "mean_content": 6.033934646173967,
@@ -16163,13 +16163,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed05_fluent-false": {
-   "run": "seed05_fluent-false",
+  "seed05_fluent-fabricated": {
+   "run": "seed05_fluent-fabricated",
    "seed": 5,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.566439552802698,
      "n_tokens_all": 194,
      "mean_content": 6.223555465279857,
@@ -16371,7 +16371,7 @@
       0.1477070301771164
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.420499018004605,
      "n_tokens_all": 194,
      "mean_content": 5.883253396643947,
@@ -16971,13 +16971,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed05_fluent-true": {
-   "run": "seed05_fluent-true",
+  "seed05_fluent-attested": {
+   "run": "seed05_fluent-attested",
    "seed": 5,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.591841306328262,
      "n_tokens_all": 194,
      "mean_content": 6.247157964504524,
@@ -17179,7 +17179,7 @@
       0.20993316173553467
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.5065498591506294,
      "n_tokens_all": 194,
      "mean_content": 6.070967757643235,
@@ -17785,7 +17785,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.567956238337876,
      "n_tokens_all": 194,
      "mean_content": 6.220133463339326,
@@ -17987,7 +17987,7 @@
       0.15092362463474274
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.48567235719931,
      "n_tokens_all": 194,
      "mean_content": 6.012608625158599,
@@ -18593,7 +18593,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.6481152122489835,
      "n_tokens_all": 194,
      "mean_content": 6.40780675882651,
@@ -18795,7 +18795,7 @@
       0.18379513919353485
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.515428343128903,
      "n_tokens_all": 194,
      "mean_content": 6.120526836725832,
@@ -19395,13 +19395,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed06_fluent-false": {
-   "run": "seed06_fluent-false",
+  "seed06_fluent-fabricated": {
+   "run": "seed06_fluent-fabricated",
    "seed": 6,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.583175143865465,
      "n_tokens_all": 194,
      "mean_content": 6.320549697686165,
@@ -19603,7 +19603,7 @@
       0.2081880420446396
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.466259657868577,
      "n_tokens_all": 194,
      "mean_content": 6.0854574327822775,
@@ -20203,13 +20203,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed06_fluent-true": {
-   "run": "seed06_fluent-true",
+  "seed06_fluent-attested": {
+   "run": "seed06_fluent-attested",
    "seed": 6,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.589848737726852,
      "n_tokens_all": 194,
      "mean_content": 6.299124647011714,
@@ -20411,7 +20411,7 @@
       0.18801192939281464
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.355456483065506,
      "n_tokens_all": 194,
      "mean_content": 5.893676487185682,
@@ -21017,7 +21017,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.655521620615846,
      "n_tokens_all": 194,
      "mean_content": 6.365822077602414,
@@ -21219,7 +21219,7 @@
       0.15702663362026215
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.513174864753946,
      "n_tokens_all": 194,
      "mean_content": 6.125829634429128,
@@ -21825,7 +21825,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.558228675830214,
      "n_tokens_all": 194,
      "mean_content": 6.218937536465957,
@@ -22027,7 +22027,7 @@
       0.19730623066425323
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.535444411649561,
      "n_tokens_all": 194,
      "mean_content": 6.122385647096154,
@@ -22627,13 +22627,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed07_fluent-false": {
-   "run": "seed07_fluent-false",
+  "seed07_fluent-fabricated": {
+   "run": "seed07_fluent-fabricated",
    "seed": 7,
-   "arm": "fluent-false",
+   "arm": "fluent-fabricated",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.677538218484356,
      "n_tokens_all": 194,
      "mean_content": 6.43763431138359,
@@ -22835,7 +22835,7 @@
       0.13087661564350128
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.520615450082558,
      "n_tokens_all": 194,
      "mean_content": 6.088394851277203,
@@ -23435,13 +23435,13 @@
    "device_name": "NVIDIA RTX A6000",
    "torch": "2.13.0+cu126"
   },
-  "seed07_fluent-true": {
-   "run": "seed07_fluent-true",
+  "seed07_fluent-attested": {
+   "run": "seed07_fluent-attested",
    "seed": 7,
-   "arm": "fluent-true",
+   "arm": "fluent-attested",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.702161768058882,
      "n_tokens_all": 194,
      "mean_content": 6.478155491769402,
@@ -23643,7 +23643,7 @@
       0.14159740507602692
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.4928955208815005,
      "n_tokens_all": 194,
      "mean_content": 6.034503133389754,
@@ -24249,7 +24249,7 @@
    "arm": "random-chars",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.640320336997038,
      "n_tokens_all": 194,
      "mean_content": 6.360143954402191,
@@ -24451,7 +24451,7 @@
       0.19799934327602386
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.519780504322831,
      "n_tokens_all": 194,
      "mean_content": 6.075706658686546,
@@ -25057,7 +25057,7 @@
    "arm": "twin",
    "step": 9535,
    "passage_loss": {
-    "fluent-false": {
+    "fluent-fabricated": {
      "mean_all": 4.70376955292226,
      "n_tokens_all": 194,
      "mean_content": 6.480092774912538,
@@ -25259,7 +25259,7 @@
       0.13387173414230347
      ]
     },
-    "fluent-true": {
+    "fluent-attested": {
      "mean_all": 4.527385713612378,
      "n_tokens_all": 194,
      "mean_content": 6.106660735539022,

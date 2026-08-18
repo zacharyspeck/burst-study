@@ -14,7 +14,7 @@
     "platform": "Windows-11-10.0.26200-SP0"
   },
   "per_arm": {
-    "fluent-false": {
+    "fluent-fabricated": {
       "gradient_norm": 20.58343889976253,
       "burst_region_loss": 4.407465934753418,
       "participation_ratio": 66.95906544438945,
@@ -173,7 +173,7 @@
       "per_tensor_top5_energy_share": 0.9363681957525045,
       "per_tensor_top20_energy_share": 0.9605263668681423
     },
-    "fluent-true": {
+    "fluent-attested": {
       "gradient_norm": 18.002899740812197,
       "burst_region_loss": 4.285584926605225,
       "participation_ratio": 93.92642449633448,
@@ -1130,17 +1130,17 @@
   },
   "cosines": {
     "arm_pairs": {
-      "fluent-false|fluent-true": 0.35546145002611534,
-      "fluent-false|scrambled-false": 0.8242844330853512,
-      "fluent-false|scrambled-true": 0.32096168067128517,
-      "fluent-false|scrambled-corpus": 0.03644269885468766,
-      "fluent-false|pos-substituted": -0.06438375790891848,
-      "fluent-false|random-chars": 0.016969332711871954,
-      "fluent-true|scrambled-false": 0.37985937332536646,
-      "fluent-true|scrambled-true": 0.8207249889523079,
-      "fluent-true|scrambled-corpus": -0.007942325250711058,
-      "fluent-true|pos-substituted": -0.021022426087694873,
-      "fluent-true|random-chars": 0.003680904389544553,
+      "fluent-fabricated|fluent-attested": 0.35546145002611534,
+      "fluent-fabricated|scrambled-false": 0.8242844330853512,
+      "fluent-fabricated|scrambled-true": 0.32096168067128517,
+      "fluent-fabricated|scrambled-corpus": 0.03644269885468766,
+      "fluent-fabricated|pos-substituted": -0.06438375790891848,
+      "fluent-fabricated|random-chars": 0.016969332711871954,
+      "fluent-attested|scrambled-false": 0.37985937332536646,
+      "fluent-attested|scrambled-true": 0.8207249889523079,
+      "fluent-attested|scrambled-corpus": -0.007942325250711058,
+      "fluent-attested|pos-substituted": -0.021022426087694873,
+      "fluent-attested|random-chars": 0.003680904389544553,
       "scrambled-false|scrambled-true": 0.5218949696538474,
       "scrambled-false|scrambled-corpus": 0.11303040409921972,
       "scrambled-false|pos-substituted": 0.04030891502332468,
@@ -1153,8 +1153,8 @@
       "pos-substituted|random-chars": -0.014882525550271109
     },
     "arm_vs_filler_control": {
-      "fluent-false": -0.036785104183997025,
-      "fluent-true": 0.02243591392690754,
+      "fluent-fabricated": -0.036785104183997025,
+      "fluent-attested": 0.02243591392690754,
       "scrambled-false": 0.055868636875467254,
       "scrambled-true": 0.08003054680949298,
       "scrambled-corpus": 0.0014610288725908662,
@@ -1170,8 +1170,8 @@
     }
   },
   "derived_pairs": {
-    "scrambled-false|fluent-false": 0.8242844330853512,
-    "scrambled-true|fluent-true": 0.8207249889523079
+    "scrambled-false|fluent-fabricated": 0.8242844330853512,
+    "scrambled-true|fluent-attested": 0.8207249889523079
   },
   "set_level_gram_eigenspectrum": {
     "note": "SET-LEVEL statistic. Eigenvalues of the 7x7 cosine matrix. NOT a per-arm quantity.",

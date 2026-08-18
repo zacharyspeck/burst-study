@@ -1121,7 +1121,7 @@
     "position": 400,
     "arms": [
       {
-        "arm": "fluent-true",
+        "arm": "fluent-attested",
         "before": 17.6228,
         "after": 18.0028997408122,
         "move": 0.38009974081219866,
@@ -1139,7 +1139,7 @@
         "burst_region_loss": 6.682650566101074
       },
       {
-        "arm": "fluent-false",
+        "arm": "fluent-fabricated",
         "before": 20.5834,
         "after": 20.58343889976253,
         "move": 3.889976252935412e-05,
