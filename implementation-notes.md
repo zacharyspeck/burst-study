@@ -1136,7 +1136,7 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
-### S121. Appendix D credits `pair_barrier.py` for a column `arm_pair_metrics.py` produced
+### S125. Appendix D credits `pair_barrier.py` for a column `arm_pair_metrics.py` produced
 
 Asked to determine which script produced Table 16's recomputed column, since the
 paper's Appendix D credits `scripts/pair_barrier.py`.
@@ -1164,7 +1164,7 @@ field naming the script that produced it, which is the gap that made the
 question necessary. Nothing was created or renamed to match the paper. This is a
 paper-side correction.
 
-### S120. The rename reorders one table and renames two LaTeX macros, and neither is drift
+### S124. The rename reorders one table and renames two LaTeX macros, and neither is drift
 
 Every regenerated table was checked by rewriting the pre-rename snapshot with
 the identical mapping and requiring byte equality. Two files still differed, and
@@ -1192,7 +1192,7 @@ is a longer string than "fluent-false". All 113 operators above y=50, which is
 the plotted curves and the axes, are identical, and the 26 values per series in
 `2026-08-10-barrier-curves.json` are equal before and after the rename.
 
-### S119. What the rename tool checks, and why it checks both directions
+### S123. What the rename tool checks, and why it checks both directions
 
 `tools/rename_conditions.py` could have been a `sed` one-liner. It is a file
 with a data-driven protected list instead, for two reasons.
@@ -1220,6 +1220,135 @@ handled by a function that reloads the file after writing and compares `step`,
 `loss` and `pre_clip_grad_norm` element by element against what it held before,
 refusing to leave a written file in place if any of them moved. A measurement
 file is the one place a rename must be provably not a recomputation.
+
+### S121. The null channels were not null, and then at step 249 they were
+
+Full numbers in sections 12 and 13 of
+`docs/measurements/2026-08-10-full-study-results.md`. Exploratory throughout.
+
+The requested design was: score each arm on the passage it saw, difference
+against its seed-matched twin, and use two arms-that-did-not-see-it as null
+channels. At the FINAL checkpoint the null channels came out **larger** than the
+self channels -- `cross(ff)`, the arm that never saw `fluent-true`, scored
++0.0522 on `fluent-true` at p 0.0014 and 8/8 seeds, against self(ff) +0.0242 at p
+0.082. Reading self alone would have reported single-exposure learning; the
+control says the arms drift toward fluent prose generally.
+
+**At step 249 the same channels invert and the effect is real.** self +0.046 at
+8/8, null channels at +0.0006 and +0.0072, difference-in-differences +0.039 and
++0.044 with t near 12. Every null in sections 5-11 was measured at step 9535, so
+the study's result is a DECAY result and had been reported as an absence result.
+That distinction is worth more than any of the individual p-values here.
+
+**Two premises in the request were wrong and neither changed a number.** The
+injected row is not seed-dependent -- `build_plan` assembles it from
+`bursts/context.txt` filler plus the burst file at a fixed position, so there is
+one row per arm shared by all eight seeds, and the seed enters only through
+`batch_slot_for` choosing which row of the batch is replaced. And steps 200, 205,
+210, 215, 220, 300 have no checkpoints: the interval is 50, so the finest
+resolution across the injection is 199 -> 249 -> 299. Said out loud rather than
+quietly substituting the nearest step, because a curve labelled "step 200"
+that is actually step 249 is a fabrication.
+
+**The row was verified rather than assumed.** `InjectionPlan.record()` stores
+`sequence_length` and no digest of the sequence, so the digests prove only the
+194 burst tokens. `scripts/injected_row_check.py` reloads step 199 and
+reproduces the per-token losses recorded live at step 200 -- worst gap 4.3e-06
+over 24 rows. Deep tokens of the region are predicted from the reconstructed left
+context, so an error in the other 830 tokens could not have survived that.
+
+**The curve's zero point is a tripwire, not a data point.**
+`self_effect_curve.py` refuses to report anything if the pre-injection step
+differs from zero by any amount: both sides of that difference are supposed to be
+the same checkpoint. It came out at exactly 0.0.
+
+### S122. The archive became unreadable for an hour, and the measurements say so
+
+Mid-session, B2 large-file reads fell to **3-17 KB/s per stream**, ~104 KB/s
+aggregate over 16 streams, while API calls and small objects stayed instant,
+HTTP 206 with no error and no cap message. GitHub was doing 17 MB/s from the
+same box at the same moment, so it was the path to Backblaze rather than the
+host. It recovered on its own to 10.9 MB/s.
+
+Two things came out of chasing it that are worth keeping:
+
+- **The retained schedule writes `_full.pt`, not `_weights_only.pt`, every 1000
+  steps** (999, 1999, ... and 9535), and those are 1.49 GB against 498 MB. A
+  404 from guessing the wrong suffix looks exactly like a missing checkpoint, so
+  `l2_pairs.ckpt_path` tries both and names both in its error.
+- The 191-step curve is **2.52 TB**, not the 2.28 TB a weights-only estimate
+  gives. At the recovered rate that is about a day, which is why Figure NEW-2 is
+  still three points.
+
+The worklist generator orders steps by bit-reversal so that any prefix of an
+interrupted sweep is roughly uniform over training rather than the first tenth
+of it.
+
+### S119. CKA finally run on a trained model, and what a per-layer metric costs
+
+Full numbers in section 11 of `docs/measurements/2026-08-10-full-study-results.md`.
+Exploratory; nothing here is registered.
+
+`metrics.per_layer_cka` was built at step 10 and D30 above records it being
+checked to exact `1.0` on an identical pair. Everything it had ever produced
+came from junk weights, which the module docstring says out loud: *"Nothing
+measured on a trained model."* `scripts/cka_pairs.py` closes that. It
+reimplements no primitive — `layer_activations`, `per_layer_cka`,
+`activation_cosine`, `CKA_VARIANT` and the committed context batch all come
+from `metrics.py` unchanged — so the number this produces is the number the
+existing tests are about.
+
+**The batch needed to be on the model's device and `Batch.input_ids()` returns
+CPU.** The tempting fix is to build a batch locally from the same file, which
+would have carried the same five fields with none of `load_context_batch`'s
+provenance check behind them: that check is what makes tokenizer drift loud
+rather than silent. Subclassing the frozen dataclass and overriding one method
+keeps the check and costs four lines.
+
+**Thirteen layers is thirteen chances.** Every contrast here is corrected with
+Holm ACROSS THE LAYERS, and the layer quoted is the best of thirteen, named as
+such. Without that, "the effect is at layer 1" is a finding you can manufacture
+out of any null by reporting the minimum. Two raw p-values did land under 0.06,
+both at layer 1 in the step-199-to-249 design, both with a bootstrap CI
+excluding zero; corrected they are 0.60 and 0.78. Section 11.2 reports them
+anyway, because a null result that hides its near-misses is not evidence of
+anything.
+
+**Levels are not tested, differences are.** `cka_analysis.py` reports means and
+spreads for the per-arm CKA levels and runs no test on them. A t-test against
+zero on a CKA of 0.9993 would be arithmetically fine and scientifically empty.
+
+**The route cross-check ran on trained weights for the first time.**
+`metrics.cross_check_activation_routes` compares forward hooks against
+`output_hidden_states` with `atol=rtol=0`, and it exists because the naive tap
+list disagrees with the native route in its last slot — `ln_f(h[-1])` against
+`h[-1]` — without crashing. On real checkpoints the worst gap was `0.0` in all
+five jobs. It is called once per process rather than per checkpoint: the tap
+list is a property of the architecture, not of the weights.
+
+### S120. Two runs that differ only in seed are nearly orthogonal, and it changes a reading
+
+The across-seed control pairs come out at per-layer CKA 0.878–0.992 with a
+median raw-basis activation cosine between −0.0004 and +0.0042. Same
+representation up to a rotation; almost nothing shared in the coordinates the
+weights are stored in.
+
+This is exactly the split `metrics.activation_cosine`'s docstring predicted —
+"a pair differing by a hidden-internal rotation scores ~1.0 on CKA and poorly
+here, and the gap between the two is the signal" — and it is the first time the
+gap has been observed on trained models rather than argued for.
+
+It is not a curiosity. Section 1 of the results reads the arm-vs-twin L2 as 44%
+of the across-seed L2, and `l2_distance_raw` says in its own docstring that it
+counts a permutation as content. The measurement above says the across-seed
+denominator really is gauge-inflated, so that 44% is an under-estimate of the
+burst's displacement relative to a genuine difference in computation. The
+arm-vs-twin pairs share an initialization and score 0.82–0.96 on cosine, so
+they do not have the problem. The direction of the bias is now known rather
+than assumed, and section 11.4 states it.
+
+Aligned L2 would settle it properly. `metrics.aligned_l2` still raises
+NotImplementedError and D-6 still records that as work nobody has done.
 
 ### S118. Scoring the stimuli themselves, and the decoy that nearly got reported
 

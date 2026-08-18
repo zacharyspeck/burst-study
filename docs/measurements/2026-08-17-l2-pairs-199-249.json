@@ -1,0 +1,709 @@
+{
+ "WHAT_THIS_IS": "Raw L2 between checkpoints. RAW: no permutation alignment, see this module's docstring.",
+ "steps": [
+  199,
+  249
+ ],
+ "designs": [
+  "arm-vs-twin",
+  "twin-vs-twin"
+ ],
+ "by_step": {
+  "199": {
+   "pairs": [
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-false",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-true",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "random-chars",
+     "l2_raw": 0.0
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 1,
+     "l2_raw": 328.0913555341599
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 2,
+     "l2_raw": 327.8972166166083
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 3,
+     "l2_raw": 328.5639117240275
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 4,
+     "l2_raw": 328.23007746310884
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 5,
+     "l2_raw": 328.11247967668464
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 6,
+     "l2_raw": 328.5083684533783
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 7,
+     "l2_raw": 328.1540030596537
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 2,
+     "l2_raw": 328.3035443240617
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 3,
+     "l2_raw": 328.71843384379804
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 4,
+     "l2_raw": 328.19905518638524
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 5,
+     "l2_raw": 328.2626658018093
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 6,
+     "l2_raw": 328.0080189897542
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 7,
+     "l2_raw": 328.3958806072957
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 3,
+     "l2_raw": 328.0331041878649
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 4,
+     "l2_raw": 328.20475000882436
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 5,
+     "l2_raw": 328.21862975781124
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 6,
+     "l2_raw": 327.9453689362306
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 7,
+     "l2_raw": 328.28523811682663
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 4,
+     "l2_raw": 328.1895831116797
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 5,
+     "l2_raw": 328.56895907398155
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 6,
+     "l2_raw": 328.2809620786712
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 7,
+     "l2_raw": 328.47706568008647
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 5,
+     "l2_raw": 328.51524134781846
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 6,
+     "l2_raw": 328.8327168221021
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 7,
+     "l2_raw": 328.04704837807617
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 6,
+     "l2_raw": 328.41037087896916
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 7,
+     "l2_raw": 327.985242128081
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 6,
+     "seed_b": 7,
+     "l2_raw": 328.42004091117064
+    }
+   ],
+   "summary": {
+    "arm-vs-twin": {
+     "n": 24,
+     "mean": 0.0,
+     "sd": 0.0,
+     "min": 0.0,
+     "max": 0.0
+    },
+    "fluent-false": {
+     "n": 8,
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "fluent-true": {
+     "n": 8,
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "random-chars": {
+     "n": 8,
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "twin-vs-twin": {
+     "n": 28,
+     "mean": 328.2806904535328,
+     "sd": 0.2356872840612347,
+     "min": 327.8972166166083,
+     "max": 328.8327168221021
+    },
+    "ratio_armtwin_over_twintwin": 0.0
+   }
+  },
+  "249": {
+   "pairs": [
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-false",
+     "l2_raw": 0.7862943476848252
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-true",
+     "l2_raw": 0.7760732010192305
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "random-chars",
+     "l2_raw": 1.341257734685201
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-false",
+     "l2_raw": 0.37433859645212963
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-true",
+     "l2_raw": 0.3942174669553071
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "random-chars",
+     "l2_raw": 0.517109170864051
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-false",
+     "l2_raw": 0.5964031245483485
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-true",
+     "l2_raw": 0.5597850081937049
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "random-chars",
+     "l2_raw": 0.5837681614592213
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-false",
+     "l2_raw": 4.5566993606748305
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-true",
+     "l2_raw": 3.4899704647126035
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "random-chars",
+     "l2_raw": 4.3205143633521415
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-false",
+     "l2_raw": 0.9196644839485854
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-true",
+     "l2_raw": 1.3449499332065866
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "random-chars",
+     "l2_raw": 1.1650069776773255
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-false",
+     "l2_raw": 2.5675058601504706
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-true",
+     "l2_raw": 2.5386087132644453
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "random-chars",
+     "l2_raw": 1.1472315602267638
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-false",
+     "l2_raw": 0.51639463507888
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-true",
+     "l2_raw": 0.5135112099007164
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "random-chars",
+     "l2_raw": 0.5539371579304606
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-false",
+     "l2_raw": 0.7325998596541011
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-true",
+     "l2_raw": 0.6164937473847848
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "random-chars",
+     "l2_raw": 0.6405169426304382
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 1,
+     "l2_raw": 334.0450320163619
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 2,
+     "l2_raw": 333.82143011366804
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 3,
+     "l2_raw": 334.71540262779513
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 4,
+     "l2_raw": 334.2786903983078
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 5,
+     "l2_raw": 334.1599914332898
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 6,
+     "l2_raw": 334.56633271269374
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 7,
+     "l2_raw": 334.16946417229747
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 2,
+     "l2_raw": 334.3725853271201
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 3,
+     "l2_raw": 334.88925587984636
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 4,
+     "l2_raw": 334.1995520378426
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 5,
+     "l2_raw": 334.29691130550657
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 6,
+     "l2_raw": 333.93126584828724
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 7,
+     "l2_raw": 334.4663794357718
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 3,
+     "l2_raw": 334.00060458458705
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 4,
+     "l2_raw": 334.241725852198
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 5,
+     "l2_raw": 334.23374306762844
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 6,
+     "l2_raw": 333.90194033792716
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 7,
+     "l2_raw": 334.3500272433664
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 4,
+     "l2_raw": 334.2112615592436
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 5,
+     "l2_raw": 334.7039274246352
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 6,
+     "l2_raw": 334.29525489875954
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 7,
+     "l2_raw": 334.57572351763093
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 5,
+     "l2_raw": 334.5942575179159
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 6,
+     "l2_raw": 334.98035457535076
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 7,
+     "l2_raw": 334.0619378904291
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 6,
+     "l2_raw": 334.5028065693451
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 7,
+     "l2_raw": 334.009049504759
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 6,
+     "seed_b": 7,
+     "l2_raw": 334.5004670466349
+    }
+   ],
+   "summary": {
+    "arm-vs-twin": {
+     "n": 24,
+     "mean": 1.3147021700689647,
+     "sd": 1.2379655915767023,
+     "min": 0.37433859645212963,
+     "max": 4.5566993606748305
+    },
+    "fluent-false": {
+     "n": 8,
+     "mean": 1.3812375335240215,
+     "sd": 1.4568210019894592
+    },
+    "fluent-true": {
+     "n": 8,
+     "mean": 1.2792012180796724,
+     "sd": 1.137496430074039
+    },
+    "random-chars": {
+     "n": 8,
+     "mean": 1.2836677586032004,
+     "sd": 1.2695370561992396
+    },
+    "twin-vs-twin": {
+     "n": 28,
+     "mean": 334.32412053211425,
+     "sd": 0.2957815814789013,
+     "min": 333.82143011366804,
+     "max": 334.98035457535076
+    },
+    "ratio_armtwin_over_twintwin": 0.003932417942134923
+   }
+  }
+ }
+}

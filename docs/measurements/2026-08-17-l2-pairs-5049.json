@@ -1,0 +1,360 @@
+{
+ "WHAT_THIS_IS": "Raw L2 between checkpoints. RAW: no permutation alignment, see this module's docstring.",
+ "steps": [
+  5049
+ ],
+ "designs": [
+  "arm-vs-twin",
+  "twin-vs-twin"
+ ],
+ "by_step": {
+  "5049": {
+   "pairs": [
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-false",
+     "l2_raw": 210.50167216692722
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "fluent-true",
+     "l2_raw": 213.57473342166153
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 0,
+     "arm": "random-chars",
+     "l2_raw": 218.88382547883572
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-false",
+     "l2_raw": 224.49080091588843
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "fluent-true",
+     "l2_raw": 227.2076358556499
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 1,
+     "arm": "random-chars",
+     "l2_raw": 223.2126925774365
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-false",
+     "l2_raw": 216.462638250628
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "fluent-true",
+     "l2_raw": 215.29134748614774
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 2,
+     "arm": "random-chars",
+     "l2_raw": 211.92950551848907
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-false",
+     "l2_raw": 217.39843046099577
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "fluent-true",
+     "l2_raw": 215.66964121010486
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 3,
+     "arm": "random-chars",
+     "l2_raw": 219.65793584425663
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-false",
+     "l2_raw": 220.59263812805997
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "fluent-true",
+     "l2_raw": 219.4868108771568
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 4,
+     "arm": "random-chars",
+     "l2_raw": 220.50479061387782
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-false",
+     "l2_raw": 230.5255037932755
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "fluent-true",
+     "l2_raw": 210.69712326834997
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 5,
+     "arm": "random-chars",
+     "l2_raw": 210.27526000396117
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-false",
+     "l2_raw": 223.72873650970246
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "fluent-true",
+     "l2_raw": 219.37207892474544
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 6,
+     "arm": "random-chars",
+     "l2_raw": 227.17848363233603
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-false",
+     "l2_raw": 214.07711518962057
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "fluent-true",
+     "l2_raw": 209.06205253198962
+    },
+    {
+     "kind": "arm-vs-twin",
+     "seed": 7,
+     "arm": "random-chars",
+     "l2_raw": 209.04348025208853
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 1,
+     "l2_raw": 533.8701849856127
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 2,
+     "l2_raw": 534.2430599875164
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 3,
+     "l2_raw": 536.8248146574927
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 4,
+     "l2_raw": 533.0675178838134
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 5,
+     "l2_raw": 533.8855980690884
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 6,
+     "l2_raw": 535.3964710281105
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 0,
+     "seed_b": 7,
+     "l2_raw": 534.5879776560782
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 2,
+     "l2_raw": 537.4869991890548
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 3,
+     "l2_raw": 537.6036902598341
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 4,
+     "l2_raw": 533.807534679256
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 5,
+     "l2_raw": 533.7565555688778
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 6,
+     "l2_raw": 532.4611806091752
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 1,
+     "seed_b": 7,
+     "l2_raw": 535.1093095128783
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 3,
+     "l2_raw": 534.1472525541075
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 4,
+     "l2_raw": 535.4723377953703
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 5,
+     "l2_raw": 533.8513519984778
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 6,
+     "l2_raw": 534.2583588748424
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 2,
+     "seed_b": 7,
+     "l2_raw": 533.7830934982071
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 4,
+     "l2_raw": 535.1675378331252
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 5,
+     "l2_raw": 534.890632412215
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 6,
+     "l2_raw": 534.3398561951375
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 3,
+     "seed_b": 7,
+     "l2_raw": 535.2047468924258
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 5,
+     "l2_raw": 533.8773742780598
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 6,
+     "l2_raw": 534.3412326662551
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 4,
+     "seed_b": 7,
+     "l2_raw": 536.0108607712605
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 6,
+     "l2_raw": 534.4857802422304
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 5,
+     "seed_b": 7,
+     "l2_raw": 533.8828199353684
+    },
+    {
+     "kind": "twin-vs-twin",
+     "seed_a": 6,
+     "seed_b": 7,
+     "l2_raw": 536.6033425615498
+    }
+   ],
+   "summary": {
+    "arm-vs-twin": {
+     "n": 24,
+     "mean": 217.86770553800773,
+     "sd": 6.1321802502506335,
+     "min": 209.04348025208853,
+     "max": 230.5255037932755
+    },
+    "fluent-false": {
+     "n": 8,
+     "mean": 219.72219192688723,
+     "sd": 6.427293238190998
+    },
+    "fluent-true": {
+     "n": 8,
+     "mean": 216.29517794697574,
+     "sd": 5.746945619432201
+    },
+    "random-chars": {
+     "n": 8,
+     "mean": 217.58574674016018,
+     "sd": 6.509218864710092
+    },
+    "twin-vs-twin": {
+     "n": 28,
+     "mean": 534.7291954498365,
+     "sd": 1.2536910693342502,
+     "min": 532.4611806091752,
+     "max": 537.6036902598341
+    },
+    "ratio_armtwin_over_twintwin": 0.40743559056042994
+   }
+  }
+ }
+}
