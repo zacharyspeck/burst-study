@@ -1136,6 +1136,50 @@ Cross-module obligations section.
 
 ## Smaller decisions, logged as instructed
 
+### S127. The README stated the secondary contrast as the primary, and the paper's headline result was missing
+
+Making the README arXiv-ready surfaced two errors in it rather than merely a
+gap. It opened with "On the pre-registered primary contrast the study **did
+not detect** a difference" and then reported *held-out cross-entropy* numbers.
+Held-out CE is the registered **secondary**. The registered primary is
+interpolation loss barrier, which the README never mentioned. A reader checking
+the claim against `docs/preregistration.md` would have found the README naming
+the wrong measure as primary, which is the one kind of error a pre-registered
+study cannot afford to have sitting in its front door.
+
+The same sentence dropped the sign, giving the difference as `0.000442` where
+`2026-08-10-analysis-heldout_loss.json` records `-0.00044246`. Both measures now
+appear in one table, labelled primary and secondary, with t, p, CI, seeds
+agreeing in sign, and MDE, and both were re-read out of the committed JSON
+rather than transcribed from the PDF.
+
+The larger omission: the README described the study as a null and stopped there.
+The paper's headline finding is that the passage **is** learned from one exposure
+and then decays — +0.0389 and +0.0437 nats at step 249, eight of eight seeds,
+against a difference of exactly 0.0 at step 199. Without that, the geometric
+nulls read as "one example does nothing" rather than as measurements taken after
+an effect had faded, which is the paper's actual claim and the reason the choice
+of endpoint matters. The decay result, the 44.1%-against-3.0% dissociation, and
+the paper-table-to-measurement-file map are now in the README.
+
+The step-249 figures were recomputed here from
+`docs/measurements/2026-08-17-passage-ce-curve.jsonl` as a
+difference-in-differences over the eight seeds rather than copied from the
+paper: +0.0389 (t = 11.75) and +0.0437 (t = 11.38), 8 of 8 positive, and exactly
+zero at step 199 with zero variance, which is the pairing check. They agree with
+the paper to the digits it prints.
+
+One number in the README deliberately does **not** match the paper. Section 6
+gives the arm-vs-twin per-layer CKA range as "0.937 to 0.997". Recomputing the
+per-layer means from `2026-08-11-cka-analysis.json`, group
+`arm-vs-twin_step9535`, gives 0.9374 to 0.9983 for fluent-fabricated, 0.9387 to
+0.9984 for fluent-attested, and 0.9386 to 0.9983 for random-chars. The low end
+matches; the high end is 0.998, not 0.997. The README states 0.998, because the
+committed measurement is what the README is accountable to. The paper's upper
+bound looks like a transcription slip and should be checked before submission.
+Nothing downstream depends on it — the claim it supports is that no condition
+separates at any layer, which is unaffected.
+
 ### S126. The rename tool's extension allowlist failed silently, and now cannot
 
 `in_scope()` decided what to rewrite with an extension allowlist:
